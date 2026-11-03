@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>   <!-- no Windows SDK version: that pulled in a 25 MB WinRT library nothing here uses -->
+    <TargetFramework>net10.0-windows</TargetFramework>   <!-- no Windows SDK version: that pulled in a 25 MB WinRT library nothing here uses -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>

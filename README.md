@@ -16,7 +16,7 @@ Website: the `docs/` folder, published with GitHub Pages.
 2. Run it. Windows may say "Windows protected your PC" because the apps aren't code-signed; choose **More info**, then **Run anyway**.
 3. It installs for your account only (no administrator rights), adds a Start menu entry and opens.
 
-DeskDrawer and DeskTune need Microsoft's free [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0). DeskBar needs nothing extra.
+DeskDrawer and DeskTune need Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0). DeskBar needs nothing extra.
 
 Check a download against `SHA256SUMS.txt` in the release:
 
@@ -45,7 +45,7 @@ None of the apps send data anywhere: no accounts, no telemetry, no ads. The only
 The code is in `src/`.
 
 - **DeskBar** (C++, Win32 + Direct2D): needs Visual Studio 2022 or its Build Tools with "Desktop development with C++". Run `src\DeskBar\build.ps1`; the exe lands in `src\DeskBar\out`.
-- **DeskDrawer** and **DeskTune** (C#, WPF): need the .NET 8 SDK. In `src\DeskDrawer` or `src\DeskTune`, run `dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=none -o app`.
+- **DeskDrawer** and **DeskTune** (C#, WPF): need the .NET 10 SDK. In `src\DeskDrawer` or `src\DeskTune`, run `dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=none -o app`.
 
 Each app checks itself with `--selftest report.txt`.
 
