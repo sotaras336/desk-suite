@@ -75,7 +75,7 @@
 
   /* ---------- the three apps: text scrolls on the left, one pinned stage on the right changes with it ---------- */
   @property --glow { syntax: "<color>"; inherits: true; initial-value: #4cc2ff; }
-  .story { --accent: var(--bar); --glow: var(--bar); transition: --glow 700ms ease; }
+  .story { --accent: var(--bar); --glow: var(--bar); transition: --glow 700ms ease; overflow-x: clip; }   /* clip, not hidden: the glow may reach past the page edge, and the pinned stage must keep working */
   .story[data-active="drawer"] { --glow: var(--drawer); }
   .story[data-active="tune"] { --glow: var(--tune); }
   .story-grid { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr); gap: clamp(28px, 5vw, 72px); align-items: start; }
