@@ -1,0 +1,49 @@
+#pragma once
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define UNICODE
+#define _UNICODE
+#define _WIN32_WINNT 0x0A00
+#define WINVER 0x0A00
+#include <windows.h>
+#include <windowsx.h>
+#include <mmsystem.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <shlwapi.h>
+#include <shobjidl.h>
+#include <shellscalingapi.h>
+#include <commctrl.h>
+#include <dwmapi.h>
+#include <uxtheme.h>
+#include <d2d1_1.h>
+#include <dwrite_3.h>
+#include <wincodec.h>
+#include <propkey.h>
+#include <propvarutil.h>
+#include <psapi.h>
+#include <tlhelp32.h>
+#include <wrl/client.h>
+#include <string>
+#include <vector>
+#include <map>
+#include <unordered_map>
+#include <unordered_set>
+#include <set>
+#include <deque>
+#include <array>
+#include <memory>
+#include <functional>
+#include <mutex>
+#include <thread>
+#include <atomic>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdarg>
+#include <chrono>
+#include <optional>
+
+using Microsoft::WRL::ComPtr;
+typedef std::wstring ws;

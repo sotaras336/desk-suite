@@ -1,0 +1,14 @@
+# Binaries are attached to GitHub Releases, not committed
+release/*.exe
+# Local test data, raw screenshots and the tool that cleans them (the cleaned copies are in docs/img)
+tmpdata/
+shots/
+tools/
+__pycache__/
+# Build output
+src/DeskBar/out*/
+src/DeskBar/obj*/
+src/*/bin/
+src/*/obj/
+src/*/build/
+src/*/app/

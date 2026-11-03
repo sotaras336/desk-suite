@@ -1,0 +1,24 @@
+<UserControl x:Class="DeskDrawer.PreviewPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="1,0,0,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="16,16,16,20">
+                <Border x:Name="PicCard" CornerRadius="12" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="1" MinHeight="150" MaxHeight="320" Padding="8">
+                    <Grid>
+                        <Image x:Name="Pic" Stretch="Uniform" StretchDirection="DownOnly" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock x:Name="PicHint" Text="Loading…" Foreground="{DynamicResource FgFaint}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                <Border x:Name="TextCard" Visibility="Collapsed" CornerRadius="12" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="1" Padding="12,10" MaxHeight="380">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="Body" FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="12" TextWrapping="NoWrap"/>
+                    </ScrollViewer>
+                </Border>
+                <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,16,0,2"/>
+                <TextBlock x:Name="Subtitle" Foreground="{DynamicResource FgDim}" TextWrapping="Wrap" Margin="2,0,0,0"/>
+                <StackPanel x:Name="Details" Margin="0,16,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>
