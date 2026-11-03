@@ -66,7 +66,7 @@ struct Settings {
     bool showMedia = true, showBatteryPercent = true;
     std::vector<ws> mirrorDevices;
     std::vector<ws> quickFolders; bool foldersInit = false;
-    std::vector<ws> startPins; bool startPinsInit = false;
+    std::vector<ws> startPins; bool startPinsInit = false, startPinsImported = false;   // imported: this PC's own Start pins were read once
     std::vector<ws> pinnedRecents, hiddenRecents;
     std::vector<ws> promotedTrayIcons; bool trayImported = false;
     std::map<ws, int> launchCounts;

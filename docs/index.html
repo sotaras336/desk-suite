@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<script>document.documentElement.className = "live";</script>
 <style>
   /* Tokens: the page wears the apps' own colours. Each app keeps the accent of its icon, so colour tells you which app you are reading about. */
   :root {
@@ -57,42 +58,74 @@
   .fine { font-size: 14px; color: #c3d2ea; margin-top: 18px; }
 
   /* the open panels sit just above the bar, the way they do on screen */
-  .flyouts { position: relative; height: 620px; align-self: end; }
+  /* --hp (0 to 1) is how far the hero has scrolled away: the panels lift off a little faster than the page, the text lags behind */
+  .flyouts { position: relative; height: 620px; align-self: end; transform: translate3d(0, calc(var(--hp, 0) * -56px), 0); opacity: calc(1 - var(--hp, 0) * 0.4); }
+  .desktop-inner > div:first-child { transform: translate3d(0, calc(var(--hp, 0) * 28px), 0); }
   .flyouts img { position: absolute; border-radius: 12px; box-shadow: 0 30px 60px rgba(0, 10, 40, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.12); }
   .flyouts .start { width: 84%; left: 0; bottom: 64px; }
   .flyouts .quick { width: 44%; right: 0; bottom: 0; }
-  .taskbar { height: clamp(34px, 3.4vw, 48px); background: #003b8e url("img/deskbar_bar_public.png") left center / auto 100% no-repeat; border-top: 1px solid rgba(255, 255, 255, 0.14); }
+  /* the bar is three photos of the real DeskBar: pinned apps on the left, now playing, tray + clock flush right, as on screen */
+  .taskbar { height: clamp(34px, 3.4vw, 48px); display: flex; background: #003d91; border-top: 1px solid rgba(255, 255, 255, 0.14); overflow: hidden; }
+  .taskbar .tb-apps { flex: 1 1 0; min-width: 0; overflow: hidden; }
+  .taskbar img { height: 100%; width: auto; max-width: none; }
+  .taskbar .tb-media, .taskbar .tb-tray { flex: none; }
   .load .flyouts img { animation: open 520ms cubic-bezier(.2, .8, .2, 1) both; }
   .load .flyouts .quick { animation-delay: 140ms; }
   @keyframes open { from { opacity: 0; transform: translateY(18px); } }
 
-  /* ---------- apps ---------- */
-  .app { padding-block: clamp(64px, 9vw, 120px); border-top: 1px solid var(--line); }
-  .app:first-of-type { border-top: 0; }
-  .app-grid { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.6fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
-  .app.flip .app-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr); }
-  .app.flip .app-text { order: 2; }
+  /* ---------- the three apps: text scrolls on the left, one pinned stage on the right changes with it ---------- */
+  @property --glow { syntax: "<color>"; inherits: true; initial-value: #4cc2ff; }
+  .story { --accent: var(--bar); --glow: var(--bar); transition: --glow 700ms ease; }
+  .story[data-active="drawer"] { --glow: var(--drawer); }
+  .story[data-active="tune"] { --glow: var(--tune); }
+  .story-grid { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr); gap: clamp(28px, 5vw, 72px); align-items: start; }
+  .chapter { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; padding-block: 14vh; }
   .app-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
   .app-head img { width: 56px; height: 56px; }
   h2 { font: 800 clamp(34px, 3.8vw, 50px)/1 var(--display); letter-spacing: -0.02em; margin: 0; }
   .replaces { color: var(--muted); margin: 4px 0 0; font-size: 15px; }
-  .app p.what { font-size: 19px; margin: 0 0 20px; max-width: 40ch; }
-  .app ul { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 10px; max-width: 46ch; }
-  .app li { position: relative; padding-left: 22px; color: #cfdaeb; }
-  .app li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
-  .app .btn-solid, .btn-solid.tinted { background: var(--accent); color: #07142c; }
-  .app .btn-solid:hover, .btn-solid.tinted:hover { filter: brightness(1.08); }
+  .chapter p.what { font-size: 19px; margin: 0 0 20px; max-width: 40ch; }
+  .chapter ul { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 10px; max-width: 46ch; }
+  .chapter li { position: relative; padding-left: 22px; color: #cfdaeb; }
+  .chapter li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+  .chapter .btn-solid, .btn-solid.tinted { background: var(--accent); color: #07142c; }
+  .chapter .btn-solid { align-self: flex-start; }
+  .chapter .btn-solid:hover, .btn-solid.tinted:hover { filter: brightness(1.08); }
   .size { font-weight: 400; opacity: 0.75; }
   .shot { border-radius: 12px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line); background: #1b1b1b; }
   .bar { --accent: var(--bar); } .drawer { --accent: var(--drawer); } .tune { --accent: var(--tune); }
   h2 .dot { color: var(--accent); }
+  .inline-shot { margin-top: 28px; }
+  html:not(.live) .story-grid { grid-template-columns: minmax(0, 64ch); }   /* no script: a plain stack, each app with its own screenshot */
+  html:not(.live) .chapter { min-height: 0; padding-block: 56px; }
+  .live .inline-shot, .stage { display: none; }
+  .live .stage { display: grid; position: sticky; top: 0; height: 100svh; align-content: center; }
+  .stage-box { position: relative; height: min(76svh, 660px); }
+  .stage-glow { position: absolute; inset: -10% -8%; background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 32%, transparent), transparent 74%); pointer-events: none; }
+  .pane { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transform: translateY(44px) scale(0.97); transition: opacity 520ms ease, transform 680ms cubic-bezier(.2, .8, .2, 1); pointer-events: none; }
+  .pane[data-state="on"] { opacity: 1; transform: none; }
+  .pane[data-state="past"] { transform: translateY(-44px) scale(0.97); }
+  .pane .shot { width: auto; height: auto; max-width: 100%; max-height: 100%; }
+  .duo { position: relative; width: min(100%, calc(min(76svh, 660px) * 1.42)); aspect-ratio: 1.42; }
+  .duo img { position: absolute; border-radius: 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+  .duo .start { left: 0; top: 0; width: 84%; } .duo .quick { right: 0; bottom: 0; width: 40%; }
+  .rail { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 26px; padding-top: 14px; }
+  .rail::before, .rail::after { content: ""; position: absolute; left: 0; top: 0; height: 3px; border-radius: 2px; }
+  .rail::before { right: 0; background: var(--line); }
+  .rail::after { width: calc(var(--sp, 0) * 100%); background: var(--glow); }
+  .rail a { text-decoration: none; color: var(--muted); font: 700 16px var(--display); transition: color 300ms; }
+  .rail a:hover, .rail a[aria-current="true"] { color: var(--ink); }
 
   /* ---------- install: a real sequence, so it is numbered ---------- */
   .install { background: var(--panel); padding-block: clamp(64px, 8vw, 104px); }
   h3 { font: 800 clamp(28px, 3vw, 38px)/1.1 var(--display); letter-spacing: -0.015em; margin: 0 0 30px; }
   .steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
-  .steps li { counter-increment: s; border-top: 2px solid var(--line); padding-top: 18px; }
+  .steps li { counter-increment: s; border-top: 2px solid var(--line); padding-top: 18px; position: relative; }
   .steps li::before { content: counter(s); display: block; font: 800 34px/1 var(--display); color: var(--bar); margin-bottom: 10px; }
+  .live .steps li { opacity: 0.4; transition: opacity 500ms calc(var(--i) * 160ms); }
+  .live .steps li.on { opacity: 1; }
+  .steps li::after { content: ""; position: absolute; left: 0; top: -2px; height: 2px; width: 0; background: var(--bar); transition: width 800ms cubic-bezier(.2, .8, .2, 1) calc(var(--i) * 160ms); }
+  .steps li.on::after { width: 100%; }
   .steps b { display: block; font-size: 18px; margin-bottom: 4px; }
   .steps p { margin: 0; color: var(--muted); }
   .needs { margin-top: 40px; padding: 18px 22px; border-radius: 12px; border: 1px solid var(--line); color: #d1dcee; max-width: 74ch; }
@@ -106,12 +139,19 @@
   footer { border-top: 1px solid var(--line); padding-block: 36px 48px; color: var(--muted); font-size: 15px; }
   footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
 
+  @media (max-width: 1100px) { .taskbar .tb-media { display: none; } }
   @media (max-width: 900px) {
-    .desktop-inner, .app-grid, .app.flip .app-grid, dl { grid-template-columns: 1fr; }
-    .app.flip .app-text { order: 0; }
+    .desktop-inner, .story-grid, dl { grid-template-columns: 1fr; }
     .flyouts { height: auto; display: flex; gap: 12px; align-items: flex-end; }
     .flyouts img { position: static; }
     .flyouts .start { width: 62%; } .flyouts .quick { width: 38%; }
+    /* the stage becomes a strip pinned to the top of the screen while each app's text scrolls underneath */
+    .live .stage { order: -1; height: 44svh; z-index: 5; align-content: start; padding-top: 10px; background: var(--night); }
+    .live .stage::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 28px; background: linear-gradient(var(--night), transparent); pointer-events: none; }
+    .stage-box { height: calc(44svh - 62px); }
+    .duo { width: min(100%, calc((44svh - 62px) * 1.42)); }
+    .rail { margin-top: 10px; padding-top: 8px; } .rail a { font-size: 14px; }
+    .chapter { min-height: 0; padding-block: 44px; }
     .steps { grid-template-columns: 1fr; }
     dt { padding-bottom: 6px; } dd { border-top: 0; padding-top: 0; }
   }
@@ -136,62 +176,69 @@
       <img class="quick" src="img/deskbar_quick_public.png" alt="">
     </div>
   </div>
-  <div class="taskbar" role="img" aria-label="DeskBar along the bottom of the screen: Start, open apps, media controls, tray and clock"></div>
+  <div class="taskbar" role="img" aria-label="DeskBar along the bottom of the screen: Start and pinned apps on the left; on the right the song playing with its controls, then tray icons and the clock">
+    <div class="tb-apps"><img src="img/bar_apps.png" alt="" width="1080" height="96"></div>
+    <div class="tb-media"><img src="img/bar_media.png" alt="" width="418" height="96"></div>
+    <div class="tb-tray"><img src="img/bar_tray.png" alt="" width="616" height="96"></div>
+  </div>
 </header>
 
 <main>
-  <section class="app bar" id="deskbar">
-    <div class="wrap app-grid">
-      <div class="app-text">
+  <section class="story" data-active="bar" aria-label="What each app does">
+    <div class="wrap story-grid">
+      <div class="chapters">
+      <article class="chapter bar" id="deskbar" data-app="bar">
         <div class="app-head"><img src="img/icon-deskbar.png" alt=""><div><h2>DeskBar<span class="dot">.</span></h2><p class="replaces">Replaces the taskbar, Start and Quick Settings</p></div></div>
         <p class="what">A taskbar that starts fast, stays out of your way and opens what you search for.</p>
         <ul>
-          <li>Start with your pinned apps, folders and recent files, and a search that finds apps, settings and files on your disks as you type.</li>
-          <li>Quick Settings for Wi-Fi, Bluetooth, sound, brightness, night light and energy saver, plus connecting Bluetooth headphones in one tap.</li>
-          <li>Window previews, show desktop in the corner, and a clock with calendar.</li>
-          <li>Ten colour themes, including black, white and glass.</li>
-          <li>Native code, about 1.7&nbsp;MB. Windows' own taskbar comes back the moment DeskBar quits.</li>
+        <li>Start with your pinned apps, folders and recent files, and a search that finds apps, settings and files on your disks as you type.</li>
+        <li>Quick Settings for Wi-Fi, Bluetooth, sound, brightness, night light and energy saver, plus connecting Bluetooth headphones in one tap.</li>
+        <li>Window previews, show desktop in the corner, and a clock with calendar.</li>
+        <li>Ten colour themes, including black, white and glass.</li>
+        <li>Native code, about 1.7&nbsp;MB. Windows' own taskbar comes back the moment DeskBar quits.</li>
         </ul>
         <a class="btn btn-solid" data-asset="DeskBar-Setup.exe" href="#install">Download DeskBar <span class="size">1.7 MB</span></a>
-      </div>
-      <img class="shot" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="830" loading="lazy">
-    </div>
-  </section>
-
-  <section class="app drawer flip" id="deskdrawer">
-    <div class="wrap app-grid">
-      <div class="app-text">
+        <img class="shot inline-shot" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="830" loading="lazy">
+      </article>
+      <article class="chapter drawer" id="deskdrawer" data-app="drawer">
         <div class="app-head"><img src="img/icon-deskdrawer.png" alt=""><div><h2>DeskDrawer<span class="dot">.</span></h2><p class="replaces">Replaces File Explorer</p></div></div>
         <p class="what">A file manager with tabs that opens folders as fast as you click them.</p>
         <ul>
-          <li>Tabs you can drag, reopen and duplicate; a breadcrumb path bar; search that looks through every subfolder.</li>
-          <li>Details, list, tiles and icon views with real thumbnails, grouping by date or type, and folder sizes.</li>
-          <li>Your Quick access pins, a Home page with recent files, and This PC with how full each drive is.</li>
-          <li>Undo for rename, move, copy and new files. ZIP and unzip built in.</li>
-          <li>Optional: make folders and Win+E open here instead of File Explorer. Switch it off and everything is as before.</li>
-          <li>Stays ready in the background after you close it, like File Explorer, so folders open in about half a second. It uses about 20–30 MB of memory while it waits, and you can switch that off.</li>
+        <li>Tabs you can drag, reopen and duplicate; a breadcrumb path bar; search that looks through every subfolder.</li>
+        <li>Details, list, tiles and icon views with real thumbnails, grouping by date or type, and folder sizes.</li>
+        <li>Your Quick access pins, a Home page with recent files, and This PC with how full each drive is.</li>
+        <li>Undo for rename, move, copy and new files. ZIP and unzip built in.</li>
+        <li>Optional: make folders and Win+E open here instead of File Explorer. Switch it off and everything is as before.</li>
+        <li>Stays ready in the background after you close it, like File Explorer, so folders open in about half a second. It uses about 20–30 MB of memory while it waits, and you can switch that off.</li>
         </ul>
         <a class="btn btn-solid" data-asset="DeskDrawer-Setup.exe" href="#install">Download DeskDrawer <span class="size">0.8 MB</span></a>
-      </div>
-      <img class="shot" src="img/deskdrawer.png" alt="DeskDrawer showing a project folder in details view with a sidebar of pinned folders" width="2640" height="1520" loading="lazy">
-    </div>
-  </section>
-
-  <section class="app tune" id="desktune">
-    <div class="wrap app-grid">
-      <div class="app-text">
+        <img class="shot inline-shot" src="img/deskdrawer.png" alt="DeskDrawer showing a project folder in details view with a sidebar of pinned folders" width="2640" height="1520" loading="lazy">
+      </article>
+      <article class="chapter tune" id="desktune" data-app="tune">
         <div class="app-head"><img src="img/icon-desktune.png" alt=""><div><h2>DeskTune<span class="dot">.</span></h2><p class="replaces">Switches off what you don't use</p></div></div>
         <p class="what">A debloater that tells you what each switch costs before you flip it, and can undo every change.</p>
         <ul>
-          <li>Startup apps, Widgets, Copilot, Edge and Chrome running after you close them, ads and suggestions, telemetry and unused services, preinstalled apps.</li>
-          <li>Live memory use next to each item, and a plain line on what you'd lose.</li>
-          <li>Tick what you want, then apply once. Safe and Recommended presets pick for you.</li>
-          <li>Every change is logged and can be undone, one at a time or all together. A restore point is made before system changes.</li>
-          <li>It won't touch Windows Update, Defender or system files, and has no "RAM cleaner".</li>
+        <li>Startup apps, Widgets, Copilot, Edge and Chrome running after you close them, ads and suggestions, telemetry and unused services, preinstalled apps.</li>
+        <li>Live memory use next to each item, and a plain line on what you'd lose.</li>
+        <li>Tick what you want, then apply once. Safe and Recommended presets pick for you.</li>
+        <li>Every change is logged and can be undone, one at a time or all together. A restore point is made before system changes.</li>
+        <li>It won't touch Windows Update, Defender or system files, and has no "RAM cleaner".</li>
         </ul>
         <a class="btn btn-solid" data-asset="DeskTune-Setup.exe" href="#install">Download DeskTune <span class="size">0.5 MB</span></a>
+        <img class="shot inline-shot" src="img/desktune.png" alt="DeskTune with memory in use, presets, and a list of switches with what each one costs" width="1934" height="1569" loading="lazy">
+      </article>
       </div>
-      <img class="shot" src="img/desktune.png" alt="DeskTune with memory in use, presets, and a list of switches with what each one costs" width="1934" height="1569" loading="lazy">
+      <div class="stage">
+        <div class="stage-box">
+          <div class="stage-glow"></div>
+          <div class="pane" data-state="on"><div class="duo"><img class="start" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="830"><img class="quick" src="img/deskbar_quick_public.png" alt="DeskBar's Quick Settings: Wi-Fi, Bluetooth, sound and brightness" width="720" height="892"></div></div>
+          <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/deskdrawer.png" alt="DeskDrawer showing a project folder in details view with a sidebar of pinned folders" width="2640" height="1520"></div>
+          <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/desktune.png" alt="DeskTune with memory in use, presets, and a list of switches with what each one costs" width="1934" height="1569"></div>
+        </div>
+        <nav class="rail" aria-label="The three apps">
+          <a href="#deskbar" aria-current="true">DeskBar</a><a href="#deskdrawer" aria-current="false">DeskDrawer</a><a href="#desktune" aria-current="false">DeskTune</a>
+        </nav>
+      </div>
     </div>
   </section>
 
@@ -199,9 +246,9 @@
     <div class="wrap">
       <h3>Install in a minute</h3>
       <ol class="steps">
-        <li><b>Download the setup file</b><p>Pick any of the three. They work alone or together; DeskBar shows a DeskTune memory tile when both are installed.</p></li>
-        <li><b>Run it</b><p>Windows may say "Windows protected your PC" because the apps aren't code-signed yet. Choose More info, then Run anyway.</p></li>
-        <li><b>That's it</b><p>It installs for your account only, without administrator rights, adds a Start menu entry and opens.</p></li>
+        <li style="--i:0"><b>Download the setup file</b><p>Pick any of the three. They work alone or together; DeskBar shows a DeskTune memory tile when both are installed.</p></li>
+        <li style="--i:1"><b>Run it</b><p>Windows may say "Windows protected your PC" because the apps aren't code-signed yet. Choose More info, then Run anyway.</p></li>
+        <li style="--i:2"><b>That's it</b><p>It installs for your account only, without administrator rights, adds a Start menu entry and opens.</p></li>
       </ol>
       <p class="actions" style="margin-top: 36px">
         <a class="btn btn-solid tinted bar" data-asset="DeskBar-Setup.exe" href="#">DeskBar <span class="size">1.7 MB</span></a>
@@ -249,6 +296,33 @@
       document.getElementById("repo-link").href = base;
     }
     document.body.classList.add("load");
+
+    // Scroll: one passive handler, one animation frame per scroll tick. Everything it sets is a CSS variable or a state attribute; the motion itself is CSS.
+    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches, narrow = matchMedia("(max-width: 900px)");
+    var hero = document.getElementById("top"), story = document.querySelector(".story"), chapters = [].slice.call(document.querySelectorAll(".chapter"));
+    var panes = [].slice.call(document.querySelectorAll(".pane")), links = [].slice.call(document.querySelectorAll(".rail a")), steps = [].slice.call(document.querySelectorAll(".steps li"));
+    var active = -1, queued = false;
+    function show(i) {
+      if (i === active) return;
+      active = i; story.setAttribute("data-active", chapters[i].getAttribute("data-app"));
+      panes.forEach(function (p, k) { p.setAttribute("data-state", k === i ? "on" : k < i ? "past" : "next"); p.setAttribute("aria-hidden", k === i ? "false" : "true"); });
+      links.forEach(function (a, k) { a.setAttribute("aria-current", k === i ? "true" : "false"); });
+    }
+    function frame() {
+      queued = false;
+      var vh = innerHeight;
+      if (!reduce) hero.style.setProperty("--hp", Math.min(1, Math.max(0, scrollY / (hero.offsetHeight * 0.9))).toFixed(3));
+      var line = vh * (narrow.matches ? 0.72 : 0.5), best = 0;   // the chapter that has reached the reading line (lower on a phone, where the stage covers the top)
+      chapters.forEach(function (c, i) { if (c.getBoundingClientRect().top <= line) best = i; });
+      show(best);
+      var r = story.getBoundingClientRect(), total = r.height - vh;
+      story.style.setProperty("--sp", (total > 0 ? Math.min(1, Math.max(0, -r.top / total)) : 0).toFixed(3));
+      steps.forEach(function (li) { if (li.getBoundingClientRect().top < vh * 0.84) li.classList.add("on"); });
+    }
+    function queue() { if (!queued) { queued = true; requestAnimationFrame(frame); } }
+    addEventListener("scroll", queue, { passive: true });
+    addEventListener("resize", queue);
+    frame();
   })();
 </script>
 </body>

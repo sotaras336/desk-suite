@@ -10,7 +10,7 @@
 
 // The Start menu: greeting, instant local search, pinned apps, folders, recent files, all apps, footer.
 namespace {
-const float kBodyH = 610, kTileH = 84, kPageH = kTileH * 3;
+const float kBodyH = 610, kMinBodyH = 200, kTileH = 84, kPageH = kTileH * 3;
 
 struct SearchBox : TextBox { std::function<void(bool)> onFocusChange; void OnFocus(bool f) override { TextBox::OnFocus(f); if (onFocusChange) onFocusChange(f); } };
 struct PagedScroll : Scroll {       // the pinned grid moves a page (three rows) per wheel notch
@@ -25,22 +25,25 @@ void ShowInFolder(const ws& p) { Launch(L"explorer.exe", L"/select,\"" + p + L"\
 void OpenWith(const ws& p) { Launch(L"rundll32.exe", L"shell32.dll,OpenAs_RunDLL " + p); }
 bool CanHibernate() { SYSTEM_POWER_CAPABILITIES c{}; return GetPwrCapabilities(&c) && c.HiberFilePresent; }
 ws UserDisplayName() { wchar_t b[256]; ULONG n = 256; if (GetUserNameExW(NameDisplay, b, &n) && n) return ws(b, n); wchar_t u[256]; DWORD un = 256; GetUserNameW(u, &un); return u; }
-const wchar_t* kDefaultPins[] = {L"Outlook", L"Microsoft Store", L"Photos", L"OneNote", L"Windows App", L"Surface", L"Settings", L"Microsoft Clipchamp", L"Microsoft To Do", L"To Do", L"LinkedIn", L"Calculator", L"Clock", L"Notepad", L"Paint", L"Snipping Tool", L"File Explorer", L"Instagram", L"Phone Link", L"Bambu Studio", L"Goodnotes"};
+// Shown until this PC's own Start pins have been read (and kept if they can't be: Windows 10 has no JSON export).
+const wchar_t* kDefaultPins[] = {L"Microsoft Edge", L"File Explorer", L"Settings", L"Microsoft Store", L"Photos", L"Calculator", L"Notepad", L"Paint", L"Snipping Tool", L"Clock"};
+// What 1.0 and 1.1 put on every PC: Start pins still exactly these get swapped for the PC's own.
+const wchar_t* kOldDefaultPins[] = {L"Outlook", L"Microsoft Store", L"Photos", L"OneNote", L"Windows App", L"Surface", L"Settings", L"Microsoft Clipchamp", L"Microsoft To Do", L"To Do", L"LinkedIn", L"Calculator", L"Clock", L"Notepad", L"Paint", L"Snipping Tool", L"File Explorer", L"Instagram", L"Phone Link", L"Bambu Studio", L"Goodnotes"};
 
 struct StartPanel : Flyout {
     SearchBox* search; View *home, *allApps, *results; Scroll *homeScroll, *allScroll, *resList; View *resCol, *preview, *glow[3]; Label *greet, *dateL, *userL; Glyph* dayG; View* clearBtn; Glyph* sIcon; View* sBox;
     PagedScroll* pinScroll; View *pinGrid, *pinDots, *folders, *recentFilters, *recentGrid, *allList;
     std::vector<RecentItem> recents; ws recentFilter = L"All"; ws homeKey; std::vector<std::pair<Result, View*>> rows; int sel = -1; std::vector<Result> local, files; UINT_PTR drift = 0; uint64_t driftT0 = 0;
-    bool searchFocus = false;
+    bool searchFocus = false, importing = false; View *col, *body;
 
     StartPanel() : Flyout(Panel::Start, 640, false) {
         root->lay = Lay::Overlay; root->hit = true;
         // soft drifting colour glows behind everything (only while open)
         auto* gl = MkBox(root); struct G { float x, y, sz; uint32_t c; }; G gs[3] = {{-120, -140, 520, K::Accent}, {380, 180, 460, 0x8A6CFF}, {-80, 420, 420, 0x357BF5}};
         for (int i = 0; i < 3; i++) { auto* e = MkBox(gl); e->fw = e->fh = gs[i].sz; e->ha = e->va = Al::Start; e->margin = Thick(gs[i].x, gs[i].y, 0, 0); e->radius = gs[i].sz / 2; e->bg = RadialB(0.5f, 0.5f, gs[i].sz / 2, gs[i].sz / 2, {{0, Col(gs[i].c, 0x55)}, {1, Col(gs[i].c, 0)}}); glow[i] = e; }
-        auto* col = MkBox(root, Lay::V);
+        col = MkBox(root, Lay::V);
         BuildGreeting(col); BuildSearch(col);
-        auto* body = MkBox(col); body->fh = kBodyH; body->clip = true;
+        body = MkBox(col); body->fh = kBodyH; body->clip = true;
         homeScroll = body->Add(new Scroll()); home = MkBox(nullptr, Lay::V); homeScroll->content = homeScroll->Add(home); home->margin = Thick(0, 0, 0, 8);
         allScroll = body->Add(new Scroll()); allScroll->visible = false; allApps = MkBox(nullptr, Lay::V); allScroll->content = allScroll->Add(allApps);
         results = MkBox(body, Lay::H); results->visible = false;
@@ -48,6 +51,13 @@ struct StartPanel : Flyout {
     }
 
     // ------------------------------------------------ layout
+    // A short screen (1080p at 125% leaves ~806 dip, at 150% ~664) cut off the footer with the power button: the scrolling middle gets what's left.
+    // Measures the column, not root: the glows behind it reach 840 dip whatever the content.
+    float ContentHeight(float maxH) override {
+        body->fh = kBodyH; float full = col->Measure({widthDip, 1e5f}).h;
+        body->fh = std::max(kMinBodyH, kBodyH - std::max(0.f, full - maxH));
+        return col->Measure({widthDip, 1e5f}).h;
+    }
     void BuildGreeting(View* col) {
         auto* g = MkBox(col, Lay::V); g->margin = Thick(34, 26, 32, 0);
         auto* row = MkBox(g, Lay::H); dayG = MkGlyph(row, 0xE706, 20); dayG->margin = Thick(0, 2, 12, 0); dayG->va = Al::Center;
@@ -166,12 +176,48 @@ struct StartPanel : Flyout {
         return false;
     }
     // ------------------------------------------------ pinned
-    void SeedPins() {
-        auto& apps = CatalogApps(); if (S.startPinsInit || apps.empty()) return;
-        for (auto n : kDefaultPins) {
+    template <size_t N> std::vector<ws> Matched(const wchar_t* const (&names)[N]) {   // catalog ids of these apps, in order, skipping what isn't installed
+        auto& apps = CatalogApps(); std::vector<ws> ids;
+        for (auto n : names) {
             const CatApp* a = CatalogFindByName(n); if (!a) for (auto& x : apps) if (StartsI(x.name, ws(n) + L" ")) { a = &x; break; }
-            if (a && std::find(S.startPins.begin(), S.startPins.end(), a->id) == S.startPins.end()) S.startPins.push_back(a->id);
+            if (a && std::find(ids.begin(), ids.end(), a->id) == ids.end()) ids.push_back(a->id);
         }
+        return ids;
+    }
+    // This PC's own Start pins, read once with Windows' Export-StartLayout (the pins file itself is encrypted). They replace only pins that are still
+    // exactly as we seeded them; pins someone has changed stay.
+    void ImportWindowsPins() {
+        importing = true;
+        std::thread([this] {
+            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            ws file = DataPath(L"startlayout.json"), q = file; for (size_t i = 0; (i = q.find(L'\'', i)) != ws::npos; i += 2) q.insert(i, 1, L'\'');   // quote for PowerShell
+            ws cmd = L"powershell.exe -NoProfile -NonInteractive -Command \"Export-StartLayout -Path '" + q + L"'\""; DeleteFileW(file.c_str());
+            STARTUPINFOW si{sizeof si}; PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) { WaitForSingleObject(pi.hProcess, 20000); CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+            std::string raw; ReadAll(file, raw); DeleteFileW(file.c_str());
+            std::vector<std::pair<ws, ws>> found;   // (app id, name to fall back on)
+            Json j = Json::Parse(raw);
+            if (auto* l = j.Find(L"pinnedList"); l && l->t == Json::Arr) for (auto& e : l->a) {
+                if (auto* p = e.Find(L"packagedAppId")) found.push_back({p->s, L""});
+                else if (auto* d = e.Find(L"desktopAppLink")) { ws lnk = ExpandEnv(d->s); found.push_back({AumidOfShortcut(lnk), StemOf(lnk)}); }
+            }
+            CoUninitialize();
+            UiPost([this, found] {
+                std::vector<ws> got;
+                for (auto& [id, name] : found) {
+                    const CatApp* a = id.empty() ? nullptr : CatalogFindById(id); if (!a && !name.empty()) a = CatalogFindByName(name);
+                    if (a && std::find(got.begin(), got.end(), a->id) == got.end()) got.push_back(a->id);
+                }
+                if (!got.empty() && (S.startPins.empty() || S.startPins == Matched(kDefaultPins) || S.startPins == Matched(kOldDefaultPins))) S.startPins = got;
+                S.startPinsImported = true; importing = false; SaveSettingsSoon(); RenderPinned();
+            });
+        }).detach();
+    }
+    void SeedPins() {
+        if (CatalogApps().empty()) return;
+        if (!S.startPinsImported && !importing) ImportWindowsPins();
+        if (S.startPinsInit) return;
+        S.startPins = Matched(kDefaultPins);
         if (S.quickFolders.empty()) for (auto id : {FOLDERID_Downloads, FOLDERID_Documents, FOLDERID_Desktop, FOLDERID_Pictures}) { ws p = KnownFolder(id); if (DirExists(p)) S.quickFolders.push_back(p); wchar_t od[512]; if (id == FOLDERID_Desktop && GetEnvironmentVariableW(L"OneDrive", od, 512) && DirExists(od)) S.quickFolders.push_back(od); }
         S.startPinsInit = S.foldersInit = true; SaveSettingsSoon();
     }

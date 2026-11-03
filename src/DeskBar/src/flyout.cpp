@@ -19,7 +19,7 @@ void Flyout::Place(bool animate) {
     SetWindowPos(hwnd, nullptr, mi.rcWork.left + 20, mi.rcWork.top + 20, 100, 100, SWP_NOACTIVATE | SWP_NOZORDER); UpdateScale();
     float sc = scale, gap = 12 * sc; RECT w = mi.rcWork;
     float maxH = (w.bottom - w.top - 2 * gap) / sc;
-    float h = fixedH > 0 ? fixedH : ContentHeight(maxH);
+    float h = std::min(fixedH > 0 ? fixedH : ContentHeight(maxH), maxH);
     curW = (int)ceilf(widthDip * sc); curH = (int)ceilf(h * sc);
     curX = anchorRight ? (int)(w.right - gap - curW) : (int)(w.left + gap); curY = (int)(w.bottom - gap - curH);
     curX = std::clamp(curX, (int)mi.rcMonitor.left, std::max((int)mi.rcMonitor.left, (int)mi.rcMonitor.right - curW));

@@ -61,6 +61,10 @@ int RunTaskbar(bool real) {
         if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
+        if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own
+            if (!S.taskbarPins.empty()) { S.pinsImported = true; SaveSettingsSoon(); }
+            else std::thread([] { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); auto v = WindowsTaskbarPins(); CoUninitialize(); UiPost([v] { if (S.taskbarPins.empty()) S.taskbarPins = v; S.pinsImported = true; SaveSettingsSoon(); BarsSync(); }); }).detach();
+        }
         Boot(L"services started");
     });
     if (g_clickX >= 0) UiOnce(1000, [] { if (AllBars().empty()) return; HWND h = AllBars()[0]->hwnd; LPARAM lp = MAKELPARAM(g_clickX, g_clickY); SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(80); SendMessageW(h, WM_LBUTTONUP, 0, lp); });   // debug: --click x,y (device px) on the first bar

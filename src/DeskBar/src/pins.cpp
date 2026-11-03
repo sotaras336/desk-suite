@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "app.h"
+#include <regex>
 
 // Taskbar pins: entry is a .lnk path, "app:<AUMID>" or an exe path. Resolved once, cached in pins.cache (tab separated), re-read only when the .lnk changes.
 namespace {
@@ -52,6 +53,37 @@ PinInfo ResolvePin(const ws& e) {
     uint64_t st = ExtOf(e) == L".lnk" ? Stamp(e) : 0;
     auto it = g_pc.find(e); if (it != g_pc.end() && it->second.first == st) return it->second.second;
     PinInfo p = Build(e); g_pc[e] = {st, p}; return p;
+}
+// Windows keeps desktop-app pins as shortcuts in "User Pinned\TaskBar"; Store apps exist only as app ids inside the undocumented Taskband\Favorites
+// blob. The blob is used just for ORDER: each pin goes where its name first shows up in it (UTF-16 text at either byte alignment, plain text, or
+// the 8.3 alias like AUTODE~1.LNK); pins it doesn't mention keep the folder's alphabetical order at the end.
+std::vector<ws> WindowsTaskbarPins() {
+    std::string blob; DWORD n = 0; const wchar_t* key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskband";
+    if (RegGetValueW(HKEY_CURRENT_USER, key, L"Favorites", RRF_RT_REG_BINARY, nullptr, nullptr, &n) == 0 && n) { blob.resize(n); if (RegGetValueW(HKEY_CURRENT_USER, key, L"Favorites", RRF_RT_REG_BINARY, nullptr, blob.data(), &n) != 0) blob.clear(); }
+    ws u[2]; for (int a = 0; a < 2; a++) for (size_t i = a; i + 1 < blob.size(); i += 2) u[a] += (wchar_t)((uint8_t)blob[i] | ((uint8_t)blob[i + 1] << 8));
+    std::string up = blob; for (auto& c : up) c = (char)toupper((uint8_t)c);
+    auto where = [&](const ws& file) {
+        size_t best = SIZE_MAX;
+        for (int a = 0; a < 2; a++) if (size_t i = u[a].find(file); i != ws::npos) best = std::min(best, i * 2 + a);
+        if (size_t i = blob.find(Narrow(file)); i != std::string::npos) best = std::min(best, i);
+        std::string s; for (char c : Narrow(StemOf(file))) if (isalnum((uint8_t)c)) s += (char)toupper((uint8_t)c);
+        if (s.size() > 6) if (size_t i = up.find(s.substr(0, 6) + "~"); i != std::string::npos) best = std::min(best, i);
+        return best;
+    };
+    std::vector<std::pair<size_t, ws>> pins; std::vector<ws> lnkIds;
+    ws dir = KnownFolder(FOLDERID_RoamingAppData) + L"\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar";
+    WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((dir + L"\\*.lnk").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) { do { ws p = dir + L"\\" + fd.cFileName; pins.push_back({where(fd.cFileName), p}); lnkIds.push_back(AumidOfShortcut(p)); } while (FindNextFileW(h, &fd)); FindClose(h); }
+    std::wregex appId(LR"([A-Za-z0-9.\-]+_[a-z0-9]{13}![A-Za-z0-9.\-_]+)");   // PackageName_publisherid!App
+    for (int a = 0; a < 2; a++) for (std::wsregex_iterator m(u[a].begin(), u[a].end(), appId), end; m != end; ++m) {
+        ws id = m->str(), e = L"app:" + id; size_t at = (size_t)m->position() * 2 + a;
+        if (std::any_of(lnkIds.begin(), lnkIds.end(), [&](const ws& x) { return EqI(x, id); })) continue;   // already there as its shortcut
+        auto it = std::find_if(pins.begin(), pins.end(), [&](auto& p) { return EqI(p.second, e); });
+        if (it != pins.end()) it->first = std::min(it->first, at);
+        else if (!ShellNameOf(L"aum:" + id).empty()) pins.push_back({at, e});   // skip apps that were uninstalled since
+    }
+    std::stable_sort(pins.begin(), pins.end(), [](auto& x, auto& y) { return x.first < y.first; });
+    std::vector<ws> out; for (auto& p : pins) out.push_back(p.second); return out;
 }
 void SavePinCache(const std::vector<PinInfo>& pins) {
     Load(); std::string out;

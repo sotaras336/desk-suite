@@ -168,6 +168,7 @@ struct PinInfo {
     bool ok = false;
 };
 PinInfo ResolvePin(const ws& entry);     // uses pins.cache
+std::vector<ws> WindowsTaskbarPins();     // first run: the pins Windows' own taskbar had, in its order (blocking: call from a worker)
 void SavePinCache(const std::vector<PinInfo>& pins);
 std::vector<PinInfo> LoadPinCache();
 bool PinMatchesWindow(const PinInfo& p, const WinInfo& w);

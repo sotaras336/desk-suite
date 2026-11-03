@@ -249,7 +249,7 @@ static void ApplySettings(const Json& j) {
     S.showBatteryPercent = BoolOf(j.Find(L"ShowBatteryPercent"), true);
     S.mirrorDevices = StrList(j.Find(L"MirrorDevices"));
     S.quickFolders = StrList(j.Find(L"QuickFolders")); S.foldersInit = BoolOf(j.Find(L"FoldersInit"), !S.quickFolders.empty());
-    S.startPins = StrList(j.Find(L"StartPins")); S.startPinsInit = BoolOf(j.Find(L"StartPinsInit"), !S.startPins.empty());
+    S.startPins = StrList(j.Find(L"StartPins")); S.startPinsInit = BoolOf(j.Find(L"StartPinsInit"), !S.startPins.empty()); S.startPinsImported = BoolOf(j.Find(L"StartPinsImported"), false);
     S.pinnedRecents = StrList(j.Find(L"PinnedRecents")); S.hiddenRecents = StrList(j.Find(L"HiddenRecents"));
     S.promotedTrayIcons = StrList(j.Find(L"PromotedTrayIcons")); S.trayImported = BoolOf(j.Find(L"TrayImported"), false);
     if (auto t = j.Find(L"Theme")) if (t->t == Json::Str) S.theme = t->s;
@@ -274,7 +274,7 @@ void SaveSettingsNow() {
     j.Set(L"ShowMedia", Json::B(S.showMedia)); j.Set(L"ShowBatteryPercent", Json::B(S.showBatteryPercent));
     j.Set(L"MirrorDevices", ListJ(S.mirrorDevices));
     j.Set(L"QuickFolders", ListJ(S.quickFolders)); j.Set(L"FoldersInit", Json::B(S.foldersInit));
-    j.Set(L"StartPins", ListJ(S.startPins)); j.Set(L"StartPinsInit", Json::B(S.startPinsInit));
+    j.Set(L"StartPins", ListJ(S.startPins)); j.Set(L"StartPinsInit", Json::B(S.startPinsInit)); j.Set(L"StartPinsImported", Json::B(S.startPinsImported));
     j.Set(L"PinnedRecents", ListJ(S.pinnedRecents)); j.Set(L"HiddenRecents", ListJ(S.hiddenRecents));
     j.Set(L"PromotedTrayIcons", ListJ(S.promotedTrayIcons)); j.Set(L"TrayImported", Json::B(S.trayImported)); j.Set(L"Theme", Json::S(S.theme));
     Json lc = Json::O(); for (auto& p : S.launchCounts) lc.Set(p.first.c_str(), Json::N(p.second));
