@@ -39,7 +39,11 @@ public partial class MainWindow : Window
         _iconSize = _settings.IconSize; _zoom = 1; _groupBy = _settings.GroupBy;   // zoom now steps through the views instead of scaling
         SetViewMode(App.ForcedView ?? _settings.ViewMode); ApplyZoom(); 
         List.PreviewMouseWheel += List_Wheel;
-        if (App.SnapshotFile == null) { Width = _settings.Width; Height = _settings.Height; if (_settings.Maximized) WindowState = WindowState.Maximized; }
+        if (App.SnapshotFile == null)
+        {
+            var wa = SystemParameters.WorkArea;   // layout units shrink as scaling grows (a 1080p screen at 150% is ~1280 x 670): never open larger than the screen
+            Width = Math.Min(_settings.Width, wa.Width - 24); Height = Math.Min(_settings.Height, wa.Height - 24); if (_settings.Maximized) WindowState = WindowState.Maximized;
+        }
         TabStrip.ItemsSource = _tabs;
         _sortKey = _settings.SortKey; _sortAsc = _settings.SortAscending; UpdateSortHeaders();
         List.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler(Header_Click));

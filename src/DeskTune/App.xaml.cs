@@ -42,7 +42,10 @@ public partial class App : Application
         return 0;
     }
 
-    /// DeskTune.exe  [--install]  [--selftest report.txt]  [--snapshot out.png]  [--makeicon file.ico]
+    /// --size 1280x670: open at exactly this size (to photograph how it looks on a small screen).
+    public static Size? ForcedSize;
+
+    /// DeskTune.exe  [--install]  [--selftest report.txt]  [--snapshot out.png]  [--makeicon file.ico]  [--size WxH]
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -52,6 +55,7 @@ public partial class App : Application
         {
             if (a[i] == "--selftest") { Shutdown(SelfTest.Run(a[i + 1])); return; }
             if (a[i] == "--makeicon") { IconMaker.Make(a[i + 1]); Shutdown(0); return; }
+            if (a[i] == "--size" && a[i + 1].Split('x') is [var sw, var sh] && double.TryParse(sw, out var fw) && double.TryParse(sh, out var fh)) ForcedSize = new Size(fw, fh);
         }
         if (a.Contains("--uninstall")) { Shutdown(Uninstall()); return; }
         bool setupName = System.IO.Path.GetFileName(Environment.ProcessPath ?? "").Contains("setup", StringComparison.OrdinalIgnoreCase);

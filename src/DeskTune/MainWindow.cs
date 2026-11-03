@@ -27,30 +27,36 @@ public sealed class MainWindow : Window
     private readonly List<RowUi> _rows = new();
     private List<Tweak> _tweaks = new();
     private Dictionary<string, long> _mb = new();
-    private bool _busy, _appsScanned;
+    private bool _busy, _appsScanned, _compact;
+    private TextBlock _sub = null!;
+    private UniformGrid _stats = null!;
+    private const string Intro = "Make Windows lighter. Tick what you want off, then apply. Every change can be undone.";
     private uint _load;
     /// What you ticked but haven't applied, by switch id: survives redraws (the app list arriving, a rescan) so a selection is never lost.
     private readonly Dictionary<string, bool> _wanted = new();
 
     public MainWindow()
     {
-        Title = "DeskTune"; Width = 980; Height = 820; MinWidth = 520; MinHeight = 480; WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        // The work area is in layout units, which shrink as Windows scaling grows: a 1080p screen at 150% is only ~1280 x 670, so a fixed 980 x 820 window overflowed it.
+        var wa = SystemParameters.WorkArea;
+        Title = "DeskTune"; Width = App.ForcedSize?.Width ?? Math.Min(980, wa.Width - 24); Height = App.ForcedSize?.Height ?? Math.Min(820, wa.Height - 24);
+        MinWidth = Math.Min(520, Width); MinHeight = Math.Min(480, Height); WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "WinBg"); UseLayoutRounding = true; Stylus.SetIsPressAndHoldEnabled(this, false);
         SourceInitialized += (_, _) => { int dark = Theme.IsLight ? 0 : 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, 4); };
 
         var root = new Grid(); Content = root;
         foreach (var h in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = h });
 
-        // ---- top: title, three stat cards, presets, section chips (all stays put; only the list scrolls)
-        var top = new StackPanel { Margin = new Thickness(28, 22, 28, 6) }; root.Children.Add(top);
+        // ---- top: title, three stat cards, presets, section chips. It scrolls away with the list (on a short screen it used to take most of the window), the bar below stays put
+        var top = new StackPanel { Margin = new Thickness(0, 22, 0, 6) };
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
         var logo = Glyph("", "Accent", 30); logo.Margin = new Thickness(0, 4, 14, 0); titleRow.Children.Add(logo);
         var titles = new StackPanel();
         titles.Children.Add(Text("DeskTune", 28, "Fg", FontWeights.SemiBold));
-        titles.Children.Add(Text("Make Windows lighter. Tick what you want off, then apply. Every change can be undone.", 13, "FgDim"));
+        _sub = Text(Intro, 13, "FgDim"); titles.Children.Add(_sub);
         titleRow.Children.Add(titles); top.Children.Add(titleRow);
 
-        var stats = new UniformGrid { Rows = 1, Margin = new Thickness(0, 18, 0, 0) };
+        var stats = _stats = new UniformGrid { Rows = 1, Margin = new Thickness(0, 18, 0, 0) };
         var memCard = Card(); var mp = new StackPanel(); mp.Children.Add(Text("MEMORY IN USE", 11, "FgFaint", FontWeights.SemiBold)); _memText.FontSize = 16; _memText.SetResourceReference(TextBlock.ForegroundProperty, "Fg"); _memText.Margin = new Thickness(0, 4, 0, 0); mp.Children.Add(_memText);
         _memTrack.SetResourceReference(Border.BackgroundProperty, "CardLine"); _memFill.SetResourceReference(Border.BackgroundProperty, "Accent"); _memTrack.Child = _memFill; mp.Children.Add(_memTrack); memCard.Child = mp;
         _memTrack.SizeChanged += (_, _) => _memFill.Width = _memTrack.ActualWidth * _load / 100.0;
@@ -68,7 +74,8 @@ public sealed class MainWindow : Window
 
         // ---- the list: finger-drag scrolling, generous padding
         _list.Margin = new Thickness(0, 0, 0, 24);
-        var scroll = new ScrollViewer { Content = _list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(28, 0, 28, 0), PanningMode = PanningMode.VerticalOnly };
+        var page = new StackPanel(); page.Children.Add(top); page.Children.Add(_list);
+        var scroll = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(28, 0, 28, 0), PanningMode = PanningMode.VerticalOnly };
         Grid.SetRow(scroll, 1); root.Children.Add(scroll);
 
         // ---- bottom: status on the left, Clear and Apply on the right (Apply wakes up when something is ticked)
@@ -84,6 +91,7 @@ public sealed class MainWindow : Window
         foot.Child = fg; root.Children.Add(foot);
 
         UpdateBar();
+        SizeChanged += (_, _) => { bool c = ActualHeight < 760; if (c == _compact) return; _compact = c; Summarise(); };   // a short window (a 1080p screen at 150% is ~670 high) gets one summary line instead of three cards
         Loaded += (_, _) => Scan();
     }
 
@@ -116,7 +124,7 @@ public sealed class MainWindow : Window
     {
         _list.Children.Clear(); _chips.Children.Clear(); _rows.Clear();
         UpdateMemory();
-        _offText.Text = $"{_tweaks.Count(t => t.IsApplied)} of {_tweaks.Count}";
+        _offText.Text = $"{_tweaks.Count(t => t.IsApplied)} of {_tweaks.Count}"; Summarise();
         foreach (var group in _tweaks.GroupBy(t => t.Category).OrderBy(g => Array.IndexOf(Order, g.Key) is var i && i < 0 ? 99 : i))
         {
             var items = group.OrderByDescending(t => t.MemoryMB(_mb)).ThenBy(t => t.Title).ToList();
@@ -197,7 +205,7 @@ public sealed class MainWindow : Window
     {
         var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() }; GlobalMemoryStatusEx(ref m);
         double total = m.ullTotalPhys / 1073741824.0, used = (m.ullTotalPhys - m.ullAvailPhys) / 1073741824.0;
-        _memText.Text = $"{used:N1} of {total:N1} GB  ·  {m.dwMemoryLoad}%";
+        _memText.Text = $"{used:N1} of {total:N1} GB  ·  {m.dwMemoryLoad}%"; Summarise();
         _load = m.dwMemoryLoad; _memFill.Width = _memTrack.ActualWidth * _load / 100.0;
     }
 
@@ -262,6 +270,13 @@ public sealed class MainWindow : Window
     }
 
     // ---------------------------------------------------------------- bits
+
+    /// Compact mode: the three stat cards are hidden and the line under the title carries the numbers instead.
+    private void Summarise()
+    {
+        _stats.Visibility = _compact ? Visibility.Collapsed : Visibility.Visible;
+        _sub.Text = _compact && _memText.Text.Length > 0 ? $"Memory {_memText.Text}  ·  {_offText.Text} switched off" : Intro;
+    }
 
     private static TextBlock Text(string s, double size, string brush, FontWeight? w = null)
     { var t = new TextBlock { Text = s, FontSize = size, FontWeight = w ?? FontWeights.Normal }; t.SetResourceReference(TextBlock.ForegroundProperty, brush); return t; }
