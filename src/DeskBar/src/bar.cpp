@@ -49,8 +49,7 @@ struct Strip : View {       // show-desktop strip at the far right
 // ======================================================================= TaskBtn
 TaskBtn::TaskBtn() {
     fw = 44; fh = 40; margin = Thick(2, 0); va = Al::Center; ha = Al::Start; hit = true; radius = 4;
-    bgHover = SolidB(K::White, 0x1A); bgPress = SolidB(K::White, 0x10);
-    onClick = [this] { Click(GetKeyState(VK_SHIFT) & 0x8000); };
+    onClick = [this] { Click(GetKeyState(VK_SHIFT) & 0x8000); };   // no View-level hover plate: PaintContent draws the one Windows-style plate itself
     onMiddle = [this] { Launch_(); };
     onRight = [this] { Menu(); }; onLong = [this] { Menu(); };
     onHover = [this](bool in) {
@@ -74,19 +73,27 @@ void TaskBtn::Update(const Entry& n, HWND fg) {
 }
 void TaskBtn::PaintContent(Gfx& g) {
     if (wasP != pressed) { wasP = pressed; Anim(this, &iconScale, pressed ? 0.84f : 1.f, pressed ? 80 : 140); }
-    float cx = rc.cx(), cy = rc.cy(); bool stack = e.wins.size() > 1;
+    float cx = rc.cx(), cy = rc.cy(); bool multi = e.wins.size() > 1;
     if (flashing) g.FillC(rc, Col(K::Flash, 0x55), 4);
-    if (stack) {
-        g.FillC(Rf::XYWH(rc.l + 3.5f, rc.cy() - 17.5f, 33, 35), Col(K::White, 0x15), 5);
-        g.FillC(Rf::XYWH(rc.l + 38.5f, rc.cy() - 17.5f, 2, 35), Col(K::White, 0x15), 2);
+    // Windows' own look, measured from its taskbar (two screenshots): ONE soft plate 35.5 x 39 behind the icon when the button is hovered, pressed or (with several windows)
+    // active, and for an app with several windows a second card behind it of which 3 units peek out on the right, 2 units clear of the plate. The whole group is centred
+    // on the icon. (The first version drew this stack inside DeskBar's own, bigger hover plate: a box in a box.)
+    D2D1_COLOR_F fill = Col(K::White, 0x0F), edge = Col(K::White, 0x14);
+    if (multi) {
+        Rf second = Rf::XYWH(cx - 15.f, cy - 19.f, 35.5f, 38.f);
+        g.PushClip(Rf::XYWH(cx + 17.5f, cy - 21.f, 4.f, 42.f)); g.FillC(second, fill, 5); g.Stroke(second, edge, 5, 1); g.PopClip();
+    }
+    if (hovered || pressed || (multi && active)) {
+        Rf plate = Rf::XYWH(multi ? cx - 20.f : cx - 17.75f, cy - 19.5f, 35.5f, 39.f);
+        g.FillC(plate, pressed ? Col(K::White, 0x09) : fill, 5); g.Stroke(plate, edge, 5, 1);
     }
     float isz = 24 * iconScale; Rf ir = Rf::XYWH(cx - isz / 2, cy - isz / 2, isz, isz);
     ImgP im = IconGet(e.iconKey, (int)lroundf(24 * g.scale));
     if (im) g.Image(*im, ir);
     else { g.Circle(cx, cy, 13 * iconScale, Col(K::White, 0x40)); ws l = e.name.empty() ? L"?" : ws(1, towupper(e.name[0])); g.Text(l, Rf::XYWH(cx - 13, cy - 13, 26, 26), FText(13), Col(K::White), TA::Center); }
     if (indW > 0.1f) {
-        float y = rc.b - (stack ? 2 : 1) - 3; D2D1_COLOR_F c = flashing ? Col(K::Flash) : active ? Col(K::Accent) : Col(K::White, 0xB0);
-        g.FillC({cx - indW / 2, y, cx + indW / 2, y + 3}, c, 1.5f);
+        float y = rc.b - 1 - 3; D2D1_COLOR_F c = flashing ? Col(K::Flash) : active ? Col(K::Accent) : Col(K::White, 0xB0);
+        g.FillC({cx - indW / 2, y, cx + indW / 2, y + 3}, c, 1.5f);   // always ONE mark, as in Windows: the several-windows cue is the second card above
     }
 }
 void TaskBtn::Launch_() {

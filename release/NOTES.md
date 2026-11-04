@@ -1,11 +1,13 @@
-## Desk 1.3
+## Desk 1.4
 
-**DeskTune and DeskDrawer now fit small screens.** On a 1080p screen at 125% or 150% scaling, Windows leaves a window only about 1280 × 670 units, and both apps opened larger than that.
+**DeskBar: please update if you use 1.0, 1.1, 1.2 or 1.3.** Those versions have a crash.
 
-- **DeskTune:** the title, the three stat cards and the preset and section buttons used to stay fixed above the list, so only two or three switches fit. They now scroll away with the list. On a short window the stat cards fold into one line under the title, and the Apply bar always stays visible. The window also opens no larger than the screen.
-- **DeskDrawer:** opens no larger than the screen, so its status bar is no longer cut off.
+- **The crash.** After the file-search list finished rescanning, DeskBar crashed. It then restarted, rescanned and crashed again, about every 2.5 minutes. Each crash briefly brought Windows' own taskbar back, so the screen flashed. It could also leave the bar half-drawn after starting. This is fixed, and the rescan now runs in its own low-priority process, so it can no longer slow the bar down or take it with it.
+- **Icons after startup.** Icons already saved on disk now load first, instead of waiting behind slow Windows lookups, so the bar fills in sooner after you sign in.
+- **Apps with several windows** now look like they do in Windows: one soft plate behind the icon when you hover over it, a second card peeking out at its right edge, and a single mark under the icon. DeskBar used to draw a plate inside its own hover plate.
+- If DeskBar ever crashes, its log (`%LOCALAPPDATA%\DeskBar3\deskbar3.log`) now says where.
 
-**DeskBar** is unchanged from 1.2.
+**DeskDrawer** and **DeskTune** are the same as in 1.3.
 
 **What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. Run the `-Setup.exe` over your old copy: settings and DeskTune's undo log are kept. The files aren't code-signed, so Windows SmartScreen asks first: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
 

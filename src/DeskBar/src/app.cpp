@@ -13,7 +13,9 @@ static bool g_withTray = false, g_openPreview = false, g_sup = false, g_stall = 
 static int g_clickX = -1, g_clickY = 0; static int g_exitCode = 0; static bool g_restoreOnExit = true; static uint64_t g_start = 0; static HANDLE g_readyEv = nullptr; static bool g_readySent = false;
 
 static LONG WINAPI CrashFilter(EXCEPTION_POINTERS* e) {
-    Log(L"CRASH code=%08lx addr=%p", e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress);
+    void* at = e->ExceptionRecord->ExceptionAddress; HMODULE mod = nullptr; wchar_t name[MAX_PATH] = L"?";   // which file and where in it: maps straight onto DeskBar.pdb
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)at, &mod)) GetModuleFileNameW(mod, name, MAX_PATH);
+    Log(L"CRASH code=%08lx addr=%p in %s +0x%llx", e->ExceptionRecord->ExceptionCode, at, FileNameOf(name).c_str(), (unsigned long long)((uintptr_t)at - (uintptr_t)mod));
     if (!g_dev) Explorer::Restore();       // never leave the user without a taskbar if we can't continue (the supervisor will start us again)
     Sleep(300); return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -104,6 +106,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (has(L"--supervise")) return RunSupervisor();
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
+    if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file
     if (!val(L"--selftest").empty()) {   // never touch the real settings: the test saves and reloads them
         wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws d = ws(t) + L"db3-selftest"; CreateDirectoryW(d.c_str(), nullptr); SetEnvironmentVariableW(L"DB3_DATA", d.c_str());

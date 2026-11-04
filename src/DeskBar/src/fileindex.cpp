@@ -23,8 +23,10 @@ struct Snap {
         if (d) folders.emplace(std::move(f), me);
     }
     void Seal() { noff.push_back((uint32_t)names.size()); loff.push_back((uint32_t)lower.size()); std::unordered_map<std::string, uint32_t>().swap(folders); for (auto* v : {&noff, &loff, &parent}) v->shrink_to_fit(); names.shrink_to_fit(); lower.shrink_to_fit(); dir.shrink_to_fit(); HeapCompact(GetProcessHeap(), 0); }   // sentinel end offsets
-    std::string_view Name(size_t i) const { return {names.data() + noff[i], noff[i + 1] - noff[i]}; }
-    std::string_view Low(size_t i) const { return {lower.data() + loff[i], loff[i + 1] - loff[i]}; }
+    // An entry ends where the next one starts; the last one ends at the end of the text. Seal() adds that end as a sentinel, but a snapshot that is
+    // still being built has none yet: reading noff[i + 1] there ran past the vector and crashed the bar after every rescan.
+    std::string_view Name(size_t i) const { size_t e = i + 1 < noff.size() ? noff[i + 1] : names.size(); return {names.data() + noff[i], e - noff[i]}; }
+    std::string_view Low(size_t i) const { size_t e = i + 1 < loff.size() ? loff[i + 1] : lower.size(); return {lower.data() + loff[i], e - loff[i]}; }
     void PathInto(size_t i, std::string& out) const {
         uint32_t p = parent[i];
         if (p & kRoot) out = roots[p & ~kRoot]; else PathInto(p, out);
@@ -33,14 +35,18 @@ struct Snap {
     std::string Path(size_t i) const { std::string out; PathInto(i, out); return out; }
     int Depth(size_t i) const { int n = 1; uint32_t p = parent[i]; while (!(p & kRoot)) { n++; p = parent[p]; } for (char c : roots[p & ~kRoot]) n += c == '\\'; return n; }
 };
-std::shared_ptr<const Snap> g_snap; std::mutex g_mu; std::atomic<bool> g_building{false};
+std::shared_ptr<const Snap> g_snap; std::mutex g_mu;
 const std::set<ws>& SkipDirs() { static const std::set<ws> s = [] { std::set<ws> r; for (auto n : {L"node_modules", L".git", L"__pycache__", L"$recycle.bin", L"winsxs", L".gradle", L".nuget", L".vs", L".cache", L"system volume information", L"windows", L"$windows.~bt", L"recovery", L"perflogs", L"driverstore", L".venv", L"venv", L".idea", L".m2", L"site-packages"}) r.insert(n); return r; }(); return s; }
 const std::set<ws>& Junctions() { static const std::set<ws> s = [] { std::set<ws> r; for (auto n : {L"application data", L"local settings", L"my documents", L"cookies", L"nethood", L"printhood", L"recent", L"sendto", L"start menu", L"templates", L"all users", L"default user", L"default"}) r.insert(n); return r; }(); return s; }
 const std::set<ws>& AppNoise() { static const std::set<ws> s = [] { std::set<ws> r; for (auto n : {L"temp", L"cache", L"caches", L"code cache", L"gpucache", L"packages", L"inetcache", L"crashdumps", L"d3dscache", L"microsoft", L"history", L"logs", L"crashpad", L"service worker", L"indexeddb", L"local storage", L"session storage", L"blob_storage"}) r.insert(n); return r; }(); return s; }
 const std::set<ws>& SkipExt() { static const std::set<ws> s = [] { std::set<ws> r; for (auto n : {L".dll", L".pyc", L".tmp", L".mui", L".mum", L".cat", L".etl", L".sys", L".pdb", L".lib", L".obj", L".class", L".map"}) r.insert(n); return r; }(); return s; }
 
-void Publish(const std::shared_ptr<Snap>& s) { auto c = std::make_shared<Snap>(); c->names = s->names; c->lower = s->lower; c->noff = s->noff; c->loff = s->loff; c->parent = s->parent; c->dir = s->dir; c->roots = s->roots; c->Seal(); std::lock_guard<std::mutex> l(g_mu); g_snap = c; }   // a copy without the build-only folder map
 ws CachePath() { return DataPath(L"fileindex.txt"); }
+std::string CacheText(const Snap& s) {   // one line per entry: 'd' or 'f' and the full path
+    std::string out, p; out.reserve(s.names.size() * 4 + s.Count() * 2);
+    for (size_t i = 0; i < s.Count(); i++) { out += s.dir[i] ? 'd' : 'f'; s.PathInto(i, p); out += p; out += '\n'; }
+    return out;
+}
 void LoadCache() {   // streamed in 1 MB chunks: reading the whole 90 MB file into one string doubled the peak memory
     HANDLE h = CreateFileW(CachePath().c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr); if (h == INVALID_HANDLE_VALUE) return;
     auto s = std::make_shared<Snap>(); std::string buf, carry; buf.resize(1 << 20); DWORD got = 0;
@@ -99,21 +105,30 @@ void Walk(const ws& root, uint64_t budgetMs, Snap& out, size_t cap) {
         FindClose(h);
     }
 }
-void Build() {
-    if (g_building.exchange(true)) return;
-    SetThreadPriority(GetCurrentThread(), 0x00010000);   // THREAD_MODE_BACKGROUND_BEGIN: low CPU and low disk priority
-    uint64_t t0 = Now(); auto s = std::make_shared<Snap>(); bool pub = false;
-    std::vector<ws> roots = Roots(), cloud, normal; for (auto& r : roots) (IsCloudRoot(r) ? cloud : normal).push_back(r);
-    auto run = [&](const ws& r, bool c) { size_t before = s->Count(); uint64_t t = Now(); Walk(r, c ? 60000 : 40000, *s, 2500000); Log(L"file index root %s: %d entries, %d ms", r.c_str(), (int)(s->Count() - before), (int)(Now() - t)); if (!pub && s->Count() > 1000) { Publish(s); pub = true; } };
+// The scan: walks the fixed drives and saves fileindex.txt. It runs in its OWN process ("DeskBar.exe --buildindex", started by SpawnScan) at background
+// priority for CPU, disk and memory. Inside the bar it competed with the window thread for the heap lock, and a crash in it took the bar down with it.
+int FileIndexBuildMain() {
+    SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN);
+    uint64_t t0 = Now(); Snap s; std::vector<ws> cloud, normal; for (auto& r : Roots()) (IsCloudRoot(r) ? cloud : normal).push_back(r);
+    auto run = [&](const ws& r, bool c) { size_t before = s.Count(); uint64_t t = Now(); Walk(r, c ? 60000 : 40000, s, 2500000); Log(L"file index root %s: %d entries, %d ms", r.c_str(), (int)(s.Count() - before), (int)(Now() - t)); };
     for (auto& r : normal) run(r, false);
-    Publish(s);                                     // everything but the slow cloud drives is searchable now
     for (auto& r : cloud) run(r, true);
-    size_t total = s->Count(); Log(L"file index: %d entries in %d ms", (int)total, (int)(Now() - t0));
-    std::string out; out.reserve(s->names.size() * 4 + s->Count() * 2);
-    { std::string p; for (size_t i = 0; i < s->Count(); i++) { out += s->dir[i] ? 'd' : 'f'; s->PathInto(i, p); out += p; out += '\n'; } }
-    WriteAtomic(CachePath(), out); std::string().swap(out);
-    s->Seal(); { std::lock_guard<std::mutex> l(g_mu); g_snap = std::move(s); }   // the final snapshot is handed over, not copied
-    g_building = false;
+    Log(L"file index: %d entries in %d ms", (int)s.Count(), (int)(Now() - t0));
+    s.Seal(); std::string out = CacheText(s); WriteAtomic(CachePath(), out);
+    return 0;
+}
+void SpawnScan() {
+    static std::atomic<bool> running{false}; if (running.exchange(true)) return;
+    std::thread([] {
+        wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); ws cmd = L"\"" + ws(exe) + L"\" --buildindex";
+        STARTUPINFOW si{sizeof si}; PROCESS_INFORMATION pi{}; DWORD code = (DWORD)-1;
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) {
+            if (WaitForSingleObject(pi.hProcess, 30 * 60 * 1000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &code); else TerminateProcess(pi.hProcess, 1);   // our own child, by handle
+            CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+        } else Log(L"file index: could not start the scan (%lu)", GetLastError());
+        if (code == 0) LoadCache(); else Log(L"file index: the scan ended with %lu, keeping the old list", code);
+        running = false;
+    }).detach();
 }
 
 // ---- search worker: latest request wins ----
@@ -153,16 +168,18 @@ void Worker() {
 }
 }
 
+int FileIndexBuild() { return FileIndexBuildMain(); }   // --buildindex
+
 void SearchFiles(const ws& q, std::function<void(std::vector<Result>)> cb) {
     static std::once_flag once; std::call_once(once, [] { std::thread(Worker).detach(); });
     uint64_t id = ++g_latest; { std::lock_guard<std::mutex> l(g_rmu); g_req = {q, id, std::move(cb)}; g_haveReq = true; } g_rcv.notify_one();
 }
 void FileIndexStart() {
-    std::thread([] { Sleep(15000); SetThreadPriority(GetCurrentThread(), 0x00010000); LoadCache(); }).detach();
+    std::thread([] { Sleep(30000); SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); LoadCache(); }).detach();   // after the boot rush; not "background" mode, whose slow page-ins can hold up a thread that shares the heap with the window
     WIN32_FILE_ATTRIBUTE_DATA fa{}; bool fresh = false;
     if (GetFileAttributesExW(CachePath().c_str(), GetFileExInfoStandard, &fa)) { FILETIME n; GetSystemTimeAsFileTime(&n); ULARGE_INTEGER a, b; a.LowPart = n.dwLowDateTime; a.HighPart = n.dwHighDateTime; b.LowPart = fa.ftLastWriteTime.dwLowDateTime; b.HighPart = fa.ftLastWriteTime.dwHighDateTime; fresh = (a.QuadPart - b.QuadPart) < 6ull * 3600 * 10000000; }
-    // The scan reads the whole disk: it runs as a low-priority job, only when the saved list is old, and rarely.
-    UiOnce(fresh ? 30 * 60000 : 2 * 60000, [] { std::thread(Build).detach(); UiTimer(3 * 3600 * 1000, [] { std::thread(Build).detach(); }); });
+    // The scan reads the whole disk: it runs as a low-priority process, only when the saved list is old, and rarely.
+    UiOnce(fresh ? 30 * 60000 : 3 * 60000, [] { SpawnScan(); UiTimer(3 * 3600 * 1000, [] { SpawnScan(); }); });
 }
 
 bool FileIndexSelfTest(ws& detail) {
@@ -176,6 +193,23 @@ bool FileIndexSelfTest(ws& detail) {
         if (got != items[i][0] || s.Depth(i) != depth) { detail = got + L" (depth " + std::to_wstring(s.Depth(i)) + L")"; return false; }
     }
     detail = std::to_wstring(s.Count()) + L" entries, " + std::to_wstring(s.roots.size()) + L" roots"; return s.folders.empty();
+}
+
+// A real scan of a small folder, saved the way Build() saves it. The first compressed index read one entry past the end here (the end marker was only
+// added after saving) and crashed the bar after every rescan; this runs that exact path, once with the snapshot still open and once sealed.
+bool FileIndexScanSelfTest(ws& detail) {
+    ws root = KnownFolder(FOLDERID_Profile) + L"\\db3-index-scan";   // not in %TEMP%: a scan deliberately doesn't go deep into AppData
+    SHCreateDirectoryExW(nullptr, (root + L"\\a\\b").c_str(), nullptr);
+    { std::string z = "x"; WriteAtomic(root + L"\\top.txt", z); WriteAtomic(root + L"\\a\\one.txt", z); WriteAtomic(root + L"\\a\\b\\deep.docx", z); WriteAtomic(root + L"\\a\\skip.dll", z); }
+    Snap s; Walk(root, 5000, s, 1000);
+    auto lines = [](const std::string& text) { std::set<std::string> r; size_t i = 0; while (i < text.size()) { size_t e = text.find('\n', i); r.insert(text.substr(i, e - i)); i = e + 1; } return r; };
+    std::string r8 = Narrow(root), open = CacheText(s);
+    std::set<std::string> want{"d" + r8 + "\\a", "d" + r8 + "\\a\\b", "f" + r8 + "\\top.txt", "f" + r8 + "\\a\\one.txt", "f" + r8 + "\\a\\b\\deep.docx"};   // .dll is never indexed
+    s.Seal(); std::string sealed = CacheText(s);
+    for (auto n : {L"\\a\\b\\deep.docx", L"\\a\\one.txt", L"\\a\\skip.dll", L"\\top.txt"}) DeleteFileW((root + n).c_str());
+    RemoveDirectoryW((root + L"\\a\\b").c_str()); RemoveDirectoryW((root + L"\\a").c_str()); RemoveDirectoryW(root.c_str());
+    detail = std::to_wstring(s.Count()) + L" entries saved before and after sealing";
+    return lines(open) == want && lines(sealed) == want;
 }
 
 void FileIndexMemReport(const ws& file) {

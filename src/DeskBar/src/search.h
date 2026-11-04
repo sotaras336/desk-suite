@@ -33,4 +33,6 @@ ws ExecutableFor(const ws& ext);
 void ProgramsLoadAsync();
 void FileIndexStart();
 bool FileIndexSelfTest(ws& detail);
+int FileIndexBuild();                        // --buildindex: scans the drives and saves fileindex.txt (its own process, started by the bar)
+bool FileIndexScanSelfTest(ws& detail);   // scans a small temp folder and saves it the way a rescan does
 void FileIndexMemReport(const ws& file);   // --indexmem: how much memory the saved index takes once loaded   // builds a tiny index in memory and checks that full paths and depths come back exactly
