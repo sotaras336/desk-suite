@@ -128,12 +128,13 @@ public partial class MainWindow
     {
         if (t.View == null || t.Entries == null) return;
         t.ViewSig = ViewSig();
-        if (_groupBy.Length > 0) foreach (var e in t.Entries) (e.Group, e.GroupRank) = GroupOf(e, _groupBy);
+        bool rel = t.ByRelevance && IsSearch(t.Current);   // best match first: no headings, until a column is clicked
+        if (_groupBy.Length > 0 && !rel) foreach (var e in t.Entries) (e.Group, e.GroupRank) = GroupOf(e, _groupBy);
         using (t.View.DeferRefresh())
         {
             t.View.GroupDescriptions.Clear();
-            if (_groupBy.Length > 0) t.View.GroupDescriptions.Add(new PropertyGroupDescription(nameof(FileEntry.Group)));
-            ApplySort(t.View);
+            if (_groupBy.Length > 0 && !rel) t.View.GroupDescriptions.Add(new PropertyGroupDescription(nameof(FileEntry.Group)));
+            ApplySort(t.View, rel);
         }
     }
 

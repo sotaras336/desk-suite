@@ -101,12 +101,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (!val(L"--snap").empty()) { g_snapMs = _wtoi(val(L"--snap").c_str()); g_snapDir = val(L"--snapdir"); if (g_snapDir.empty()) g_snapDir = DataDir(); }
     { ws o = val(L"--open"); g_openPanel = o == L"start" ? Panel::Start : o == L"quick" ? Panel::Quick : o == L"clock" ? Panel::Clock : Panel::None; g_openPreview = o == L"preview"; g_stall = o == L"stall"; }
     { ws c = val(L"--click"); if (c.find(L',') != ws::npos) { g_clickX = _wtoi(c.c_str()); g_clickY = _wtoi(c.c_str() + c.find(L',') + 1); } }
-    g_page = val(L"--page"); g_withTray = has(L"--tray"); g_sup = has(L"--sup");
+    g_wifiPreview = val(L"--wifipreview"); g_page = val(L"--page"); g_withTray = has(L"--tray"); g_sup = has(L"--sup");
     if (has(L"--restore")) { LogInit(false); LoadSettings(); Explorer::Restore(); Sleep(400); return 0; }
     if (has(L"--supervise")) return RunSupervisor();
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
     if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
+    if (!val(L"--wifitest").empty()) { LogInit(false); return WifiTest(val(L"--wifitest"), has(L"--keep")); }
+    if (!val(L"--indexquery").empty() && argc > 3) { LogInit(false); FileIndexQuery(val(L"--indexquery"), argv[argc - 1]); return 0; }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file
     if (!val(L"--selftest").empty()) {   // never touch the real settings: the test saves and reloads them
         wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws d = ws(t) + L"db3-selftest"; CreateDirectoryW(d.c_str(), nullptr); SetEnvironmentVariableW(L"DB3_DATA", d.c_str());

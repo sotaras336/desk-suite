@@ -21,6 +21,7 @@ public sealed class FileEntry : INotifyPropertyChanged
     public string Folder => Path.GetDirectoryName(FullPath) ?? "";   // the Folder column of search results
     public bool IsHidden { get; }   // shown dimmed, like File Explorer
     /// "Group by": the heading this item sits under and that heading's place in the order (Today before Yesterday...).
+    public double Score { get; set; }   // search results: how well the name fits (higher is better)
     public string Group { get; set; } = "";
     public int GroupRank { get; set; }
 

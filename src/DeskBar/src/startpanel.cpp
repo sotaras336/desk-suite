@@ -342,7 +342,7 @@ struct StartPanel : Flyout {
         std::set<std::pair<int, ws>> seen; std::vector<Result> u; for (auto& r : all) if (seen.insert({(int)r.kind, Lower(r.target)}).second) u.push_back(r);
         if (u.empty()) { auto* l = MkLabel(resCol, L"No results for “" + Trim(search->text) + L"”", FText(13), Col(K::White, K::Dim)); l->margin = Thick(12, 12, 0, 0); preview->Clear(); sel = -1; Relayout(); return; }
         Result best = u[0]; Section(L"Best match"); AddRow(best, true);
-        struct Sec { RKind k; const wchar_t* t; int max; }; static const Sec secs[] = {{RKind::Run, L"Run", 5}, {RKind::App, L"Apps", 5}, {RKind::Program, L"Programs", 5}, {RKind::Setting, L"Settings", 5}, {RKind::Folder, L"Folders", 5}, {RKind::File, L"Documents", 8}};
+        struct Sec { RKind k; const wchar_t* t; int max; }; static const Sec secs[] = {{RKind::Run, L"Run", 5}, {RKind::App, L"Apps", 5}, {RKind::Program, L"Programs", 5}, {RKind::Setting, L"Settings", 5}, {RKind::Folder, L"Folders", 6}, {RKind::File, L"Files", 14}};
         for (auto& s : secs) {
             int n = 0; bool head = false;
             for (auto& r : u) { if (r.kind != s.k || (&r == &u[0])) continue; if (n >= s.max) break; if (!head) { Section(s.t); head = true; } AddRow(r, false); n++; }

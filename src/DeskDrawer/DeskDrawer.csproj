@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- reads DeskBar's memory-mapped file index -->
     <AssemblyName>DeskDrawer</AssemblyName>
     <RootNamespace>DeskDrawer</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>

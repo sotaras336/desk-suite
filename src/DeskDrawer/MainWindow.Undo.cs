@@ -32,6 +32,7 @@ public partial class MainWindow
         var fresh = src.Select((p, i) => (From: p, To: landed[i])).Where(x => !Exists(x.To)).ToList();
         RunOp(() => move ? ShellOps.Move(src, dest, h) : ShellOps.Copy(src, dest, h, keepBothOnCollision: sameFolder), landed, dest, () =>
         {
+            Flash($"{(move ? "Moved" : "Copied")} " + (src.Count == 1 ? "“" + Path.GetFileName(src[0].TrimEnd('\\')) + "”" : $"{src.Count:N0} items"));
             if (fresh.Count == 0 || (!move && sameFolder)) return;   // "keep both" copies got new names we can't know
             string what = (fresh.Count == 1 ? Path.GetFileName(fresh[0].To) : $"{fresh.Count} items");
             if (move)

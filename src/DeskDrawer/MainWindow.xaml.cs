@@ -56,11 +56,15 @@ public partial class MainWindow : Window
         Loaded += (_, _) => { Start(); ShellNew.Preload(); };
         Closing += (_, e) => { SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
         PreviewKeyDown += Window_PreviewKeyDown;
+        PreviewMouseDown += (_, e) => { if (e.ChangedButton == MouseButton.XButton1) { GoBack(); e.Handled = true; } else if (e.ChangedButton == MouseButton.XButton2) { GoForward(); e.Handled = true; } };   // the mouse's back / forward buttons
         _reload.Tick += (_, _) => { _reload.Stop(); ReloadActive(); };
         BuildTree();
     }
 
-    private IntPtr Hwnd => new WindowInteropHelper(this).Handle;
+    // Cached: the shell operations ask for the owner window from a worker thread, and WPF refuses WindowInteropHelper.Handle off the UI thread
+    // (that exception was swallowed by the task, so Delete silently did nothing). Set on the UI thread once the window exists.
+    private IntPtr _hwnd;
+    private IntPtr Hwnd => _hwnd != IntPtr.Zero ? _hwnd : (_hwnd = new WindowInteropHelper(this).Handle);
 
     // ---------- window chrome: title bar in the theme colour, glass backdrop ----------
 
@@ -171,6 +175,7 @@ public partial class MainWindow : Window
     {
         Hide();
         foreach (var t in _tabs) t.Cts?.Cancel();
+        SharedIndex.Release();   // the map of DeskBar's file list goes back to the system while we sleep
         _tabs.Clear(); _tab = new TabState();
         List.ItemsSource = null; HomeContent.Children.Clear();
         _watch?.Dispose(); _watch = null; _reload.Stop(); _previewTimer.Stop();
@@ -206,7 +211,7 @@ public partial class MainWindow : Window
 
     private void SaveSession()
     {
-        if (App.SnapshotFile != null) return;
+        if (App.SnapshotFile != null || App.UiTest != null) return;
         _settings.Tabs = _tabs.Select(t => t.Current).Where(p => p != null).Select(p => p!).ToList(); _settings.ActiveTab = Math.Max(0, _tabs.IndexOf(_tab));
         _settings.Maximized = WindowState == WindowState.Maximized;
         _settings.PreviewOpen = _previewOpen; if (_previewOpen && PreviewCol.ActualWidth > 120) _settings.PreviewWidth = PreviewCol.ActualWidth;
@@ -309,7 +314,7 @@ public partial class MainWindow : Window
             }
             if (_tab.RenameAfterLoad is { } rp) { _tab.RenameAfterLoad = null; if (_tab.Entries.FirstOrDefault(x => string.Equals(x.FullPath, rp, StringComparison.OrdinalIgnoreCase)) is { } re) BeginRename(re); }
         }
-        ResetWatcher();
+        ResetWatcher(); ShowSearchBar();
         bool home = InHome;
         HomePane.Visibility = home ? Visibility.Visible : Visibility.Collapsed; List.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
         if (_previewOpen)   // nothing to preview on Home: give the cards the room, keep the setting
@@ -386,7 +391,9 @@ public partial class MainWindow : Window
         else if (alt && key == Key.Up) GoUp();
         else if (key == Key.F5) ReloadActive();
         else if (alt && key == Key.P) SetPreview(!_previewOpen);
-        else if (ctrl && key == Key.L) EditAddress();
+        else if ((ctrl && key == Key.L) || key == Key.F4 || (alt && key == Key.D)) EditAddress();
+        else if ((ctrl && key == Key.E) || key == Key.F3) Search.Focus();
+        else if (ctrl && shift && key == Key.C && Keyboard.FocusedElement is not TextBox) CopyPaths();
         else if (ctrl && key == Key.H) ToggleHidden();
         else if (ctrl && key == Key.N && !shift) OpenNewWindow();
         else if (ctrl && key == Key.Z && Keyboard.FocusedElement is not TextBox) Undo();
@@ -428,8 +435,8 @@ public partial class MainWindow : Window
         if (IsPage(p)) { Crumbs.Children.Add(new Button { Content = Pages[p].Title, Style = (Style)FindResource("Crumb") }); return; }
         if (IsSearch(p))
         {
-            var (sroot, q) = SearchParts(p);
-            var back = new Button { Content = "Search results for “" + q + "” in " + (Path.GetFileName(sroot.TrimEnd('\\')) is { Length: > 0 } leaf ? leaf : sroot), Style = (Style)FindResource("Crumb"), ToolTip = "Back to " + sroot };
+            var (sroot, q) = SearchParts(p); string leaf = Path.GetFileName(sroot.TrimEnd('\\')), where = sroot == ThisPcTag ? "this PC" : leaf.Length > 0 ? leaf : sroot;
+            var back = new Button { Content = "Search results for “" + q + "” in " + where, Style = (Style)FindResource("Crumb"), ToolTip = "Back to " + sroot };
             back.Click += (_, _) => Navigate(sroot); Crumbs.Children.Add(back); return;
         }
         string root = Path.GetPathRoot(p) ?? p, acc = root;
@@ -759,11 +766,18 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
+        if (Environment.TickCount64 < _flashUntil) return;   // a message ("Moved to the Recycle Bin") stays up for its three seconds, even if the folder reloads meanwhile
         int n = _tab.View?.Count ?? 0;
         Status.Text = n == 1 ? "1 item" : $"{n:N0} items";
     }
 
-    private void Flash(string text) { Status.Text = text; var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) }; t.Tick += (_, _) => { t.Stop(); UpdateStatus(); }; t.Start(); }
+    private long _flashUntil; private DispatcherTimer? _flashTimer;
+    private void Flash(string text)
+    {
+        Status.Text = text; _flashUntil = Environment.TickCount64 + 2900;
+        if (_flashTimer == null) { _flashTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) }; _flashTimer.Tick += (_, _) => { _flashTimer.Stop(); _flashUntil = 0; UpdateStatus(); }; }
+        _flashTimer.Stop(); _flashTimer.Start();
+    }
 
     // ---------- preview pane ----------
 
@@ -784,10 +798,12 @@ public partial class MainWindow : Window
     {
         private readonly string _key; private readonly bool _asc;
         private readonly bool _grouped;
-        public EntryComparer(string key, bool asc, bool grouped) { _key = key; _asc = asc; _grouped = grouped; }
+        private readonly bool _relevance;
+        public EntryComparer(string key, bool asc, bool grouped, bool relevance = false) { _key = key; _asc = asc; _grouped = grouped; _relevance = relevance; }
         public int Compare(object? x, object? y)
         {
             var a = (FileEntry)x!; var b = (FileEntry)y!;
+            if (_relevance) { int r = b.Score.CompareTo(a.Score); return r != 0 ? r : StrCmpLogicalW(a.Name, b.Name); }   // search results: best match first
             if (_grouped && (a.GroupRank != b.GroupRank || a.Group != b.Group)) return a.GroupRank != b.GroupRank ? a.GroupRank.CompareTo(b.GroupRank) : string.Compare(a.Group, b.Group, StringComparison.CurrentCultureIgnoreCase);   // headings in order
             if (a.IsDir != b.IsDir && !(_grouped && _key == "Date modified")) return a.IsDir ? -1 : 1;   // folders on top, except in date groups (File Explorer mixes them in by date there)
             int c = _key switch
@@ -802,7 +818,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ApplySort(ListCollectionView v) => v.CustomSort = new EntryComparer(_sortKey, _sortAsc, _groupBy.Length > 0);
+    private void ApplySort(ListCollectionView v, bool relevance = false) => v.CustomSort = new EntryComparer(_sortKey, _sortAsc, _groupBy.Length > 0 && !relevance, relevance);
 
     private void Header_Click(object s, RoutedEventArgs e)
     {
@@ -813,7 +829,7 @@ public partial class MainWindow : Window
 
     private void SetSort(string key, bool asc)
     {
-        _sortKey = key; _sortAsc = asc;
+        _sortKey = key; _sortAsc = asc; _tab.ByRelevance = false;
         UpdateSortHeaders(); if (_tab.View != null) ApplyGrouping(_tab);   // this folder only: each folder keeps its own order
         RememberView();
     }
@@ -823,7 +839,7 @@ public partial class MainWindow : Window
         var cols = _grid.Columns;
         for (int i = 0; i < cols.Count && i < ColumnNames.Length; i++)
         {
-            if (ColumnNames[i] != _sortKey) { cols[i].Header = ColumnNames[i]; continue; }
+            if (ColumnNames[i] != _sortKey || (_tab != null && _tab.ByRelevance && IsSearch(_tab.Current))) { cols[i].Header = ColumnNames[i]; continue; }   // search results: best match first, no arrow
             var sp = new StackPanel { Orientation = Orientation.Horizontal };   // a small chevron, not a full-size triangle
             sp.Children.Add(new TextBlock { Text = ColumnNames[i] });
             var arrow = new TextBlock { Text = _sortAsc ? "" : "", FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 9, Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -834,6 +850,7 @@ public partial class MainWindow : Window
 
     private void List_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
+        if (_mqActive) return;   // the selection box updates the status once per step, not once per item
         PreviewSoon(); UpdateCommands(); UpdateSelectionStatus();
     }
 
@@ -842,7 +859,7 @@ public partial class MainWindow : Window
         var sel = Sel();
         if (sel.Count == 0) { SelectionStatus.Text = ""; return; }
         long bytes = sel.Sum(x => x.Size);   // folders count once their size is known
-        SelectionStatus.Text = $"{sel.Count:N0} selected" + (bytes > 0 ? "   " + FileEntry.FormatSize(bytes) : "");
+        SelectionStatus.Text = (sel.Count == 1 && IsVirtual(_tab.Current) ? sel[0].Folder + "   " : "") + $"{sel.Count:N0} selected" + (bytes > 0 ? "   " + FileEntry.FormatSize(bytes) : "");   // in search results, where the one item lives
     }
 
     private List<FileEntry> Sel() => List.SelectedItems.Cast<FileEntry>().ToList();
@@ -854,13 +871,44 @@ public partial class MainWindow : Window
 
     // ---------- opening ----------
 
-    private void List_DoubleClick(object s, MouseButtonEventArgs e) { if (e.ChangedButton == MouseButton.Left && EntryUnder(e.OriginalSource) != null) OpenSelected(); }
+    private void List_DoubleClick(object s, MouseButtonEventArgs e) { DisarmRename(); if (e.ChangedButton == MouseButton.Left && EntryUnder(e.OriginalSource) != null) OpenSelected(); }
 
     private void List_KeyDown(object s, KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is TextBox) return;
         if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Alt) == 0) { OpenSelected(); e.Handled = true; }
         else if (e.Key == Key.Back) { GoUp(); e.Handled = true; }
+        else if (e.Key == Key.Escape && InSearch) { Navigate(SearchParts(_tab.Current!).Root); e.Handled = true; }   // out of the results, back to the folder you searched from
+    }
+
+    // ---------- click a selected name to rename it (File Explorer's slow double click) ----------
+
+    private FileEntry? _renameArm; private DispatcherTimer? _renameTimer;
+    [DllImport("user32.dll")] private static extern uint GetDoubleClickTime();
+
+    private void DisarmRename() { _renameArm = null; _renameTimer?.Stop(); }
+
+    /// Called on a left-button press: arms the rename only for a plain click on the name of the one item that was already selected.
+    private void ArmRename(MouseButtonEventArgs e, FileEntry? en)
+    {
+        DisarmRename();
+        if (en == null || e.ClickCount != 1 || Keyboard.Modifiers != ModifierKeys.None || InHome || List.SelectedItems.Count != 1 || List.SelectedItems[0] != en) return;
+        if (e.OriginalSource is TextBlock { Text: var t } && t == en.Name) _renameArm = en;
+    }
+
+    /// Called on release: if it was a click (no drag) and no second click follows within the double-click time, the name turns into a text box.
+    private void StartRenameTimer(FileEntry? at)
+    {
+        if (_renameArm == null || at != _renameArm) { _renameArm = null; return; }
+        _renameTimer ??= new DispatcherTimer();
+        _renameTimer.Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime() + 60);
+        _renameTimer.Tick -= RenameTimerTick; _renameTimer.Tick += RenameTimerTick; _renameTimer.Stop(); _renameTimer.Start();
+    }
+
+    private void RenameTimerTick(object? s, EventArgs e)
+    {
+        _renameTimer!.Stop(); var en = _renameArm; _renameArm = null;
+        if (en != null && List.SelectedItems.Count == 1 && List.SelectedItems[0] == en && !en.IsRenaming && _tab.Entries?.Contains(en) == true) BeginRename(en);
     }
 
     private void OpenSelected()
@@ -881,7 +929,15 @@ public partial class MainWindow : Window
     private void CopySelection(bool cut)
     {
         var p = Sel().Select(x => x.FullPath).ToList(); if (p.Count == 0) return;
-        ShellOps.SetClipboard(p, cut); UpdateCommands(); Flash(p.Count == 1 ? (cut ? "1 item cut" : "1 item copied") : $"{p.Count} items {(cut ? "cut" : "copied")}");
+        try { ShellOps.SetClipboard(p, cut); } catch (Exception) { Flash("Another program is using the clipboard. Try again"); return; }   // WPF already retried for a second
+        UpdateCommands(); Flash(p.Count == 1 ? (cut ? "1 item cut" : "1 item copied") : $"{p.Count} items {(cut ? "cut" : "copied")}");
+    }
+
+    /// The full path of what is selected (or of the open folder) onto the clipboard, quoted like File Explorer's "Copy as path".
+    private void CopyPaths()
+    {
+        var p = Sel().Select(x => "\"" + x.FullPath + "\"").ToList(); if (p.Count == 0 && !IsVirtual(_tab.Current)) p.Add("\"" + _tab.Current + "\""); if (p.Count == 0) return;
+        try { Clipboard.SetText(string.Join("\r\n", p)); Flash(p.Count == 1 ? "Path copied" : $"{p.Count} paths copied"); } catch { }
     }
 
     private string PasteTarget() => Sel() is { Count: 1 } s && s[0].IsDir ? s[0].FullPath : _tab.Current!;
@@ -897,20 +953,50 @@ public partial class MainWindow : Window
 
     private void DeleteSelection(bool permanent)
     {
-        var p = Sel().Select(x => x.FullPath).ToList(); if (p.Count == 0) return;
-        RunOp(() => ShellOps.Delete(p, Hwnd, permanent), null, null);
+        var sel = Sel(); if (sel.Count == 0 || InHome) return;
+        var p = sel.Select(x => x.FullPath).ToList(); var owner = Hwnd;
+        string what = sel.Count == 1 ? "“" + sel[0].Name + "”" : $"{sel.Count:N0} items", dir = _tab.Current!;
+        var next = NeighbourOf(sel);   // like File Explorer: the item after (or before) the deleted ones takes the selection, so Delete can be pressed again
+        RunOp(() => ShellOps.Delete(p, owner, permanent), next == null ? null : new[] { next }, dir, () =>
+        {
+            if (permanent) { Flash($"Deleted {what} for good"); return; }
+            Flash($"Moved {what} to the Recycle Bin. Ctrl+Z takes it back");
+            PushUndo("delete of " + what, _ => ShellOps.RestoreFromRecycleBin(p));
+        });
+    }
+
+    private string? NeighbourOf(List<FileEntry> sel)
+    {
+        var all = List.Items.Cast<FileEntry>().ToList(); var at = sel.Select(x => all.IndexOf(x)).Where(i => i >= 0).ToList(); if (at.Count == 0) return null;
+        for (int i = at.Max() + 1; i < all.Count; i++) if (!sel.Contains(all[i])) return all[i].FullPath;
+        for (int i = at.Min() - 1; i >= 0; i--) if (!sel.Contains(all[i])) return all[i].FullPath;
+        return null;
     }
 
     /// Runs a shell operation off the UI thread (the shell shows its own progress and conflict dialogs), then refreshes and selects the results.
+    /// A failure is said out loud: it used to vanish, which is how a broken Delete went unnoticed.
     private void RunOp(Func<bool> op, IEnumerable<string>? select, string? touchedDir, Action? succeeded = null)
     {
         Status.Text = "Working…"; var tab = _tab;
         Task.Run(op).ContinueWith(t => Dispatcher.BeginInvoke(() =>
         {
+            string? problem = null;
             if (t.Status == TaskStatus.RanToCompletion && t.Result) succeeded?.Invoke();
+            else if (t.IsFaulted) problem = "That didn't work: " + t.Exception?.GetBaseException().Message;
+            else if (t.Status == TaskStatus.RanToCompletion) problem = ShellOps.LastError;   // null when you cancelled it yourself
             if (select != null && touchedDir != null && string.Equals(touchedDir, tab.Current, StringComparison.OrdinalIgnoreCase)) tab.SelectAfterLoad = new HashSet<string>(select, StringComparer.OrdinalIgnoreCase);
-            foreach (var t in _tabs) if (t.Current != null) LoadTab(t);
+            foreach (var x in _tabs) if (x.Current != null) { if (IsSearch(x.Current)) PruneSearch(x); else LoadTab(x); }   // search results: drop what is gone instead of searching all over again
+            if (problem != null) Flash(problem); else UpdateStatus();
         }), TaskScheduler.Default);
+    }
+
+    /// A search tab after a delete / move: keep its results, minus the items that no longer exist.
+    private void PruneSearch(TabState tab)
+    {
+        if (tab.Entries == null || tab.Loading) return;
+        if (tab.Entries.RemoveAll(x => !Exists(x.FullPath)) == 0) return;
+        tab.View = new ListCollectionView(tab.Entries); ApplyGrouping(tab); ApplyFilter(tab);
+        if (tab == _tab) BindTab();
     }
 
     private void NewItem(bool folder)
@@ -1002,6 +1088,7 @@ public partial class MainWindow : Window
             items.Add(new Separator());
             items.Add(MI("Copy as path", "", () => { try { Clipboard.SetText(string.Join("\r\n", sel.Select(x => "\"" + x.FullPath + "\""))); } catch { } }));
             items.Add(MI("Properties", "", ShowProperties, "Alt+Enter"));
+            if (IsVirtual(_tab.Current) && sel.Count == 1) items.Add(MI("Open file location", "", () => ShowInFolder(sel[0].FullPath)));   // from search results
             AddItemExtras(items, sel);
             items.Add(new Separator());
             var paths = sel.Select(x => x.FullPath).ToList();
@@ -1057,7 +1144,9 @@ public partial class MainWindow : Window
 
     private void List_PreviewDown(object s, MouseButtonEventArgs e)
     {
-        _dragStart = e.GetPosition(null); _dragItem = EntryUnder(e.OriginalSource); _pendingSingle = null;
+        var under = EntryUnder(e.OriginalSource); _dragStart = e.GetPosition(null); _pendingSingle = null;
+        _dragItem = OnContent(e.OriginalSource as DependencyObject) ? under : null;   // only a name or icon is grabbed to drag a file; the blank part of a row starts the selection box
+        ArmRename(e, _dragItem); MarqueeArm(e, under);
         // pressing on one of several selected rows must not collapse the selection: that is how you drag them all
         if (_dragItem != null && List.SelectedItems.Count > 1 && List.SelectedItems.Contains(_dragItem) && Keyboard.Modifiers == ModifierKeys.None && e.ClickCount == 1)
         { _pendingSingle = _dragItem; e.Handled = true; List.Focus(); }
@@ -1065,6 +1154,13 @@ public partial class MainWindow : Window
 
     private void List_PreviewMove(object s, MouseEventArgs e)
     {
+        if (_mqActive) { e.Handled = true; if (Frame() is { } f0) MarqueeMoveTo(e.GetPosition(f0)); return; }   // the selection box follows the pointer
+        if (_mqArmed && e.LeftButton == MouseButtonState.Pressed && Frame() is { } f1)
+        {
+            var q = e.GetPosition(f1);
+            if (Math.Abs(q.X - _mqPress.X) >= SystemParameters.MinimumHorizontalDragDistance || Math.Abs(q.Y - _mqPress.Y) >= SystemParameters.MinimumVerticalDragDistance) { MarqueeBegin(); e.Handled = true; }
+            return;
+        }
         if (e.LeftButton != MouseButtonState.Pressed || _dragItem == null) { return; }
         var p = e.GetPosition(null);
         if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
@@ -1077,6 +1173,8 @@ public partial class MainWindow : Window
     {
         base.OnPreviewMouseLeftButtonUp(e);
         if (_pendingSingle != null) { var one = _pendingSingle; _pendingSingle = null; List.SelectedItems.Clear(); List.SelectedItems.Add(one); }   // it was a click, not a drag
+        MarqueeEnd();
+        StartRenameTimer(_dragItem);   // _dragItem is cleared the moment a drag starts, so a drag never renames
         _dragItem = null;
     }
 

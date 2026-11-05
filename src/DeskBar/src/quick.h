@@ -18,6 +18,7 @@ struct QuickPanel : Flyout {
 };
 View* PageHeader(View* parent, const ws& title, std::function<void()> back, Toggle** toggle = nullptr);
 View* MakeWifiPage(QuickPanel* q);
+extern ws g_wifiPreview;                              // dev: --wifipreview connecting|done|failed opens the Wi-Fi page already showing that card
 View* MakeBtPage(QuickPanel* q);
 View* MakeSoundPage(QuickPanel* q);
 View* MakeThemePage(QuickPanel* q);

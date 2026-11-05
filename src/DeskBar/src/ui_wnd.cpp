@@ -57,7 +57,9 @@ bool AnimActive(void* owner) {
 }
 
 // ================= window =================
-bool IsTouchMsg() { return (GetMessageExtraInfo() & 0xFFFFFF80) == 0xFF515700; }
+// Windows tags mouse messages made from touch or pen with 0xFF515700 in the upper three bytes; the low byte then holds the pointer id and bit 7 (0x80) is set for touch,
+// clear for pen. The old test masked with 0xFFFFFF80, which let only PEN through: a finger (e.g. 0xFF5157AD) never counted, so none of the touch handling ever ran.
+bool IsTouchMsg() { return ((unsigned long)GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700; }
 static LRESULT CALLBACK WProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Wnd* self = (Wnd*)GetWindowLongPtrW(h, GWLP_USERDATA);
     if (m == WM_NCCREATE) { self = (Wnd*)((CREATESTRUCTW*)l)->lpCreateParams; SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)self); if (self) self->hwnd = h; }
@@ -202,7 +204,7 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
         return Def(m, w, l);
     case WM_MOUSELEAVE: tracking = false; if (!press) SetHover(nullptr); return 0;
     case WM_MOUSEMOVE: {
-        float x = GET_X_LPARAM(l) / scale, y = GET_Y_LPARAM(l) / scale; touchLast = IsTouchMsg(); lastX = x; lastY = y;
+        float x = GET_X_LPARAM(l) / scale, y = GET_Y_LPARAM(l) / scale; if (!press) touchLast = IsTouchMsg(); lastX = x; lastY = y;   // during a press the kind of input is the one that started it: a stray untagged mouse-move must not turn a swipe into a mouse drag
         if (!tracking) { TRACKMOUSEEVENT t{sizeof t, TME_LEAVE, hwnd, 0}; TrackMouseEvent(&t); tracking = true; }
         if (panMode && panView) { panView->OnPan(x - panX, y - panY); panX = x; panY = y; return 0; }
         if (press) {

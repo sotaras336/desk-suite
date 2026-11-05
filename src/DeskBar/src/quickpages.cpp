@@ -2,6 +2,7 @@
 #include "quick.h"
 
 // Quick Settings detail pages: Wi-Fi, Bluetooth, Sound (output devices, "also play", per-app volume and routing).
+ws g_wifiPreview;   // --wifipreview <mode>: see quick.h
 namespace {
 struct Bars : View {      // four signal bars
     int n; D2D1_COLOR_F on, off; float s;
@@ -44,23 +45,58 @@ struct PageBase : View {
 #define GUARD auto w_ = Alive();
 #define IFALIVE if (w_.expired()) return;
 
+struct ConnectArt : View {   // the Wi-Fi mark in a soft disc: rings spread out and fade while connecting; a check and one burst when it worked; a warning and a shake when it did not
+    int mode = 0; float pop = 1; uint64_t t0 = Now(), tDone = 0;
+    ConnectArt() { fw = fh = 104; ha = Al::Center; }
+    void Finish(int m) {
+        mode = m; tDone = Now(); pop = 0.55f; Anim(this, &pop, 1.f, 380, Ease::CubicOut);
+        if (m == 2) AnimFn(wnd, 420, Ease::Linear, [this](float t) { tx = sinf(t * 6.28318f * 2.5f) * 7.f * (1 - t); Invalidate(); }, [this] { tx = 0; Invalidate(); });
+    }
+    void PaintContent(Gfx& g) override {
+        float cx = (rc.l + rc.r) / 2, cy = (rc.t + rc.b) / 2; double s = (double)(Now() - t0) / 1000.0;
+        auto ring = [&](float ph) { float rad = 25 + ph * 25, a = (1 - ph) * (1 - ph) * 0x6E; g.Stroke({cx - rad, cy - rad, cx + rad, cy + rad}, Col(K::White, (int)a), rad, 1.6f); };
+        if (mode == 0) for (int k = 0; k < 3; k++) ring(fmodf((float)(s / 2.4) + k / 3.f, 1.f));
+        else { float ph = std::min(1.f, (float)((double)(Now() - tDone) / 900.0)); if (ph < 1.f) ring(ph); }
+        float r = 25 * pop; g.Circle(cx, cy, r, Col(K::White, 0x40));
+        g.Glyph(mode == 1 ? 0xE73E : mode == 2 ? 0xE7BA : 0xE701, {cx - r, cy - r, cx + r, cy + r}, 26 * pop, Col(K::White));
+    }
+};
+struct Sweep : View {   // a thin track with a bright stretch running along it: "working on it", without pretending to know how far along it is
+    uint64_t t0 = Now();
+    Sweep() { fh = 4; }
+    void PaintContent(Gfx& g) override {
+        g.FillC(rc, Col(K::White, 0x30), 2);
+        float w = rc.w() * 0.34f, ph = fmodf((float)((double)(Now() - t0) / 1500.0), 1.f), e = ph < 0.5f ? 2 * ph * ph : 1 - 2 * (1 - ph) * (1 - ph), x = rc.l - w + (rc.w() + w) * e;
+        g.PushClip(rc, 2); g.FillC({x, rc.t, x + w, rc.b}, Col(K::White, 0xE6), 2); g.PopClip();
+    }
+};
+Brush CardBlue() { return LinearB(0, 0, 1, 1, {{0, Col(0x3AA6F5)}, {1, Col(0x1B58C6)}}); }
+Brush CardGreen() { return LinearB(0, 0, 1, 1, {{0, Col(0x3CC77A)}, {1, Col(0x1E8450)}}); }
+Brush CardRed() { return LinearB(0, 0, 1, 1, {{0, Col(0xE5675F)}, {1, Col(0xA13A3A)}}); }
+
 // ======================================================= Wi-Fi
 struct WifiPage : PageBase {
-    ws connecting, justConnected; int step = 0; Label* connLabel = nullptr;   // connecting: the network being joined right now (the form stays put until the answer arrives)
-    View *hero, *list; ws expanded; std::vector<WifiNet> nets; Toggle* tg = nullptr; TextBox *pwd = nullptr, *user = nullptr; Label* err = nullptr; View *pwdBox = nullptr, *userBox = nullptr, *pwdHint = nullptr, *userHint = nullptr, *btn = nullptr;
+    ws connecting, justConnected, formErr, savedPass, savedUser; bool askPass = false, askUser = false; uint64_t connStart = 0; int step = 0; Label* connLabel = nullptr;
+    ConnectArt* art = nullptr; Sweep* sweep = nullptr; Label *connTop = nullptr, *connSub = nullptr; View *connCard = nullptr, *connActs = nullptr;   // connecting: the network being joined right now (the form stays put until the answer arrives)
+    View *hero, *list, *netsHead = nullptr; ws expanded; std::vector<WifiNet> nets; Toggle* tg = nullptr; TextBox *pwd = nullptr, *user = nullptr; Label* err = nullptr; View *pwdBox = nullptr, *userBox = nullptr, *pwdHint = nullptr, *userHint = nullptr, *btn = nullptr;
     WifiPage(QuickPanel* p) : PageBase(p) {
         auto* h = PageHeader(this, L"Wi-Fi", [p] { p->Back(); }, &tg); (void)h;
         tg->Set(NetSnap().wifiOn); tg->onChange = [this](bool on) { NetSetWifi(on); GUARD UiOnce(on ? 1500 : 200, [this, w_, on] { IFALIVE Load(on); }); };
         hero = MkBox(this, Lay::V);
-        auto* head = MkBox(this, Lay::H); auto* sl = SectionLabel(head, L"Available networks"); sl->star = 1; sl->va = Al::Center;
+        auto* head = MkBox(this, Lay::H); netsHead = head; auto* sl = SectionLabel(head, L"Available networks"); sl->star = 1; sl->va = Al::Center;
         auto* rf = IconBtn(head, 0xE72C, 26, 11, [this] { Load(true, true); }); rf->bg = Brush{}; rf->tip = L"Scan again";
         list = MkBox(this, Lay::V);
         auto* f = Footer(this); MiniPill(f, L"Wi-Fi settings", 0xE713, false, [] { CloseAnd(L"ms-settings:network-wifi"); }); MiniPill(f, L"Hidden network", 0xE710, false, [] { CloseAnd(L"ms-settings:network-wifi"); });
         Load(NetSnap().wifiOn);
+        if (!g_wifiPreview.empty()) {   // developer check: --wifipreview connecting|done|failed shows that card without joining anything
+            GUARD ws mode = g_wifiPreview; connecting = L"Ucywifi_6GHz"; connStart = Now(); phase = 0; BuildConnecting(connecting);
+            auto id = std::make_shared<UINT_PTR>(0); *id = UiTimer(33, [this, w_, id] { if (w_.expired() || phase != 0) { UiKillTimer(*id); return; } ConnTick(); });
+            if (mode != L"connecting") UiOnce(400, [this, w_, mode] { IFALIVE ConnectDone(mode == L"done" ? ws() : ws(L"Windows couldn't reach the network (preview)."), connecting, false, false); });
+        }
     }
     void Load(bool on, bool forceFresh = false) {
         if (!connecting.empty()) return;   // rebuilding now would throw away the password box mid-connect
-        connLabel = nullptr; list->Clear(); hero->Clear(); NetState ns = NetSnap();
+        connLabel = nullptr; netsHead->visible = true; list->Clear(); hero->Clear(); NetState ns = NetSnap();
         if (!on) { Empty(list, 0xEB5E, L"Wi-Fi is off", L"Turn it on with the switch above."); q->Relayout(); return; }
         if (ns.kind == NetState::WiFi && !ns.name.empty()) BuildHero(ns.name, ns.bars, true, nullptr);
         if (nets.empty()) nets = WifiLast();
@@ -81,7 +117,7 @@ struct WifiPage : PageBase {
     }
     void Render() {
         if (!connecting.empty()) return;
-        connLabel = nullptr; list->Clear(); hero->Clear(); NetState ns = NetSnap();
+        connLabel = nullptr; netsHead->visible = true; list->Clear(); hero->Clear(); NetState ns = NetSnap();
         const WifiNet* conn = nullptr; for (auto& n : nets) if (n.connected) conn = &n;
         if (conn) BuildHero(conn->ssid, conn->bars, conn->secured, conn); else if (ns.kind == NetState::WiFi) BuildHero(ns.name, ns.bars, true, nullptr);
         int others = 0;
@@ -119,7 +155,7 @@ struct WifiPage : PageBase {
     }
     void BuildRow(const WifiNet& n) {
         bool open = expanded == n.ssid; ws ssid = n.ssid;
-        auto* c = ClickCard(list, [this, ssid] { if (!connecting.empty()) return; expanded = expanded == ssid ? ws() : ssid; Render(); }, open);
+        auto* c = ClickCard(list, [this, ssid] { if (!connecting.empty()) return; expanded = expanded == ssid ? ws() : ssid; askPass = askUser = false; formErr.clear(); savedPass.clear(); savedUser.clear(); Render(); }, open);
         auto* top = MkBox(c, Lay::H); top->gap = 0;
         auto* b = top->Add(new Bars(n.bars, Col(K::Accent), Col(K::White, K::CardHover), 1)); b->margin = Thick(0, 0, 17, 0);
         auto* nm = MkBox(top, Lay::V); nm->star = 1; nm->va = Al::Center;
@@ -145,35 +181,61 @@ struct WifiPage : PageBase {
         field(L"User name (e.g. your university email)", false, &userBox, &user, &userHint);
         field(L"Network password", true, &pwdBox, &pwd, &pwdHint);
         err = MkLabel(p, L"", FText(12), Col(0xFFA3A3)); err->wrap = true; err->visible = false; err->margin = Thick(2, 0, 0, 8);
+        if (askPass) { pwdBox->visible = pwdHint->visible = true; pwd->SetText(savedPass, false); }   // coming back after "that password didn't work": what was typed is still there
+        if (askUser) { userBox->visible = userHint->visible = true; user->SetText(savedUser, false); }
+        if (!formErr.empty()) { err->Set(formErr); err->visible = true; }
         bool ent = n.enterprise; ws ssid = n.ssid; GUARD
         auto connect = [this, w_, ent, ssid] {
-            if (!connecting.empty()) return;
-            err->visible = false; bool usePass = pwdBox->visible;
-            connecting = ssid; SetConnecting(true);
-            WifiConnect(ssid, usePass ? pwd->text : L"", userBox->visible ? Trim(user->text) : L"", usePass, [this, w_, ent, ssid](ws res) {
-                IFALIVE
-                connecting.clear(); SetConnecting(false);
-                if (res.empty()) {
-                    justConnected = ssid; expanded.clear(); UiOnce(700, [this, w_] { IFALIVE Load(true); UiOnce(4000, [this, w_] { IFALIVE justConnected.clear(); Load(true); }); }); return;
-                }
-                if (res == L"password") {
-                    if (pwdBox->visible) { err->Set(L"That password didn't work. Try again."); err->visible = true; }
-                    pwdBox->visible = pwdHint->visible = true; if (ent) { userBox->visible = userHint->visible = true; q->SetFocus(user); } else q->SetFocus(pwd);
-                } else { err->Set(res); err->visible = true; }
-                q->Relayout();
-            });
+            if (!connecting.empty() || !pwdBox) return;
+            bool usePass = pwdBox->visible; ws pass = usePass ? pwd->text : ws(), who = userBox->visible ? Trim(user->text) : ws();
+            connecting = ssid;   // shuts the door at once; the card is built a moment later, outside this click (it replaces the form that was clicked)
+            UiOnce(0, [this, w_, ssid, pass, who, usePass, ent] { IFALIVE StartConnect(ssid, pass, who, usePass, ent); });
         };
         btn = Pill(p, L"Connect", 0xE71B, true, connect); btn->ha = Al::End; btn->pad = Thick(18, 8);
         pwd->onEnter = connect;
     }
-    // While the answer is pending the button turns into a "Connecting..." label with moving dots and ignores clicks.
-    void SetConnecting(bool on) {
-        if (!btn) return; auto* lab = static_cast<Label*>(btn->kids.back());
-        btn->enabled = !on; btn->opacity = on ? 0.8f : 1.f; step = 0; lab->Set(on ? Dots(L"Connecting", 0) : ws(L"Connect")); connLabel = on ? lab : nullptr;
-        if (on) {
-            GUARD auto id = std::make_shared<UINT_PTR>(0);
-            *id = UiTimer(350, [this, w_, id] { if (w_.expired() || connecting.empty()) { UiKillTimer(*id); return; } step++; if (connLabel) connLabel->Set(Dots(L"Connecting", step)); });
+
+    // ---- connecting: the page becomes one card that shows what is going on, then what happened ----
+    int phase = 0;   // 0 connecting, 1 connected, 2 failed
+    void StartConnect(const ws& ssid, const ws& pass, const ws& who, bool usePass, bool ent) {
+        savedPass = pass; savedUser = who; formErr.clear(); connecting = ssid; connStart = Now(); phase = 0;
+        BuildConnecting(ssid); GUARD auto id = std::make_shared<UINT_PTR>(0);
+        *id = UiTimer(33, [this, w_, id] { if (w_.expired() || phase != 0 || connecting.empty()) { UiKillTimer(*id); return; } ConnTick(); });
+        WifiConnect(ssid, pass, who, usePass, [this, w_, ssid, usePass, ent](ws res) { IFALIVE ConnectDone(res, ssid, usePass, ent); });
+    }
+    void BuildConnecting(const ws& ssid) {
+        connLabel = nullptr; btn = nullptr; pwd = nullptr; user = nullptr; pwdBox = userBox = pwdHint = userHint = nullptr; err = nullptr;   // the form is going away
+        netsHead->visible = false; list->Clear(); hero->Clear();   // just the card: the list of networks comes back when it is over
+        auto* h = MkBox(hero, Lay::V); h->radius = 14; h->pad = Thick(16, 20, 16, 18); h->margin = Thick(0, 4, 0, 16); h->bg = CardBlue(); connCard = h;
+        art = new ConnectArt(); h->Add(art);
+        connTop = MkLabel(h, L"Connecting to", FText(11.5f), Col(K::White, 0xCC)); connTop->ha = Al::Center; connTop->margin = Thick(0, 10, 0, 2);
+        auto* nm = MkLabel(h, ssid, FText(18, 600)); nm->ha = Al::Center; nm->wrap = true; nm->ta = TA::Center;
+        connSub = MkLabel(h, L"Joining the network…", FText(12.5f), Col(K::White, 0xDD)); connSub->ha = Al::Center; connSub->wrap = true; connSub->ta = TA::Center; connSub->margin = Thick(0, 6, 0, 14);
+        sweep = new Sweep(); h->Add(sweep); sweep->margin = Thick(24, 0);
+        connActs = MkBox(h, Lay::H); connActs->gap = 8; connActs->ha = Al::Center; connActs->margin = Thick(0, 16, 0, 0); connActs->visible = false;
+        q->Relayout();
+    }
+    void ConnTick() {   // every frame while waiting: the rings and the running light move; the words change as the wait gets longer (they only say what we know: it is still going)
+        double s = (double)(Now() - connStart) / 1000.0;
+        connSub->Set(s < 2 ? L"Joining the network…" : s < 6 ? L"Almost there…" : s < 10 ? L"Taking a little longer than usual…" : L"Still trying. A weak signal or a busy router can do this.");
+        art->Invalidate();
+    }
+    void ConnectDone(const ws& res, const ws& ssid, bool usePass, bool ent) {
+        GUARD
+        if (res.empty()) {   // joined: the card turns green with a check and a ring, holds for a moment, then the page shows the network as connected
+            phase = 1; art->Finish(1); sweep->visible = false; connCard->bg = CardGreen(); connTop->Set(L"Connected to"); connSub->Set(L"You're on the network."); q->Relayout();
+            justConnected = ssid;
+            UiOnce(1300, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true); UiOnce(4000, [this, w_] { IFALIVE justConnected.clear(); Load(true); }); });
+            return;
         }
+        if (res == L"password") {   // it wants a password (or a different one): straight back to the form, with the field open and focused
+            askPass = true; askUser = ent; formErr = usePass ? ws(L"That password didn't work. Try again.") : ws(); connecting.clear(); expanded = ssid; Render();
+            UiOnce(80, [this, w_] { IFALIVE if (askUser && user) q->SetFocus(user); else if (pwd) q->SetFocus(pwd); });
+            return;
+        }
+        phase = 2; art->Finish(2); sweep->visible = false; connCard->bg = CardRed(); connTop->Set(L"Couldn't connect to"); connSub->Set(res); connActs->visible = true;
+        MiniPill(connActs, L"Try again", 0xE72C, false, [this, w_, ssid, usePass, ent] { UiOnce(0, [this, w_, ssid, usePass, ent] { IFALIVE connecting.clear(); StartConnect(ssid, savedPass, savedUser, usePass, ent); }); });
+        MiniPill(connActs, L"Back", 0xE72B, false, [this, w_] { UiOnce(0, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true); }); });
         q->Relayout();
     }
 };

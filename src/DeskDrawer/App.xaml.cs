@@ -5,7 +5,7 @@ namespace DeskDrawer;
 public partial class App : Application
 {
     /// DeskDrawer.exe [folder ...]  [--theme id]  [--snapshot out.png]  [--selftest report.txt]
-    public static string? ForcedTheme, SnapshotFile;
+    public static string? ForcedTheme, SnapshotFile, UiTest;   // --uitest report.txt: drive the real window (MainWindow.Test.cs)
     public static string? ForcedView;   // --view Details|List|Tiles|Icons, for snapshots
     public static string? SelectName;   // --select name: with --snapshot, select that item first (to photograph the preview pane)
     public static bool ShowMenu, ShowMore, BgMenu;   // --bgmenu: photograph the menu of empty space   // --showmore: photograph the themed "more options" menu of the first file   // --showmenu: with --snapshot, also open the right-click menu on the first item and photograph it
@@ -32,6 +32,7 @@ public partial class App : Application
             else if (e.Args[i] == "--select" && i + 1 < e.Args.Length) SelectName = e.Args[++i];
             else if (e.Args[i] == "--view" && i + 1 < e.Args.Length) ForcedView = e.Args[++i];
             else if (e.Args[i] == "--new-window") newWindow = true;
+            else if (e.Args[i] == "--uitest" && i + 1 < e.Args.Length) { UiTest = e.Args[++i]; newWindow = true; }
             else if (e.Args[i] == "--background") Background = true;
             else if (e.Args[i] == "--default" && i + 1 < e.Args.Length) { DefaultApp.Set(e.Args[++i] == "on", Environment.ProcessPath!); Shutdown(0); return; }
             else if (!e.Args[i].StartsWith("--")) StartPaths.Add(CleanPath(e.Args[i]));
@@ -52,6 +53,7 @@ public partial class App : Application
         Resident = !test && !newWindow;
         SessionEnding += (_, _) => Quitting = true;
         var w = new MainWindow(); w.Show();
+        if (UiTest != null) { w.RunUiTest(UiTest); return; }
         if (!test) { Instance.Listen(w.OpenFromOutside); DialogSwitch.Start(w.FoldersToOffer); }
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
     }

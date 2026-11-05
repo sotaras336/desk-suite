@@ -31,6 +31,9 @@ public static class SelfTest
             Check("copy keep-both in same folder", ShellOps.Copy(new[] { f1 }, a, IntPtr.Zero, keepBothOnCollision: true) && Directory.GetFiles(a).Length == 3);
             Check("move", ShellOps.Move(new[] { f2 }, root, IntPtr.Zero) && File.Exists(Path.Combine(root, "two.txt")) && !File.Exists(f2));
             Check("recycle", ShellOps.Delete(new[] { Path.Combine(root, "two.txt") }, IntPtr.Zero) && !File.Exists(Path.Combine(root, "two.txt")));
+            string rb = Path.Combine(root, "restore-me.txt"); File.WriteAllText(rb, "r");
+            bool binned = ShellOps.Delete(new[] { rb }, IntPtr.Zero) && !File.Exists(rb);
+            Check("delete can be undone from the Recycle Bin", binned && ShellOps.RestoreFromRecycleBin(new[] { rb }) && File.Exists(rb));
             string tmp = Path.Combine(root, "gone.txt"); File.WriteAllText(tmp, "x");
             Check("permanent delete", ShellOps.Delete(new[] { tmp }, IntPtr.Zero, permanent: true) && !File.Exists(tmp));
 

@@ -17,6 +17,10 @@ public sealed class TabState : INotifyPropertyChanged
     public string? Error;
     public HashSet<string> SelectAfterLoad = new(StringComparer.OrdinalIgnoreCase);
     public string? RenameAfterLoad;
+    /// A search tab: results come in best match first until you click a column to sort them yourself; the banner above them says what is being searched.
+    public bool ByRelevance, Searching, UsedIndex, ForceLive;   // UsedIndex: the results came from DeskBar's list; ForceLive: the "Search live" button was pressed
+    public CancellationTokenSource? SearchStop;   // the Stop button: ends the search, keeps what it found
+    public string SearchTitle = "", SearchDetail = "";
 
     private string _title = "New tab"; private bool _active;
     public string Title { get => _title; set { _title = value; Raise(nameof(Title)); } }

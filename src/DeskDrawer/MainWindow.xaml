@@ -143,9 +143,9 @@
                     </Border>
                 </Grid>
                 <Grid Grid.Column="2" VerticalAlignment="Center">
-                    <TextBox x:Name="Search" Style="{StaticResource Field}" TextChanged="Search_Changed" KeyDown="Search_KeyDown" Padding="34,0,12,0" ToolTip="Type to filter this folder; Enter searches every folder inside it too"/>
+                    <TextBox x:Name="Search" Style="{StaticResource Field}" TextChanged="Search_Changed" KeyDown="Search_KeyDown" Padding="34,0,12,0" ToolTip="Type to filter this folder. Enter searches every folder inside it too (several words: all of them must match). From Home or This PC, Enter searches the whole PC"/>
                     <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="{DynamicResource FgDim}" Margin="13,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
-                    <TextBlock x:Name="SearchHint" Text="Filter · Enter searches subfolders" Foreground="{DynamicResource FgFaint}" Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                    <TextBlock x:Name="SearchHint" Text="Filter · Enter searches inside" Foreground="{DynamicResource FgFaint}" Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
                 </Grid>
             </Grid>
         </Border>
@@ -181,7 +181,7 @@
                           PreviewMouseLeftButtonDown="List_PreviewDown" PreviewMouseMove="List_PreviewMove" PreviewMouseDown="List_MiddleDown"
                           PreviewMouseRightButtonDown="List_RightDown" PreviewMouseRightButtonUp="List_RightUp"
                           DragOver="List_DragOver" Drop="List_Drop"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True" IsTextSearchEnabled="True" TextSearch.TextPath="Name">
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.ScrollUnit="Pixel" LostMouseCapture="List_LostCapture" IsTextSearchEnabled="True" TextSearch.TextPath="Name">
                     <ListView.GroupStyle>
                         <GroupStyle>
                             <GroupStyle.HeaderTemplate>
@@ -237,6 +237,23 @@
                     <StackPanel x:Name="HomeContent" Margin="30,22,22,26"/>
                 </ScrollViewer>
                 <TextBlock x:Name="Message" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}" FontSize="14" Visibility="Collapsed" IsHitTestVisible="False"/>
+                <!-- the drag-select box is drawn here, above the list -->
+                <Canvas x:Name="MarqueeLayer" IsHitTestVisible="False" ClipToBounds="True"/>
+                <!-- Search results: what is being searched, how far it has got, and the way out to a wider search -->
+                <Border x:Name="SearchBar" VerticalAlignment="Top" Height="52" Visibility="Collapsed" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="0,0,0,1">
+                    <Grid Margin="16,0,8,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="SearchTitle" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Fg}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="SearchDetail" FontSize="12" Foreground="{DynamicResource FgDim}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="SearchLiveBtn" Style="{StaticResource Cmd}" Content="Search live" Click="SearchLive_Click" ToolTip="Walk every disk instead of reading DeskBar's list of files: slower, but also finds files made since its last scan"/>
+                            <Button x:Name="SearchScopeBtn" Style="{StaticResource Cmd}" Content="Search this PC" Click="SearchScope_Click" ToolTip="Look everywhere on this PC, not only in the folder you started from"/>
+                            <Button x:Name="SearchStopBtn" Style="{StaticResource Cmd}" Content="Stop" Click="SearchStop_Click" ToolTip="Stop looking and keep what has been found"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
             </Grid>
         </Grid>
 

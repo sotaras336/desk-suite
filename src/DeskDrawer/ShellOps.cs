@@ -26,6 +26,8 @@ public static class ShellOps
 
     /// Tests set this: no dialogs, no confirmations.
     public static bool Silent;
+    /// Why the last operation failed, for the status bar; null when it worked or you cancelled it yourself.
+    public static string? LastError;
 
     private static bool Run(uint func, IEnumerable<string> from, string? to, ushort flags, IntPtr owner)
     {
@@ -33,7 +35,33 @@ public static class ShellOps
         if (Silent) flags |= FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR;
         var op = new SHFILEOPSTRUCT { hwnd = owner, wFunc = func, pFrom = string.Join("\0", list) + "\0", pTo = to == null ? null : to + "\0", fFlags = flags };
         int rc = SHFileOperation(ref op);
+        LastError = rc != 0 && op.fAnyOperationsAborted == 0 ? $"Windows couldn't finish that (error 0x{rc:X})" : null;
         return rc == 0 && op.fAnyOperationsAborted == 0;
+    }
+
+    /// Undo for a delete: puts the items back where they were, from the Recycle Bin. Takes the newest copy of each path.
+    public static bool RestoreFromRecycleBin(IEnumerable<string> paths)
+    {
+        var want = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase); int back = 0;
+        var t = new Thread(() =>
+        {
+            try
+            {
+                dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!)!, bin = shell.NameSpace(10);   // 10 = the Recycle Bin
+                var found = new Dictionary<string, (DateTime When, dynamic Item)>(StringComparer.OrdinalIgnoreCase);
+                foreach (dynamic item in bin.Items())
+                {
+                    string from = Path.Combine((string)bin.GetDetailsOf(item, 1), (string)item.ExtendedProperty("System.FileName"));   // column 1 = where it came from
+                    if (!want.Contains(from)) continue;
+                    DateTime when = item.ExtendedProperty("System.Recycle.DateDeleted") is DateTime d ? d : DateTime.MinValue;
+                    if (!found.TryGetValue(from, out var old) || when >= old.When) found[from] = (when, item);
+                }
+                foreach (var f in found.Values) { f.Item.InvokeVerb("undelete"); back++; }
+            }
+            catch { }
+        });
+        t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
+        return back > 0;
     }
 
     public static bool Copy(IEnumerable<string> src, string destDir, IntPtr owner, bool keepBothOnCollision = false) =>

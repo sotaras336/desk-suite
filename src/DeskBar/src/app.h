@@ -66,6 +66,7 @@ void NetSetWifi(bool on); void NetSetBt(bool on); void NetSetAirplane(bool on);
 void NetHotspot(bool query, bool on, std::function<void(int state)> cb);          // state: -1 unknown, 0 off, 1 on
 void WifiScan(bool fresh, std::function<void(bool access, std::vector<WifiNet>)> cb);
 std::vector<WifiNet> WifiLast();
+int WifiTest(const ws& ssid, bool keep);   // --wifitest <ssid> [--keep]: a drop and reconnect (or just the connect call), logged
 void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, std::function<void(ws err)> cb);   // err: "" ok, "password", or a message
 void WifiDisconnect();
 void BtDevices(std::function<void(std::vector<BtDev>)> cb);

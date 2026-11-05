@@ -181,6 +181,11 @@ void NetHotspot(bool query, bool on, std::function<void(int)> cb) {
     });
 }
 std::vector<WifiNet> WifiLast() { std::lock_guard<std::mutex> l(g_mu); return g_wifiLast; }
+// The network this adapter is joined to ("" = none). Windows can hand back a connection profile whose Wi-Fi details are not there yet (right after connecting): calling
+// into that missing object is a null dereference, which try/catch does not catch, so it is checked first.
+static ws ConnectedSsid() {
+    try { auto pr = g_adapter.NetworkAdapter().GetConnectedProfileAsync().get(); if (!pr) return {}; auto d = pr.WlanConnectionProfileDetails(); if (!d) return {}; return ws(d.GetConnectedSsid().c_str()); } catch (...) { return {}; }
+}
 void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
     Post([=] {
         std::vector<WifiNet> out; bool access = true;
@@ -190,7 +195,7 @@ void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
                 if (!g_adapter) { auto all = WiFiAdapter::FindAllAdaptersAsync().get(); if (all.Size()) g_adapter = all.GetAt(0); }
                 if (g_adapter) {
                     if (fresh) g_adapter.ScanAsync().get();
-                    ws connected; try { auto pr = g_adapter.NetworkAdapter().GetConnectedProfileAsync().get(); if (pr) connected = pr.WlanConnectionProfileDetails().GetConnectedSsid().c_str(); } catch (...) {}
+                    ws connected = ConnectedSsid();
                     std::map<ws, WiFiAvailableNetwork> best;
                     for (auto n : g_adapter.NetworkReport().AvailableNetworks()) {
                         ws ssid = n.Ssid().c_str(); if (ssid.empty()) continue;
@@ -205,31 +210,65 @@ void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
         UiPost([cb, access, out] { cb(access, out); });
     });
 }
-void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, std::function<void(ws)> cb) {
-    Post([=] {
-        ws err;
-        try {
-            auto it = g_raw.find(ssid);
-            if (!g_adapter || it == g_raw.end()) err = L"Network not available";
-            else {
-                winrt::Windows::Devices::WiFi::WiFiConnectionResult res{nullptr};
-                if (!usePass) res = g_adapter.ConnectAsync(it->second, WiFiReconnectionKind::Automatic).get();
-                else {
-                    winrt::Windows::Security::Credentials::PasswordCredential cred; cred.Password(pass); if (!user.empty()) cred.UserName(user);
-                    res = g_adapter.ConnectAsync(it->second, WiFiReconnectionKind::Automatic, cred).get();
-                }
-                switch (res.ConnectionStatus()) {
-                case WiFiConnectionStatus::Success: break;
-                case WiFiConnectionStatus::InvalidCredential: err = L"password"; break;
-                case WiFiConnectionStatus::Timeout: err = L"Timed out"; break;
-                case WiFiConnectionStatus::NetworkNotAvailable: err = L"Network not available"; break;
-                case WiFiConnectionStatus::AccessRevoked: err = L"Access revoked"; break;
-                default: err = L"Couldn't connect";
-                }
+// Is the adapter joined to this network right now? (what Windows itself says, whatever the connect call reported)
+static bool ConnectedTo(const ws& ssid) { return ConnectedSsid() == ssid; }
+static const wchar_t* StatusName(WiFiConnectionStatus s) {
+    switch (s) { case WiFiConnectionStatus::Success: return L"Success"; case WiFiConnectionStatus::AccessRevoked: return L"AccessRevoked"; case WiFiConnectionStatus::InvalidCredential: return L"InvalidCredential";
+    case WiFiConnectionStatus::NetworkNotAvailable: return L"NetworkNotAvailable"; case WiFiConnectionStatus::Timeout: return L"Timeout"; case WiFiConnectionStatus::UnsupportedAuthenticationProtocol: return L"UnsupportedAuthenticationProtocol"; default: return L"UnspecifiedFailure"; }
+}
+// One try. "" = connected, "password", or a message. The network is looked up in the adapter's CURRENT report (the copy kept from the last scan can be minutes
+// old, with an access point that has since changed: the first try failed instantly and a later one, after a rescan, worked), and the strongest signal wins.
+static ws TryConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, bool scanFirst) {
+    if (scanFirst) { try { g_adapter.ScanAsync().get(); } catch (...) {} }
+    WiFiAvailableNetwork best{nullptr};
+    for (auto n : g_adapter.NetworkReport().AvailableNetworks()) if (ws(n.Ssid().c_str()) == ssid && (!best || n.NetworkRssiInDecibelMilliwatts() > best.NetworkRssiInDecibelMilliwatts())) best = n;
+    if (!best) { Log(L"wifi connect %s: not in the adapter's report%s", ssid.c_str(), scanFirst ? L" even after a scan" : L""); return L"Network not available"; }
+    uint64_t t0 = Now(); winrt::Windows::Devices::WiFi::WiFiConnectionResult res{nullptr};
+    if (!usePass) res = g_adapter.ConnectAsync(best, WiFiReconnectionKind::Automatic).get();
+    else {
+        winrt::Windows::Security::Credentials::PasswordCredential cred; cred.Password(pass); if (!user.empty()) cred.UserName(user);
+        res = g_adapter.ConnectAsync(best, WiFiReconnectionKind::Automatic, cred).get();
+    }
+    auto st = res.ConnectionStatus(); Log(L"wifi connect %s: %s after %d ms%s", ssid.c_str(), StatusName(st), (int)(Now() - t0), scanFirst ? L" (second try)" : L"");
+    switch (st) {
+    case WiFiConnectionStatus::Success: return L"";
+    case WiFiConnectionStatus::InvalidCredential: return L"password";
+    case WiFiConnectionStatus::Timeout: return L"Timed out";
+    case WiFiConnectionStatus::NetworkNotAvailable: return L"Network not available";
+    case WiFiConnectionStatus::AccessRevoked: return L"Access revoked";
+    default: return L"Couldn't connect";
+    }
+}
+// The whole connect, blocking (runs on the worker thread): "" = connected, "password", or a message.
+static ws ConnectBlocking(const ws& ssid, const ws& pass, const ws& user, bool usePass) {
+    ws err;
+    try {
+        if (!g_adapter) err = L"No Wi-Fi adapter found";
+        else {
+            err = TryConnect(ssid, pass, user, usePass, false);
+            if (!err.empty() && err != L"password") err = TryConnect(ssid, pass, user, usePass, true);   // a stale or aborted first try: scan, look again, try once more
+            if (!err.empty()) {   // the call can report a failure for a connection Windows then completes (enterprise sign-in especially): trust what the adapter says
+                int waitMs = err == L"password" ? 3000 : 8000, t = 0; while (t < waitMs && !ConnectedTo(ssid)) { Sleep(500); t += 500; }
+                if (ConnectedTo(ssid)) { Log(L"wifi connect %s: reported \"%s\" but Windows is connected (after %d more ms)", ssid.c_str(), err.c_str(), t); err.clear(); }
             }
-        } catch (hresult_error const& e) { Log(L"wifi connect: %s", e.message().c_str()); err = L"Couldn't connect"; }
-        RefreshNow(); UiPost([cb, err] { cb(err); });
-    });
+        }
+    } catch (hresult_error const& e) { Log(L"wifi connect %s: %s (0x%08x)", ssid.c_str(), e.message().c_str(), (unsigned)e.code().value); err = L"Couldn't connect"; if (ConnectedTo(ssid)) err.clear(); }
+    return err;
+}
+void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, std::function<void(ws)> cb) {
+    Post([=] { ws err = ConnectBlocking(ssid, pass, user, usePass); RefreshNow(); UiPost([cb, err] { cb(err); }); });
+}
+// "DeskBar.exe --wifitest <ssid>": drops the connection, connects again exactly as the Wi-Fi page does (a saved profile, no password), and logs how it went.
+int WifiTest(const ws& ssid, bool keep) {
+    init_apartment(apartment_type::multi_threaded);
+    try {
+        if (WiFiAdapter::RequestAccessAsync().get() != WiFiAccessStatus::Allowed) { Log(L"wifitest: Windows did not allow network access"); return 2; }
+        auto all = WiFiAdapter::FindAllAdaptersAsync().get(); if (!all.Size()) { Log(L"wifitest: no Wi-Fi adapter"); return 2; } g_adapter = all.GetAt(0);
+        Log(L"wifitest: connected to %s before: %d", ssid.c_str(), (int)ConnectedTo(ssid));
+        if (!keep) { g_adapter.Disconnect(); Sleep(1500); Log(L"wifitest: dropped, connected now: %d", (int)ConnectedTo(ssid)); }   // --keep: no drop, only the connect call and what follows it
+        uint64_t t0 = Now(); ws err = ConnectBlocking(ssid, L"", L"", false);
+        Log(L"wifitest: result \"%s\" after %d ms, connected now: %d", err.c_str(), (int)(Now() - t0), (int)ConnectedTo(ssid)); return err.empty() ? 0 : 1;
+    } catch (hresult_error const& e) { Log(L"wifitest: %s", e.message().c_str()); return 3; }
 }
 void WifiDisconnect() { Post([] { try { if (g_adapter) g_adapter.Disconnect(); } catch (...) {} RefreshNow(); }); }
 std::vector<BtDev> BtCached() { std::lock_guard<std::mutex> l(g_mu); return g_btLast; }
