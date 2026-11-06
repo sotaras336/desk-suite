@@ -71,6 +71,7 @@ struct Settings {
     std::vector<ws> promotedTrayIcons; bool trayImported = false;
     std::map<ws, int> launchCounts;
     ws theme;                              // colour theme id (see kThemes); empty = this edition's default
+    bool updateCheck = true; ws updateKnown; double updateLast = 0;   // once-a-day look for a newer release (update.cpp): on/off, the newest build's checksum, when (unix seconds)
 };
 extern Settings S;
 void LoadSettings();                   // also imports DeskBar2's file on first run

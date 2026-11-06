@@ -194,8 +194,11 @@ bool Bar::Init() {
     if (transparent) ApplyGlass(hwnd);
     View* r = root; r->bg = SolidB(K::Bar); r->lay = Lay::Overlay; r->hit = true;
     r->onRight = [this] {
-        MenuShow({{L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}, {L"DeskBar settings", 0xE713, [] { OpenSettingsWindow(); }},
-                  {L"Windows taskbar settings", 0xE713, [] { Launch(L"ms-settings:taskbar"); }}}, [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale);
+        std::vector<MenuItem> m;
+        if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});
+        m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"DeskBar settings", 0xE713, [] { OpenSettingsWindow(); }});
+        m.push_back({L"Windows taskbar settings", 0xE713, [] { Launch(L"ms-settings:taskbar"); }});
+        MenuShow(std::move(m), [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale);
     };
     auto* row = MkBox(r, Lay::H);
     left = MkBox(row, Lay::H); left->star = 1; left->pad = Thick(12, 0, 0, 0);

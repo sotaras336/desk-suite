@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         _iconSize = _settings.IconSize; _zoom = 1; _groupBy = _settings.GroupBy;   // zoom now steps through the views instead of scaling
         SetViewMode(App.ForcedView ?? _settings.ViewMode); ApplyZoom(); 
         List.PreviewMouseWheel += List_Wheel;
+        Updater.Changed += () => Dispatcher.BeginInvoke(ShowUpdate); ShowUpdate();
         if (App.SnapshotFile == null)
         {
             var wa = SystemParameters.WorkArea;   // layout units shrink as scaling grows (a 1080p screen at 150% is ~1280 x 670): never open larger than the screen
@@ -641,7 +642,28 @@ public partial class MainWindow : Window
         m.Items.Add(MI("Open folders with DeskDrawer", def ? Check : "", () => SetDefault(!def)));
         m.Items.Add(MI("Keep ready in the background (opens faster)", _settings.KeepReady ? Check : "", () => { _settings.KeepReady = !_settings.KeepReady; _settings.Save(); Setup.StartAtSignIn(_settings.KeepReady); }));
         m.Items.Add(MI("Use graphics card (smoother, more memory)", _settings.Gpu ? Check : "", () => { _settings.Gpu = !_settings.Gpu; _settings.Save(); Flash("Restart DeskDrawer to apply"); }));
+        m.Items.Add(new Separator());
+        if (Updater.Newer) m.Items.Add(MI("Update DeskDrawer now", "", UpdateNow, bold: true));
+        m.Items.Add(MI("Check for updates", "", () => { _userCheck = true; _ = Updater.CheckAsync(); }));
+        m.Items.Add(MI("Check for updates once a day", Updater.Enabled ? Check : "", () => Updater.Enabled = !Updater.Enabled));
         m.IsOpen = true;
+    }
+
+    // ---------- updates (Updater.cs) ----------
+    private bool _userCheck;
+
+    private void ShowUpdate()
+    {
+        UpdateLink.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLink.Text = Updater.Busy ? Updater.Status : "A new version is available · Update now";
+        if (_userCheck && !Updater.Busy) { _userCheck = false; Flash(Updater.Status); }
+    }
+
+    private void UpdateLink_Click(object sender, MouseButtonEventArgs e) => UpdateNow();
+
+    private async void UpdateNow()
+    {
+        if (await Updater.UpdateNowAsync()) { App.Quitting = true; Application.Current.Shutdown(); }   // the setup that just started replaces this copy and opens the new one
     }
 
     /// Windows' own share sheet, reached through the item's shell menu (its last "Share" entry; OneDrive adds a first one of its own).

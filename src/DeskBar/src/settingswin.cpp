@@ -60,7 +60,12 @@ void OpenSettingsWindow() {
     add(L"Bring windows back when a screen is unplugged", S.rescueWindows, [](bool v) { S.rescueWindows = v; });
     auto* sign = new Check(L"Start DeskBar when I sign in", true, [](bool on) { RunHidden(L"schtasks.exe /Change /TN " N_TASK + ws(on ? L" /ENABLE" : L" /DISABLE")); }); col->Add(sign);
     std::thread([sign] { ws s = TaskState(); bool on = !ContainsI(s, L"Disabled"); UiPost([sign, on] { if (g_sw && g_sw->hwnd) { sign->on = on; sign->Paint(); } }); }).detach();
+    add(L"Check for updates once a day (reads the release list on GitHub; a new version is only installed when you press Update now)", S.updateCheck, [](bool v) { S.updateCheck = v; });
+    auto* us = MkLabel(col, UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus(), FText(12), Col(K::White, K::Dim)); us->margin = Thick(6, 0, 0, 4);
     auto* btns = MkBox(col, Lay::V); btns->margin = Thick(0, 18, 0, 0); btns->gap = 8;
+    UpdateListen([us] { if (g_sw && g_sw->hwnd) us->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus()); });
+    Pill(btns, L"Check for updates now", 0xE72C, false, [] { UpdateCheck(); });
+    if (UpdateNewer()) Pill(btns, L"Update DeskBar now", 0xE896, true, [] { UpdateNow(); });
     Pill(btns, L"Restart DeskBar", 0xE777, false, [] { AppQuit(true); });
     Pill(btns, L"Quit and bring back the Windows taskbar", 0xE7E8, false, [] { AppQuit(false); });
     ShowWindow(g_sw->hwnd, SW_SHOW); SetForegroundWindow(g_sw->hwnd);

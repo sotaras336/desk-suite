@@ -39,7 +39,7 @@ MIT: see `LICENSE`.
 
 ## Privacy
 
-None of the apps send data anywhere: no accounts, no telemetry, no ads. The only web pages they open are ones you click, such as a Wi-Fi sign-in page or a Microsoft Store page to reinstall an app.
+None of the apps have accounts, telemetry or ads, and none sends anything about you or your PC. The one thing each app does by itself is look, about once a day, at `SHA256SUMS.txt` in this repository's newest release to see whether a newer version is out (GitHub sees an ordinary download request). A new version is only installed when you press **Update now**; it is downloaded, checked against that checksum and then run. Switch the daily look off in each app's settings. The only web pages the apps open are ones you click, such as a Wi-Fi sign-in page or a Microsoft Store page to reinstall an app.
 
 ## Build it yourself
 

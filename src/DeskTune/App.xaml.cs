@@ -13,7 +13,8 @@ public partial class App : Application
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(InstalledExe)!);
-            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase)) System.IO.File.Copy(Environment.ProcessPath!, InstalledExe, true);
+            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase))
+                for (int i = 0; ; i++) { try { System.IO.File.Copy(Environment.ProcessPath!, InstalledExe, true); break; } catch (System.IO.IOException) when (i < 30) { System.Threading.Thread.Sleep(200); } }   // an open DeskTune that is updating itself is still closing
             foreach (var dir in new[] { Programs, Desktop }) Link(System.IO.Path.Combine(dir, "DeskTune.lnk"), "", "DeskTune: make Windows lighter");
             Link(System.IO.Path.Combine(Programs, "Uninstall DeskTune.lnk"), "--uninstall", "Remove DeskTune");
             return true;
@@ -67,6 +68,7 @@ public partial class App : Application
         }
         Theme.Load("black"); Theme.Apply();
         var w = new MainWindow(); w.Show();
+        if (!a.Contains("--snapshot") || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
         for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--snapshot") SelfTest.SnapshotLater(w, a[i + 1]);
     }
 }

@@ -173,6 +173,12 @@ public sealed class SettingsPage : ScrollViewer
         c = Card();
         Switch(c, "Start DeskMode with Windows", Settings.StartWithWindows, v => Settings.StartWithWindows = v, first: true);
         Switch(c, "Keyboard shortcuts: Ctrl+Alt+D panel · M max · B easy · F borderless", S.Hotkeys, v => { S.Hotkeys = v; ((App)Application.Current).Panel?.SetHotkeys(v); }, "Switch these off if another program already uses them");
+        Switch(c, "Check for updates once a day", Updater.Enabled, v => Updater.Enabled = v, "Reads the list of releases on GitHub; nothing else is sent. A new version is only installed when you press Update now.");
+        var upd = Dim(Updater.Status.Length > 0 ? Updater.Status : "Not checked yet."); upd.Margin = new Thickness(2, 6, 0, 0); c.Children.Add(upd);
+        Action refresh = () => { upd.Text = Updater.Status.Length > 0 ? Updater.Status : "Not checked yet."; };
+        Action onChanged = () => Dispatcher.BeginInvoke(refresh); Updater.Changed += onChanged; Unloaded += (_, _) => Updater.Changed -= onChanged;
+        c.Children.Add(ButtonRow("Check for updates now", () => _ = Updater.CheckAsync()));
+        if (Updater.Newer) c.Children.Add(ButtonRow("Update now", async () => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); }));
         if (PowerService.IsSupported)
         {
             c.Children.Add(Row("Power modes my PC offers", Segments(new List<(string, int)> { ("Automatic", 0), ("Recommended · Better · Best", 1), ("Efficient · Balanced · Best", 2) }, S.PowerModeStyle, v => { S.PowerModeStyle = v; PowerService.StylePref = v; Build(); }, columns: 1), top: 12));
@@ -187,7 +193,7 @@ public sealed class SettingsPage : ScrollViewer
         };
         c.Children.Add(reset);
         c.Children.Add(ButtonRow("Open the settings folder", () => { try { Process.Start(new ProcessStartInfo("explorer.exe", $"\"{Path.GetDirectoryName(SettingsPath())}\"") { UseShellExecute = true }); } catch { } }));
-        Add(new TextBlock { Text = "DeskMode 1.0  ·  part of Desk", FontSize = 11.5, Opacity = 0.6, Margin = new Thickness(4, 16, 0, 0) });
+        Add(new TextBlock { Text = "DeskMode  ·  part of Desk", FontSize = 11.5, Opacity = 0.6, Margin = new Thickness(4, 16, 0, 0) });
     }
 
     private static string SettingsPath() => Path.Combine(Environment.GetEnvironmentVariable("DESKMODE_DATA") is { Length: > 0 } d ? d : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskMode"), "settings.json");

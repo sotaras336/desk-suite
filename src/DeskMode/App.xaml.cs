@@ -93,7 +93,9 @@ public partial class App : System.Windows.Application
 
         // Debug: --snapshot out.png renders the panel, --snapshot-settings out.png the Settings window (both off-screen), then exit.
         string snap = Arg(e.Args, "--snapshot"), snapSettings = Arg(e.Args, "--snapshot-settings");
-        if (snap.Length > 0 || snapSettings.Length > 0)
+        bool snapRun = snap.Length > 0 || snapSettings.Length > 0;
+        if ((!TestInstance && !snapRun) || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a test copy or a snapshot never asks GitHub (unless a test points it at a local server)
+        if (snapRun)
         {
             Theme.Apply();
             FrameworkElement root; Window host = Panel;

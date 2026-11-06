@@ -67,6 +67,7 @@ int RunTaskbar(bool real) {
             if (!S.taskbarPins.empty()) { S.pinsImported = true; SaveSettingsSoon(); }
             else std::thread([] { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); auto v = WindowsTaskbarPins(); CoUninitialize(); UiPost([v] { if (S.taskbarPins.empty()) S.taskbarPins = v; S.pinsImported = true; SaveSettingsSoon(); BarsSync(); }); }).detach();
         }
+        if (real || GetEnvironmentVariableW(L"DESK_UPDATE_BASE", nullptr, 0)) UpdateStart();   // a dev copy never asks GitHub (unless a test points it at a local server)
         Boot(L"services started");
     });
     if (g_clickX >= 0) UiOnce(1000, [] { if (AllBars().empty()) return; HWND h = AllBars()[0]->hwnd; LPARAM lp = MAKELPARAM(g_clickX, g_clickY); SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(80); SendMessageW(h, WM_LBUTTONUP, 0, lp); });   // debug: --click x,y (device px) on the first bar
@@ -107,6 +108,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
     if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
+    if (!val(L"--updatetest").empty()) { LogInit(false); return UpdateTest(val(L"--updatetest")); }   // dev: check + download + verify against DESK_UPDATE_BASE, never installs
     if (!val(L"--wifitest").empty()) { LogInit(false); return WifiTest(val(L"--wifitest"), has(L"--keep")); }
     if (!val(L"--indexquery").empty() && argc > 3) { LogInit(false); FileIndexQuery(val(L"--indexquery"), argv[argc - 1]); return 0; }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file

@@ -10,6 +10,17 @@ public static class SelfTest
     {
         var sb = new StringBuilder(); int fail = 0;
         void Check(string name, bool ok, string extra = "") { sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (extra.Length > 0 ? "  " + extra : "")); if (!ok) fail++; }
+        {   // the update check: reading the checksum list, and (only when a test points DESK_UPDATE_BASE at a local release folder) the whole check and a verified download that is not run
+            string sums = new string('a', 64) + " *" + Updater.Asset + "\r\n" + new string('b', 64) + " *Other-Setup.exe\n";
+            Check("update: reads the checksum for this app's file", Updater.HashFor(sums, Updater.Asset) == new string('a', 64) && Updater.HashFor(sums, "Nope.exe") == null);
+            if (Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null)
+            {
+                Task.Run(() => Updater.CheckAsync()).GetAwaiter().GetResult();
+                Check("update: sees a different build in the release", Updater.Newer, Updater.Status);
+                bool got = Task.Run(() => Updater.UpdateNowAsync()).GetAwaiter().GetResult();
+                Check("update: downloads, verifies and (in a test) does not run it", got && Updater.LastDownload != null && System.IO.File.Exists(Updater.LastDownload), Updater.Status + " " + Updater.LastDownload);
+            }
+        }
         string root = Path.Combine(Path.GetTempPath(), "deskdrawer-test-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {

@@ -86,6 +86,23 @@ public sealed class MainWindow : Window
         var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         _status.SetResourceReference(TextBlock.ForegroundProperty, "FgDim"); _status.TextWrapping = TextWrapping.Wrap; left.Children.Add(_status);
         _undoLink.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); _undoLink.FontSize = 12; _undoLink.Cursor = Cursors.Hand; _undoLink.Margin = new Thickness(0, 4, 0, 0); _undoLink.MouseLeftButtonUp += (_, _) => UndoAll(); left.Children.Add(_undoLink);
+        {   // updates (Updater.cs): a bright line when a newer build is out, and two quiet links for checking and for turning the daily check off
+            var newer = new TextBlock { FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 0), Cursor = Cursors.Hand, Visibility = Visibility.Collapsed };
+            newer.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
+            newer.MouseLeftButtonUp += async (_, _) => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); };   // the setup that just started replaces this copy and opens the new one
+            var opts = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+            TextBlock Link(Action click) { var t = new TextBlock { FontSize = 11.5, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 14, 0) }; t.SetResourceReference(TextBlock.ForegroundProperty, "FgFaint"); t.MouseLeftButtonUp += (_, _) => click(); opts.Children.Add(t); return t; }
+            var check = Link(() => _ = Updater.CheckAsync()); var auto = Link(() => Updater.Enabled = !Updater.Enabled);
+            void Show()
+            {
+                newer.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
+                newer.Text = Updater.Busy ? Updater.Status : "A new version of DeskTune is available · Update now";
+                check.Text = Updater.Newer || Updater.Status.Length == 0 ? "Check for updates" : Updater.Status;
+                auto.Text = Updater.Enabled ? "Daily check: on" : "Daily check: off";
+            }
+            Updater.Changed += () => Dispatcher.BeginInvoke(Show); Show();
+            left.Children.Add(newer); left.Children.Add(opts);
+        }
         fg.Children.Add(left);
         Button(_clearBtn, "Clear selection", false, ClearSelection); Grid.SetColumn(_clearBtn, 2); _clearBtn.Margin = new Thickness(0, 0, 10, 0); fg.Children.Add(_clearBtn);
         Button(_applyBtn, "", true, ApplySelection); _applyBtn.Child = _applyText; Grid.SetColumn(_applyBtn, 3); fg.Children.Add(_applyBtn);

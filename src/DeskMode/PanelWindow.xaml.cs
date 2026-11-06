@@ -39,9 +39,24 @@ public partial class PanelWindow : Window
             _c.Games.NeedListed = IsVisible;   // the Gaming card is the only reader of the listed-game scan
             if (IsVisible) { _poll.Start(); _c.Games.CheckNow(); } else _poll.Stop();
         };
+        Updater.Changed += () => Dispatcher.BeginInvoke(ShowUpdateBanner);
+        ShowUpdateBanner();
         AddWheelSupport(BothSlider, v => _c.SetBothBrightness(v));
         AddWheelSupport(LaptopSlider, v => _c.SetLaptopBrightness(v));
         AddWheelSupport(MonitorSlider, v => _c.SetMonitorBrightness(v));
+    }
+
+    // ---------- updates ----------
+
+    private void ShowUpdateBanner()
+    {
+        UpdateBanner.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
+        UpdateText.Text = Updater.Busy ? Updater.Status : "A new version is available · Update now";
+    }
+
+    private async void Update_Click(object sender, RoutedEventArgs e)
+    {
+        if (await Updater.UpdateNowAsync()) Application.Current.Shutdown();   // the setup that was just started replaces this copy and starts the new one
     }
 
     // ---------- global hotkeys ----------

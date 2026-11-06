@@ -261,6 +261,8 @@
         <Border Grid.Row="4" Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0">
             <Grid Margin="16,0">
                 <TextBlock x:Name="Status" Foreground="{DynamicResource FgDim}" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock x:Name="UpdateLink" Foreground="{DynamicResource Accent}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="Hand" Visibility="Collapsed"
+                           MouseLeftButtonUp="UpdateLink_Click" ToolTip="Downloads the new version from GitHub, checks it and installs it. DeskDrawer restarts by itself."/>
                 <TextBlock x:Name="SelectionStatus" Foreground="{DynamicResource FgDim}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
             </Grid>
         </Border>

@@ -45,6 +45,11 @@
                 </Button>
             </Grid>
 
+            <!-- A newer build is out (Updater.cs) -->
+            <Button x:Name="UpdateBanner" Style="{StaticResource Preset}" Visibility="Collapsed" Click="Update_Click" Margin="0,12,0,0" ToolTip="Downloads the new version from GitHub, checks it and installs it. DeskMode restarts by itself.">
+                <TextBlock x:Name="UpdateText" Text="A new version is available · Update now" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource Accent}"/>
+            </Button>
+
             <!-- Presets -->
             <TextBlock Text="Apply a preset" Style="{StaticResource SectionTitle}"/>
             <Grid>

@@ -56,5 +56,6 @@ public partial class App : Application
         if (UiTest != null) { w.RunUiTest(UiTest); return; }
         if (!test) { Instance.Listen(w.OpenFromOutside); DialogSwitch.Start(w.FoldersToOffer); }
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
+        if (!test || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
     }
 }
