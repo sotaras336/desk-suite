@@ -25,6 +25,7 @@ public sealed class SettingsPage : ScrollViewer
     {
         _c = controller; _back = back;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto; HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; Content = _page;
+        Wheel.Attach(this);
         PanningMode = PanningMode.VerticalOnly; PanningDeceleration = 0.004;   // a flick coasts a hand's width, not across the whole page (WPF's default 0.001 is far too slippery)
         Build();
     }

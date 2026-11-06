@@ -12,6 +12,13 @@ public static class SelfTest
     {
         var sb = new StringBuilder(); int fail = 0;
         void Check(string name, bool ok, string extra = "") { sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (extra.Length > 0 ? "  " + extra : "")); if (!ok) fail++; }
+        {   // ten tiny wheel messages (one touchpad swipe) move one notch in total, not ten
+            var sv = new System.Windows.Controls.ScrollViewer { Width = 100, Height = 100, Content = new System.Windows.Controls.Border { Height = 5000 } };
+            Wheel.Attach(sv); sv.Measure(new System.Windows.Size(100, 100)); sv.Arrange(new System.Windows.Rect(0, 0, 100, 100)); sv.UpdateLayout();
+            for (int i = 0; i < 10; i++) sv.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -12) { RoutedEvent = System.Windows.UIElement.PreviewMouseWheelEvent });
+            sv.UpdateLayout();
+            Check("wheel: a touchpad swipe moves one notch, not ten", Math.Abs(sv.VerticalOffset - Wheel.Px(120)) < 0.5 && Wheel.Px(120) >= 16, $"{sv.VerticalOffset} px");
+        }
         try
         {
             Controller.ReadOnly = true;
