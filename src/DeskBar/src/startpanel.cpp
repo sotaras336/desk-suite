@@ -16,7 +16,7 @@ struct SearchBox : TextBox { std::function<void(bool)> onFocusChange; void OnFoc
 struct PagedScroll : Scroll {       // the pinned grid moves a page (three rows) per wheel notch
     bool OnWheel(float d, float, float) override {
         if (MaxOff() <= 0) return false; float page = kPageH; int cur = (int)lroundf(-content->ty / page), n = (int)ceilf(contentH / page);
-        ScrollTo(std::clamp(cur + (d < 0 ? 1 : -1), 0, n - 1) * page); return true;
+        int s = WheelStep(d); if (s) ScrollTo(std::clamp(cur + (s < 0 ? 1 : -1), 0, n - 1) * page); return true;
     }
 };
 

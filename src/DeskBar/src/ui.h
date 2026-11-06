@@ -175,6 +175,7 @@ struct TextBox : View {
     void Changed();
     void EnsureVisible();
 };
+int WheelStep(float d);   // -1 / 0 / +1: one step per wheel notch or touchpad swipe (see ui_view.cpp)
 struct Scroll : View {
     View* content = nullptr; float off = 0, target = 0, contentH = 0; bool panning = false;
     Scroll() { clip = true; hit = true; }

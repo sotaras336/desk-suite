@@ -224,7 +224,7 @@ struct WifiPage : PageBase {
         GUARD
         if (res.empty()) {   // joined: the card turns green with a check and a ring, holds for a moment, then the page shows the network as connected
             phase = 1; art->Finish(1); sweep->visible = false; connCard->bg = CardGreen(); connTop->Set(L"Connected to"); connSub->Set(L"You're on the network."); q->Relayout();
-            justConnected = ssid;
+            justConnected = ssid; for (auto& n : nets) n.connected = n.ssid == ssid;   // the list on this page is from before the connect: the new network is the connected one now
             UiOnce(1300, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true); UiOnce(4000, [this, w_] { IFALIVE justConnected.clear(); Load(true); }); });
             return;
         }

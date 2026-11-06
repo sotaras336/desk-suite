@@ -122,7 +122,7 @@ void TaskBtn::CycleWindow(float dir) {
     i = i >= hs.size() ? 0 : (i + (dir > 0 ? hs.size() - 1 : 1)) % hs.size();   // wheel up = previous
     ForceForeground(hs[i]); WinTrackerPoke();
 }
-bool TaskBtn::OnWheel(float d, float, float) { if (e.wins.size() < 2) return false; CycleWindow(d); return true; }
+bool TaskBtn::OnWheel(float d, float, float) { if (e.wins.size() < 2) return false; if (int s = WheelStep(d)) CycleWindow((float)s); return true; }
 void TaskBtn::Menu() {
     PreviewClose();
     std::vector<MenuItem> m; auto self = e; auto* bar = (Bar*)wnd;

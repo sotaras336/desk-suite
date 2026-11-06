@@ -75,7 +75,7 @@ public sealed class MainWindow : Window
         // ---- the list: finger-drag scrolling, generous padding
         _list.Margin = new Thickness(0, 0, 0, 24);
         var page = new StackPanel(); page.Children.Add(top); page.Children.Add(_list);
-        var scroll = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(28, 0, 28, 0), PanningMode = PanningMode.VerticalOnly };
+        var scroll = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(28, 0, 28, 0), PanningMode = PanningMode.VerticalOnly, PanningDeceleration = 0.004 };   // WPF's default coast (0.001) sends one flick across the whole list
         Grid.SetRow(scroll, 1); root.Children.Add(scroll);
 
         // ---- bottom: status on the left, Clear and Apply on the right (Apply wakes up when something is ticked)

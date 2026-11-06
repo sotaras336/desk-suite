@@ -1,26 +1,31 @@
-## Desk 1.5
+## Desk 2.0
+
+**DeskMode joins the suite.** Desk is now four apps.
+
+**DeskMode (new)**
+
+- **One panel for your screens and power:** refresh rate per screen, Windows power mode (Recommended / Better / Best, or Efficiency / Balanced / Best on PCs that use those names), Energy saver, and brightness per screen, the external monitor too (over DDC/CI), with a "both" slider that keeps the gap between them.
+- **Go max / Go easy.** Two presets you define yourself. Plug in an external monitor and the charger and DeskMode switches to your "max" settings by itself; unplug and it puts everything back (switch either off).
+- **Settings are a page of the panel itself** (gear, or Esc to go back): which monitor counts (any external one, or one you pick), what each preset sets, what happens on battery, hotkeys (Ctrl+Alt+D / M / B / F), notifications, start with Windows. Nothing needs editing in files.
+- **For games:** leaves screen modes alone while a full-screen game is up, and can make the games on your list borderless so alt-tab never blanks the screen.
+- Works with any monitor and any laptop or desktop; whatever your PC doesn't have (Energy saver, some power modes, a built-in screen) is hidden. Lives in the tray; settings in `%LOCALAPPDATA%\DeskMode`.
 
 **DeskBar**
 
-- **Start search finds any file.** DeskBar's file list now covers everything on your drives: Windows, Program Files, AppData, hidden files, USB sticks. It is read straight from a file on disk, so it is ready the moment DeskBar starts and takes almost no memory (2.5 million files: about 0.15 s per search). Accents and capitals don't matter (`εργασια` finds `Εργασία`), several words must all match (`report 2024` finds `report.docx` inside a folder called `2024`), and your own folders rank above Windows and AppData. The first scan after updating takes about five minutes in the background; until it finishes, file search stays empty.
-- **Wi-Fi: connecting looks right.** Pressing Connect turns the page into one card: the Wi-Fi mark with rings spreading out, the network's name and a running light. It turns green with a check when you're on, goes straight back to the form with the password box open (and what you typed still there) if the password was wrong, and turns red with *Try again* / *Back* for any other failure.
-- **Wi-Fi: fewer false failures.** Connecting looks the network up fresh, retries once, and asks Windows before it reports a failure, so "it aborted, then connected a few seconds later" no longer shows up as an error. Every attempt is logged in `deskbar3.log`.
-- **Touch works.** DeskBar only ever recognised a pen as touch input, so a finger behaved like a mouse. Now you can swipe to scroll, long-press for menus, tap for previews and swipe up on the bar for Start and Quick Settings.
+- **Scrolling is calmer.** A wheel notch now moves what Windows' "lines per notch" says (48 px at the default 3 lines; it was a fixed 80), and a touchpad swipe over the Start menu's pinned grid moves one page instead of flying through several. The same goes for cycling a multi-window taskbar button with the wheel.
+- **Wi-Fi shows the network you really joined.** After a successful connect the page sometimes kept showing the previous network, which looked like Windows had switched back. It now marks the new network as connected right away, and a scan that Windows aborts is retried once.
 
-**DeskDrawer**
+**DeskTune**
 
-- **Delete works** (it silently did nothing before). It now selects the next item, says "Moved to the Recycle Bin", and **Ctrl+Z puts it back**. When a copy, move or delete fails, the status bar says so.
-- **Drag-select box.** Drag on empty space, or on the blank part of a row, and everything the box touches is selected. Ctrl or Shift adds to the selection, and the list scrolls on its own near the edges.
-- **Click a selected name to rename it**, like File Explorer.
-- **Search rebuilt.** Results stream in while it looks, best match first, under a banner that says what is being searched and how far it has got (with Stop). Several words, no matter the case or accents, hidden files included. From Home or This PC it searches the whole PC, instantly when DeskBar's file list is there; *Search live* walks the disks instead.
-- Small things: the mouse's back and forward buttons, F4 / Alt+D for the address bar, Ctrl+E / F3 for search, Ctrl+Shift+C to copy the path, Esc leaves search results, "Open file location" on a result, and "Copied / Moved N items" messages.
+- A flick on a touch screen no longer coasts across the whole list.
 
-**DeskTune** is the same as in 1.4.
+**DeskDrawer** is the same as in 1.5.
 
-**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. Run the `-Setup.exe` over your old copy: settings and DeskTune's undo log are kept. If DeskDrawer is open when you update and the old window is still there afterwards, run the setup once more. The files aren't code-signed, so Windows SmartScreen asks first: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
+**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer, DeskTune and DeskMode; DeskBar needs nothing extra. Run the `-Setup.exe` over your old copy: settings and DeskTune's undo log are kept. The files aren't code-signed, so Windows SmartScreen asks first: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
 
-### The three apps
+### The four apps
 
 - **DeskBar:** taskbar, Start with search over apps, settings and every file on the PC, Quick Settings (Wi-Fi, Bluetooth with one-tap headphone connect, sound, brightness, night light, energy saver), window previews, show desktop, touch support, ten colour themes. On first run it copies your own taskbar and Start pins.
 - **DeskDrawer:** tabs, breadcrumb path bar, search that streams results and can look through the whole PC, details/list/tiles/icon views with thumbnails, grouping, folder sizes, a drag-select box, Home, Quick access and This PC pages, undo (including Delete), ZIP, a "folders" button inside other apps' Save/Open dialogs, optional "open folders and Win+E here", and it stays ready in the background so folders open in about half a second (switch off in the ⋯ menu).
 - **DeskTune:** startup apps, Windows extras, ads and suggestions, background services and preinstalled apps, each with live memory use and what you'd lose. Tick, then apply; every change can be undone.
+- **DeskMode:** refresh rate, power mode and brightness for your screens in one panel, and a docked setup that switches itself when you plug in.

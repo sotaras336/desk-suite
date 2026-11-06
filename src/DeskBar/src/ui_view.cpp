@@ -292,9 +292,25 @@ void Scroll::ScrollTo(float y, bool animate) {
     target = std::clamp(y, 0.f, MaxOff());
     if (animate) Anim(content, &content->ty, -target, 140); else { AnimCancel(content); content->ty = -target; Invalidate(); }
 }
+// One wheel notch moves what Windows' "lines per notch" says (3 lines of 16 = 48, the same as the other Desk apps), not a fixed 80.
+static float WheelPx() {
+    UINT lines = 3; SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+    return 16.f * (lines == 0 || lines > 20 ? 3u : lines);   // 0 = off, WHEEL_PAGESCROLL = a page: both fall back to 3
+}
+// A step per notch for lists that move in whole steps: a touchpad sends dozens of small deltas plus an inertia tail, which should be one step, not a dozen.
+int WheelStep(float d) {
+    static float acc = 0; static ULONGLONG last = 0, lastStep = 0; ULONGLONG now = GetTickCount64();
+    if (now - last > 400 || (acc != 0 && (acc < 0) != (d < 0))) acc = 0;
+    last = now; acc += d;
+    if (std::fabs(acc) < 1) return 0;
+    int s = acc > 0 ? 1 : -1; acc = 0;
+    if (now - lastStep < 220) return 0;
+    lastStep = now; return s;
+}
 bool Scroll::OnWheel(float d, float, float) {
     if (MaxOff() <= 0) return false;
-    float cur = -content->ty; float t = std::clamp((AnimActive(content) ? target : cur) - d * 80, 0.f, MaxOff());
+    d = std::clamp(d, -3.f, 3.f);
+    float cur = -content->ty; float t = std::clamp((AnimActive(content) ? target : cur) - d * WheelPx(), 0.f, MaxOff());
     if (t == target && !AnimActive(content)) return false;
     ScrollTo(t); return true;
 }
