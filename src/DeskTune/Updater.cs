@@ -79,7 +79,7 @@ public static class Updater
             while (true)
             {
                 var s = Load();
-                if (s.Check && (Testing || DateTime.UtcNow - s.Last >= TimeSpan.FromHours(20))) await CheckAsync();
+                if (s.Check && (Testing || Newer || DateTime.UtcNow - s.Last >= TimeSpan.FromHours(20))) await CheckAsync();   // Newer here is only what the last session remembered: look again now
                 if (Testing) return;
                 await Task.Delay(TimeSpan.FromHours(6));
             }
@@ -90,11 +90,16 @@ public static class Updater
     /// A file that doesn't match is deleted and never run.
     public static async Task<bool> UpdateNowAsync()
     {
-        var want = Load().Known;
-        if (Busy || !Newer || want == null) return false;
-        Busy = true; Status = "Downloading…"; Changed?.Invoke();
+        if (Busy) return false;
+        Busy = true; Status = "Checking…"; Changed?.Invoke();
         try
         {
+            // look again first: the checksum kept from an earlier check can belong to an older release than the one "latest" serves now
+            var want = HashFor(await Http.GetStringAsync(Base + "SHA256SUMS.txt"), Asset);
+            var st = Load(); st.Last = DateTime.UtcNow; st.Known = want; Save(st);
+            Newer = want != null && want != SelfHash();
+            if (!Newer) { Status = want == null ? "Couldn't read the release list." : "You already have the latest version."; return false; }
+            Status = "Downloading…"; Changed?.Invoke();
             var data = await Http.GetByteArrayAsync(Base + Asset);
             if (Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant() != want) { Status = "The download didn't match its checksum, so it was not run. Try again later."; return false; }
             var dir = Path.Combine(Path.GetTempPath(), "DeskUpdate-" + Product); Directory.CreateDirectory(dir);

@@ -69,7 +69,7 @@ void StartSetup(const ws& path) {   // detached and outside any job: the setup s
 void Persist(const ws& known) { UiPost([known] { S.updateKnown = known; S.updateLast = (double)(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()); SaveSettingsSoon(); }); }
 void Tick() {
     double now = (double)std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    if (S.updateCheck && (Testing() || now - S.updateLast >= 20 * 3600)) UpdateCheck();
+    if (S.updateCheck && (Testing() || UpdateNewer() || now - S.updateLast >= 20 * 3600)) UpdateCheck();   // UpdateNewer() here is only what the last session remembered: look again now
     if (!Testing()) UiOnce(6u * 3600 * 1000, Tick);
 }
 }
@@ -107,11 +107,13 @@ void UpdateCheck() {
     }).detach();
 }
 void UpdateNow() {
-    if (!UpdateNewer() || g_busy.exchange(true)) return; SetStatus(L"Downloading…"); Changed();
+    if (g_busy.exchange(true)) return; SetStatus(L"Checking…"); Changed();
     std::thread([] {
-        ws status = L"Updating…", path; bool ok = DoDownload(status, path);
-        if (ok && !Testing()) StartSetup(path);
-        SetStatus(status); g_busy = false; Changed();
+        ws status, path; bool newer = DoCheck(status), failed = ContainsI(status, L"Couldn't");   // look again first: the checksum kept from an earlier check can belong to an older release than "latest" serves now
+        if (!failed) { ws k; { std::lock_guard<std::mutex> l(g_mu); k = g_known; } Persist(k); }
+        if (newer) { SetStatus(L"Downloading…"); Changed(); bool ok = DoDownload(status, path); if (ok && !Testing()) StartSetup(path); if (ok) status = L"Updating…"; }
+        else if (!failed) status = L"You already have the latest version.";
+        SetStatus(status, failed ? -1 : newer ? 1 : 0); g_busy = false; Changed();
     }).detach();
 }
 void UpdateStart() {   // UI thread, from the deferred startup block: remember what the last check found, then check quietly about once a day

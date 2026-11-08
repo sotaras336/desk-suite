@@ -1,6 +1,8 @@
 ## Desk 2.2
 
-A DeskBar update. DeskDrawer, DeskTune and DeskMode are the same as in 2.1.
+A DeskBar update, plus one fix in the update check of all four apps.
+
+**All four apps: Update now no longer refuses a good download.** It used the checksum remembered from an earlier check, which could belong to an older release than the one it then downloaded, so it said "The download didn't match its checksum" and did nothing. Update now now reads the release list again first, and says "You already have the latest version" when that is true. A remembered "update available" is also re-checked at start-up instead of after a day. (The files in this release were replaced once with the fixed builds, so if you installed one earlier today, press *Check for updates now* and then *Update now* once.)
 
 **DeskBar**
 

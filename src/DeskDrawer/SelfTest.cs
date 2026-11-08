@@ -15,10 +15,10 @@ public static class SelfTest
             Check("update: reads the checksum for this app's file", Updater.HashFor(sums, Updater.Asset) == new string('a', 64) && Updater.HashFor(sums, "Nope.exe") == null);
             if (Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null)
             {
+                bool got = Task.Run(() => Updater.UpdateNowAsync()).GetAwaiter().GetResult();   // no earlier check: Update now must look at the release list itself (a checksum remembered from an older check once made it reject the newest file)
+                Check("update: looks again, downloads, verifies and (in a test) does not run it", got && Updater.LastDownload != null && System.IO.File.Exists(Updater.LastDownload), Updater.Status + " " + Updater.LastDownload);
                 Task.Run(() => Updater.CheckAsync()).GetAwaiter().GetResult();
                 Check("update: sees a different build in the release", Updater.Newer, Updater.Status);
-                bool got = Task.Run(() => Updater.UpdateNowAsync()).GetAwaiter().GetResult();
-                Check("update: downloads, verifies and (in a test) does not run it", got && Updater.LastDownload != null && System.IO.File.Exists(Updater.LastDownload), Updater.Status + " " + Updater.LastDownload);
             }
         }
         string root = Path.Combine(Path.GetTempPath(), "deskdrawer-test-" + Guid.NewGuid().ToString("N")[..8]);
