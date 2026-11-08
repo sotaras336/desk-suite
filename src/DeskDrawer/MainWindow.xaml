@@ -134,14 +134,7 @@
                 </StackPanel>
                 <Grid Grid.Column="1" Margin="10,0,10,0" VerticalAlignment="Center">
                     <TextBox x:Name="Address" Style="{StaticResource Field}" Visibility="Hidden"
-                             ToolTip="Type a folder path and press Enter" KeyDown="Address_KeyDown" GotKeyboardFocus="Address_GotFocus" LostKeyboardFocus="Address_Lost" TextChanged="Address_Changed"/>
-                    <!-- suggestions under the address box: places you were in, and folders that complete what you typed -->
-                    <Popup x:Name="Suggest" PlacementTarget="{Binding ElementName=Address}" Placement="Bottom" StaysOpen="True" AllowsTransparency="True" Focusable="False">
-                        <Border Background="{DynamicResource MenuBg}" BorderBrush="{DynamicResource CardLine}" BorderThickness="1" CornerRadius="10" Padding="4" Margin="0,4,14,14" MinWidth="420" MaxWidth="900">
-                            <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.4"/></Border.Effect>
-                            <StackPanel x:Name="SuggestRows"/>
-                        </Border>
-                    </Popup>
+                             ToolTip="Type a folder path and press Enter" KeyDown="Address_KeyDown" GotKeyboardFocus="Address_GotFocus" LostKeyboardFocus="Address_Lost"/>
                     <Border x:Name="CrumbBar" Height="34" CornerRadius="17" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="1"
                             PreviewMouseLeftButtonDown="CrumbBar_Down" ToolTip="Click anywhere on the bar except a folder name to type a path (Ctrl+L)">
                         <ScrollViewer x:Name="CrumbScroll" PanningMode="None" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Margin="10,0" Background="Transparent">

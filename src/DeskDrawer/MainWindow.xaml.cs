@@ -422,11 +422,11 @@ public partial class MainWindow : Window
 
     // ---------- address bar and filter ----------
 
-    private void Address_GotFocus(object s, KeyboardFocusChangedEventArgs e) { Address.SelectAll(); ShowSuggestions(true); }
+    private void Address_GotFocus(object s, KeyboardFocusChangedEventArgs e) => Address.SelectAll();
 
     /// The path bar is clickable crumbs (each with a ▸ that lists its sub-folders); Ctrl+L or a click on empty space swaps it for a text box.
     private void EditAddress() { Address.Text = _tab.Current ?? ""; Address.Visibility = Visibility.Visible; CrumbBar.Visibility = Visibility.Hidden; Address.Focus(); }
-    private void Address_Lost(object s, KeyboardFocusChangedEventArgs e) { Suggest.IsOpen = false; Address.Visibility = Visibility.Hidden; CrumbBar.Visibility = Visibility.Visible; Address.Text = _tab.Current ?? ""; }
+    private void Address_Lost(object s, KeyboardFocusChangedEventArgs e) { Address.Visibility = Visibility.Hidden; CrumbBar.Visibility = Visibility.Visible; Address.Text = _tab.Current ?? ""; }
     /// Tunnelling, so nothing inside the bar (touch panning of the scroll area, the blank end) can swallow the click: anything that is not a folder name or its arrow starts typing.
     private void CrumbBar_Down(object s, MouseButtonEventArgs e)
     {
@@ -446,7 +446,6 @@ public partial class MainWindow : Window
             var back = new Button { Content = "Search results for “" + q + "” in " + where, Style = (Style)FindResource("Crumb"), ToolTip = "Back to " + sroot };
             back.Click += (_, _) => Navigate(sroot); Crumbs.Children.Add(back); return;
         }
-        AddRecent(p);
         string root = Path.GetPathRoot(p) ?? p, acc = root;
         var parts = new List<(string Name, string Path)> { (root.TrimEnd('\\'), root) };
         foreach (var seg in p.Substring(root.Length).Split('\\', StringSplitOptions.RemoveEmptyEntries)) { acc = Path.Combine(acc, seg); parts.Add((seg, acc)); }
@@ -690,62 +689,8 @@ public partial class MainWindow : Window
 
     private void Address_KeyDown(object s, KeyEventArgs e)
     {
-        bool open = Suggest.IsOpen && _sugList.Count > 0;
-        if (e.Key == Key.Down && open) { Highlight((_sug + 1) % _sugList.Count); e.Handled = true; }
-        else if (e.Key == Key.Up && open) { Highlight((_sug <= 0 ? _sugList.Count : _sug) - 1); e.Handled = true; }
-        else if (e.Key == Key.Tab && open) { var p = _sugList[Math.Max(0, _sug)]; Address.Text = p.EndsWith('\\') ? p : p + "\\"; Address.CaretIndex = Address.Text.Length; e.Handled = true; }   // completes the name and goes on into that folder: the list becomes its sub-folders
-        else if (e.Key == Key.Enter) { var p = open && _sug >= 0 ? _sugList[_sug] : Address.Text; Suggest.IsOpen = false; Navigate(p); List.Focus(); e.Handled = true; }
-        else if (e.Key == Key.Escape) { if (open) Suggest.IsOpen = false; else { Address.Text = _tab.Current ?? ""; List.Focus(); } e.Handled = true; }
-    }
-
-    // ---------- suggestions under the address box: places you were in, and folders that complete what you typed ----------
-
-    private int _sug = -1; private List<string> _sugList = new();
-
-    private void Address_Changed(object s, TextChangedEventArgs e) { if (Address.IsKeyboardFocusWithin) ShowSuggestions(false); }
-
-    private List<string> Suggestions(string typed, bool recentsOnly)
-    {
-        var res = new List<string>(); string t = typed.Trim().Trim('"');
-        void Add(string p) { if (res.Count < 8 && !res.Any(x => x.Equals(p, StringComparison.OrdinalIgnoreCase))) res.Add(p); }
-        if (recentsOnly || t.Length == 0) { foreach (var r in _settings.RecentPaths.Take(8)) Add(r); return res; }
-        foreach (var r in _settings.RecentPaths) if (r.Length > t.Length && r.StartsWith(t, StringComparison.OrdinalIgnoreCase)) { Add(r); if (res.Count == 3) break; }
-        try
-        {
-            string dir = t.EndsWith('\\') ? t : Path.GetDirectoryName(t) ?? "", leaf = t.EndsWith('\\') ? "" : Path.GetFileName(t);
-            if (dir.Length > 0 && Directory.Exists(dir))
-                foreach (var d in new DirectoryInfo(dir).EnumerateDirectories(leaf + "*").Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0 || _settings.ShowHidden)
-                    .Select(d => d.FullName).OrderBy(n => n, Comparer<string>.Create(StrCmpLogicalW)).Take(30)) Add(d);
-        }
-        catch { }   // a half-typed path is often not valid yet
-        return res;
-    }
-
-    private void ShowSuggestions(bool recentsOnly)
-    {
-        _sugList = Suggestions(Address.Text, recentsOnly); _sug = -1; SuggestRows.Children.Clear();
-        foreach (var path in _sugList)
-        {
-            var tb = new TextBlock { Text = path, TextTrimming = TextTrimming.CharacterEllipsis }; tb.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-            var row = new Border { Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(6), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = tb };
-            row.MouseEnter += (_, _) => Highlight(_sugList.IndexOf(path));
-            row.MouseLeftButtonDown += (_, e) => { Suggest.IsOpen = false; Address.Text = path; Navigate(path); List.Focus(); e.Handled = true; };   // on press, before the box loses focus
-            SuggestRows.Children.Add(row);
-        }
-        Suggest.IsOpen = _sugList.Count > 0 && Address.IsKeyboardFocusWithin;
-    }
-
-    private void Highlight(int i)
-    {
-        _sug = i;
-        for (int k = 0; k < SuggestRows.Children.Count; k++) { var b = (Border)SuggestRows.Children[k]; if (k == i) b.SetResourceReference(Border.BackgroundProperty, "Select"); else b.Background = Brushes.Transparent; }
-    }
-
-    private void AddRecent(string p)
-    {
-        if (App.SnapshotFile != null || App.UiTest != null || !Path.IsPathRooted(p)) return;   // a snapshot or a test run must not write the real list
-        var r = _settings.RecentPaths; if (r.Count > 0 && r[0].Equals(p, StringComparison.OrdinalIgnoreCase)) return;
-        r.RemoveAll(x => x.Equals(p, StringComparison.OrdinalIgnoreCase)); r.Insert(0, p); if (r.Count > 25) r.RemoveRange(25, r.Count - 25); _settings.Save();
+        if (e.Key == Key.Enter) { Navigate(Address.Text); List.Focus(); e.Handled = true; }
+        else if (e.Key == Key.Escape) { Address.Text = _tab.Current ?? ""; List.Focus(); e.Handled = true; }
     }
 
     private void FlashAddressError()

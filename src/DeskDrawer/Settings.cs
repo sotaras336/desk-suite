@@ -20,7 +20,6 @@ public sealed class Settings
     public string GroupBy { get; set; } = "";   // "", Name, Type, Date modified, Size
     public double Zoom { get; set; } = 1.0;
     public bool ShortcutsMade { get; set; }
-    public List<string> RecentPaths { get; set; } = new();   // the folders you were in, newest first: the address box suggests them (like File Explorer)
     /// Each folder's own view (sort, grouping, layout), like File Explorer remembers them. Keys are lower-case paths.
     public Dictionary<string, FolderView> Folders { get; set; } = new();
     public bool PreviewOpen { get; set; } = true;

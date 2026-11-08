@@ -32,12 +32,9 @@ public partial class MainWindow
             var va = Find(a); Check("folder listed", va != null && Find(b) != null);
             Check("WPF refuses WindowInteropHelper.Handle off the UI thread (why Hwnd is cached)", await Task.Run(() => { try { _ = new System.Windows.Interop.WindowInteropHelper(this).Handle; return false; } catch (InvalidOperationException) { return true; } }));
             Check("owner window can be read from a worker thread (the Delete bug)", await Task.Run(() => { try { return Hwnd != IntPtr.Zero; } catch { return false; } }));
-            if (Want("address"))   // the path bar: a click on its blank end opens the text box, which suggests folders, and Enter goes there
+            if (Want("address"))   // the path bar: a click on its blank end opens the text box,, and Enter goes to the typed folder
             {
                 foreach (var n in new[] { "alpha", "alps", "beta" }) Directory.CreateDirectory(Path.Combine(root, n)); await Task.Delay(1800);   // the folder watcher refreshes the list after this: let it finish before clicking
-                var sug = Suggestions(root + "\\al", false).Select(x => Path.GetFileName(x)).ToList();
-                Check("address suggestions: folders that complete what is typed", sug.SequenceEqual(new[] { "alpha", "alps" }), string.Join(",", sug));
-                Check("address suggestions: every sub-folder after a backslash", Suggestions(root + "\\", false).Count == 3);
                 // what a press on each part of the bar does (the press is raised from that part and tunnels through the bar's handler)
                 bool PressOn(UIElement part) { Address.Visibility = Visibility.Hidden; CrumbBar.Visibility = Visibility.Visible; CrumbBar.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = part }); return Address.Visibility == Visibility.Visible; }
                 Check("a press on the blank scroll area of the bar opens the text box", PressOn(CrumbScroll));
@@ -45,8 +42,6 @@ public partial class MainWindow
                 Check("a press on the bar's own padding opens it", PressOn(CrumbBar));
                 Check("a press on a folder name or its arrow does not (they do their own thing)", !PressOn(Crumbs.Children[0]) && !PressOn(Crumbs.Children[1]));
                 CrumbBar.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = CrumbBar }); await Task.Delay(250);
-                bool focused = Address.IsKeyboardFocusWithin; Address.Text = root + "\\al"; await Task.Delay(100);
-                Check("typing shows the suggestions under it", !focused || (Suggest.IsOpen && SuggestRows.Children.Count == 2), $"focus={focused} open={Suggest.IsOpen} rows={SuggestRows.Children.Count} [{string.Join(" | ", SuggestRows.Children.OfType<Border>().Select(b => ((TextBlock)b.Child).Text))}] text={Address.Text}");
                 Address.Text = root + "\\alpha"; Address_KeyDown(Address, new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent }); await Task.Delay(1200);
                 Check("Enter goes to the typed folder", string.Equals(_tab.Current, Path.Combine(root, "alpha"), StringComparison.OrdinalIgnoreCase), _tab.Current ?? "");
                 Navigate(root); await Task.Delay(1200); va = Find(a);   // back in the folder: the entries are new objects now
