@@ -40,7 +40,6 @@ public partial class MainWindow : Window
         SetViewMode(App.ForcedView ?? _settings.ViewMode); ApplyZoom(); 
         List.PreviewMouseWheel += List_Wheel;
         Updater.Changed += () => Dispatcher.BeginInvoke(ShowUpdate); ShowUpdate();
-        CrumbBar.MouseRightButtonUp += (_, e) => { EditAddress(); e.Handled = true; };   // right-click the path bar: type a path, like File Explorer's "Edit address"
         if (App.SnapshotFile == null)
         {
             var wa = SystemParameters.WorkArea;   // layout units shrink as scaling grows (a 1080p screen at 150% is ~1280 x 670): never open larger than the screen
@@ -428,7 +427,13 @@ public partial class MainWindow : Window
     /// The path bar is clickable crumbs (each with a ▸ that lists its sub-folders); Ctrl+L or a click on empty space swaps it for a text box.
     private void EditAddress() { Address.Text = _tab.Current ?? ""; Address.Visibility = Visibility.Visible; CrumbBar.Visibility = Visibility.Hidden; Address.Focus(); }
     private void Address_Lost(object s, KeyboardFocusChangedEventArgs e) { Suggest.IsOpen = false; Address.Visibility = Visibility.Hidden; CrumbBar.Visibility = Visibility.Visible; Address.Text = _tab.Current ?? ""; }
-    private void CrumbBar_Down(object s, MouseButtonEventArgs e) { EditAddress(); e.Handled = true; }
+    /// Tunnelling, so nothing inside the bar (touch panning of the scroll area, the blank end) can swallow the click: anything that is not a folder name or its arrow starts typing.
+    private void CrumbBar_Down(object s, MouseButtonEventArgs e)
+    {
+        for (var d = e.OriginalSource as DependencyObject; d != null && d != CrumbBar; d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (d is System.Windows.Controls.Primitives.ButtonBase) return;
+        EditAddress(); e.Handled = true;
+    }
 
     private void BuildCrumbs()
     {

@@ -143,8 +143,8 @@
                         </Border>
                     </Popup>
                     <Border x:Name="CrumbBar" Height="34" CornerRadius="17" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="1"
-                            MouseLeftButtonDown="CrumbBar_Down" ToolTip="Click an empty spot to type a path (Ctrl+L)">
-                        <ScrollViewer x:Name="CrumbScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Margin="10,0" Background="Transparent">
+                            PreviewMouseLeftButtonDown="CrumbBar_Down" ToolTip="Click anywhere on the bar except a folder name to type a path (Ctrl+L)">
+                        <ScrollViewer x:Name="CrumbScroll" PanningMode="None" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Margin="10,0" Background="Transparent">
                             <StackPanel x:Name="Crumbs" Orientation="Horizontal" VerticalAlignment="Center"/>
                         </ScrollViewer>
                     </Border>

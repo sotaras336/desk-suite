@@ -34,15 +34,17 @@ public partial class MainWindow
             Check("owner window can be read from a worker thread (the Delete bug)", await Task.Run(() => { try { return Hwnd != IntPtr.Zero; } catch { return false; } }));
             if (Want("address"))   // the path bar: a click on its blank end opens the text box, which suggests folders, and Enter goes there
             {
-                foreach (var n in new[] { "alpha", "alps", "beta" }) Directory.CreateDirectory(Path.Combine(root, n));
+                foreach (var n in new[] { "alpha", "alps", "beta" }) Directory.CreateDirectory(Path.Combine(root, n)); await Task.Delay(1800);   // the folder watcher refreshes the list after this: let it finish before clicking
                 var sug = Suggestions(root + "\\al", false).Select(x => Path.GetFileName(x)).ToList();
                 Check("address suggestions: folders that complete what is typed", sug.SequenceEqual(new[] { "alpha", "alps" }), string.Join(",", sug));
                 Check("address suggestions: every sub-folder after a backslash", Suggestions(root + "\\", false).Count == 3);
-                var hit = VisualTreeHelper.HitTest(CrumbBar, new Point(CrumbBar.ActualWidth - 6, CrumbBar.ActualHeight / 2))?.VisualHit as UIElement;
-                Check("the end of the path bar is a click target, not a crumb", hit != null && CrumbBar.IsAncestorOf(hit) | hit == CrumbBar && hit is not System.Windows.Controls.Primitives.ButtonBase, hit?.GetType().Name ?? "nothing");
-                CrumbBar.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = hit ?? CrumbBar });
-                await Task.Delay(300);
-                Check("a click there turns the path bar into a text box", Address.Visibility == Visibility.Visible && CrumbBar.Visibility != Visibility.Visible);
+                // what a press on each part of the bar does (the press is raised from that part and tunnels through the bar's handler)
+                bool PressOn(UIElement part) { Address.Visibility = Visibility.Hidden; CrumbBar.Visibility = Visibility.Visible; CrumbBar.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = part }); return Address.Visibility == Visibility.Visible; }
+                Check("a press on the blank scroll area of the bar opens the text box", PressOn(CrumbScroll));
+                Check("a press on the blank end after the last folder opens it", PressOn(Crumbs.Children[^1]));
+                Check("a press on the bar's own padding opens it", PressOn(CrumbBar));
+                Check("a press on a folder name or its arrow does not (they do their own thing)", !PressOn(Crumbs.Children[0]) && !PressOn(Crumbs.Children[1]));
+                CrumbBar.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = CrumbBar }); await Task.Delay(250);
                 bool focused = Address.IsKeyboardFocusWithin; Address.Text = root + "\\al"; await Task.Delay(100);
                 Check("typing shows the suggestions under it", !focused || (Suggest.IsOpen && SuggestRows.Children.Count == 2), $"focus={focused} open={Suggest.IsOpen} rows={SuggestRows.Children.Count} [{string.Join(" | ", SuggestRows.Children.OfType<Border>().Select(b => ((TextBlock)b.Child).Text))}] text={Address.Text}");
                 Address.Text = root + "\\alpha"; Address_KeyDown(Address, new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent }); await Task.Delay(1200);
