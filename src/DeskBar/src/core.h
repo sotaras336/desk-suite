@@ -62,7 +62,7 @@ struct Json {
 struct Settings {
     std::vector<ws> taskbarPins; bool pinsImported = false;
     bool winKeyOpensStart = true, mouseBridge = true; int edgeResistance = 2;
-    bool snapOnRelease = true, keepSizeRatio = true, rescueWindows = true;
+    bool snapOnRelease = true, keepSizeRatio = true, rescueWindows = true, popupsFollowOwner = true;
     bool showMedia = true, showBatteryPercent = true;
     std::vector<ws> mirrorDevices;
     std::vector<ws> quickFolders; bool foldersInit = false;
@@ -71,6 +71,7 @@ struct Settings {
     std::vector<ws> promotedTrayIcons; bool trayImported = false;
     std::map<ws, int> launchCounts;
     ws theme;                              // colour theme id (see kThemes); empty = this edition's default
+    std::vector<ws> widgets;               // ids of the bar widgets that are switched on (webwidget.cpp)
     bool updateCheck = true; ws updateKnown; double updateLast = 0;   // once-a-day look for a newer release (update.cpp): on/off, the newest build's checksum, when (unix seconds)
 };
 extern Settings S;

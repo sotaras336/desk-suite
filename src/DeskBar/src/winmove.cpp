@@ -70,9 +70,26 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
     } else if (S.snapOnRelease && spills) res = FitInside(r, target->work); else return;
     if (EqualRect(&res, &r)) return; Animate(h, r, res);
 }
+// ---- popups: a dialog or popup shows up on the screen of the window that opened it (Quartus II's popups opened on the other screen than its main window) ----
+void MoveOnly(HWND h, const RECT& v) { RECT o; GetWindowRect(h, &o); RECT vis = VisibleRect(h); SetWindowPos(h, nullptr, v.left + (o.left - vis.left), v.top + (o.top - vis.top), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER); }   // position only: a different DPI on the other screen resizes it the Windows way
+bool MovePopup(HWND h) {
+    if (!IsAppWindow(h) || IsZoomed(h) || IsIconic(h)) return false;
+    HWND ref = GetWindow(h, GW_OWNER);   // its owner, else the foreground window of the same program
+    if (!ref) { HWND fg = GetForegroundWindow(); DWORD a = 0, b = 0; GetWindowThreadProcessId(h, &a); if (fg && fg != h) GetWindowThreadProcessId(fg, &b); if (a && a == b) ref = fg; }
+    if (!ref || ref == h || !IsAppWindow(ref) || IsIconic(ref)) return false;
+    HMONITOR mr = MonitorFromWindow(ref, MONITOR_DEFAULTTONEAREST); if (mr == MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)) return false;
+    MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(mr, &mi)) return false;
+    RECT to = PopupSpot(VisibleRect(h), VisibleRect(ref), mi.rcWork); MoveOnly(h, to);
+    Log(L"popup %s moved to the screen of its window %s", ClassOf(h).c_str(), ClassOf(ref).c_str()); return true;
+}
+void CALLBACK OnShow(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
+    if (obj != OBJID_WINDOW || child != 0 || !h || !S.popupsFollowOwner || (GetWindowLongPtrW(h, GWL_STYLE) & WS_CHILD)) return;
+    if (MovePopup(h)) std::thread([h] { Sleep(300); if (IsWindow(h)) MovePopup(h); }).detach();   // some apps place the window again just after showing it
+}
 void SnapperThread() {
     HWINEVENTHOOK hk = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, nullptr, OnMoveSize, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-    MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } UnhookWinEvent(hk);
+    HWINEVENTHOOK hs = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnShow, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } UnhookWinEvent(hk); UnhookWinEvent(hs);
 }
 
 // ---- rescue: unplugging the LG brings its windows to the Surface at the same relative size; plugging it back puts them where they were ----
@@ -154,4 +171,8 @@ void WinMoveTick(int n) {   // from the app tick (250 ms)
     ws sig = MonSignature(); if (sig != g_sig) { g_sig = sig; g_changing = true; g_changeAt = Now() + 1800; }
     if (g_changing && Now() >= g_changeAt) { g_changing = false; OnScreensChanged(); }
     else if (!g_changing && n % 12 == 0) Snapshot();   // every ~3 s
+}
+RECT PopupSpot(const RECT& popup, const RECT& owner, const RECT& work) {   // the popup's size, centred on its owner, kept inside the owner's screen
+    int w = popup.right - popup.left, h = popup.bottom - popup.top, cx = (owner.left + owner.right) / 2, cy = (owner.top + owner.bottom) / 2;
+    return FitInside({cx - w / 2, cy - h / 2, cx - w / 2 + w, cy - h / 2 + h}, work);
 }

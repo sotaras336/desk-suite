@@ -119,6 +119,10 @@ ws KeyboardLabel(HWND fg);                       // "ENG", "ΕΛ", ... ("" if on
 
 // ---------- panels (flyouts) ----------
 enum class Panel { None, Start, Quick, Clock };
+// webwidget.cpp: extras you switch on in DeskBar settings, drawn on the bar
+struct WidgetDef { const wchar_t* id; const wchar_t* name; };
+extern const WidgetDef kWidgets[]; extern const int kWidgetCount;
+bool HasWidget(const ws& id); void SetWidget(const ws& id, bool on); void WidgetsApply(); ws WebSearchUrl(const ws& typed);
 void TogglePanel(Panel p, Wnd* from, const char* page = nullptr);
 void ClosePanels();
 Panel OpenPanel();
@@ -172,6 +176,8 @@ struct PinInfo {
     bool ok = false;
 };
 PinInfo ResolvePin(const ws& entry);     // uses pins.cache
+RECT PopupSpot(const RECT& popup, const RECT& owner, const RECT& work);   // winmove.cpp: where a popup goes so it opens on its owner's screen
+ws FollowAppUpdate(const ws& exePath);   // a Squirrel app's exe after an update: the same file in the newest app-* folder (Discord)
 std::vector<ws> WindowsTaskbarPins();     // first run: the pins Windows' own taskbar had, in its order (blocking: call from a worker)
 void SavePinCache(const std::vector<PinInfo>& pins);
 std::vector<PinInfo> LoadPinCache();

@@ -207,6 +207,7 @@ bool Bar::Init() {
 
     startBtn = left->Add(new StartBtn()); startBtn->onClick = [this] { TogglePanel(Panel::Start, this); };
     startBtn->onRight = [this] { SendKeys({VK_LWIN, 'X'}); };
+    WidgetsBuild(this, left);   // widgets sit right after the Start button, before the pins
 
     // right cluster, left to right
     mediaBox = MkBox(right, Lay::H); mediaBox->visible = false; mediaBox->margin = Thick(0, 0, 8, 0); mediaBox->va = Al::Center; mediaBox->ha = Al::Start; mediaBox->gap = 2;
@@ -265,7 +266,7 @@ void Bar::Sync(const std::vector<Entry>& es, HWND fg) {
         if (!b) b = new TaskBtn();
         next.push_back(b);
     }
-    std::vector<View*> kids{startBtn};
+    std::vector<View*> kids{startBtn}; for (auto& w : widgetViews) kids.push_back(w.second);
     for (size_t i = 0; i < es.size(); i++) kids.push_back(next[i]);
     for (auto* x : btns) if (std::find(next.begin(), next.end(), x) == next.end()) { x->parent = nullptr; delete x; }
     for (auto* b : next) if (!b->parent) { b->parent = left; b->SetWnd(this); }
@@ -408,14 +409,15 @@ void BarsWorkAreaUpkeep() {
     if (g_dev) return;
     for (auto& b : g_bars) {
         if (b->hiddenFs) continue; MONITORINFO mi{sizeof mi}; GetMonitorInfoW(b->hmon, &mi); RECT want = mi.rcMonitor; want.bottom -= b->HeightPx();
-        if (b->idx == 0) {   // main screen: re-claim the strip through the appbar protocol, not SPI_SETWORKAREA (that made Explorer pop its taskbar up every ~6 s). Without the strip, maximized windows run under the bar.
+        if (b->hmon == MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY)) {   // main screen = the PRIMARY one (where Explorer's taskbar lives), not the leftmost: docked, the Surface sits left of the LG and the forced SPI route below made Explorer pop its taskbar up every ~6 s on the LG. Re-claim the strip through the appbar protocol, not SPI_SETWORKAREA. Without the strip, maximized windows run under the bar.
             static int miss = 0; static uint64_t lastForce = 0;
             if (EqualRect(&want, &mi.rcWork)) { miss = 0; continue; }
-            Log(L"bar 0: work area lost (%d..%d of %d), attempt %d", (int)mi.rcWork.top, (int)mi.rcWork.bottom, (int)mi.rcMonitor.bottom, miss + 1);
+            Log(L"bar %d (main screen): work area lost (%d..%d of %d), attempt %d", b->idx, (int)mi.rcWork.top, (int)mi.rcWork.bottom, (int)mi.rcMonitor.bottom, miss + 1);
             if (++miss <= 2) { Dock::Remove(b->hwnd); Dock::Register(b->hwnd, b->mon, b->HeightPx()); }   // register again from scratch: re-sending only the position does nothing if Windows forgot the bar
             else if (Now() - lastForce > 60000) { lastForce = Now(); SystemParametersInfoW(SPI_SETWORKAREA, 0, &want, 0); SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0); }   // the appbar route was ignored: force it, but never more than once a minute
             continue;
         }
-        if (!EqualRect(&want, &mi.rcWork)) { Log(L"bar %d: work area lost (%d..%d of %d), forced", b->idx, (int)mi.rcWork.top, (int)mi.rcWork.bottom, (int)mi.rcMonitor.bottom); SystemParametersInfoW(SPI_SETWORKAREA, 0, &want, 0); SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0); }
+        static std::map<int, uint64_t> lastSpi; uint64_t& last = lastSpi[b->idx];   // never more than every 15 s: a screen that won't keep the area must not make Explorer redraw (and flash) all the time
+        if (!EqualRect(&want, &mi.rcWork) && Now() - last > 15000) { last = Now(); Log(L"bar %d: work area lost (%d..%d of %d), forced", b->idx, (int)mi.rcWork.top, (int)mi.rcWork.bottom, (int)mi.rcMonitor.bottom); SystemParametersInfoW(SPI_SETWORKAREA, 0, &want, 0); SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0); }
     }
 }

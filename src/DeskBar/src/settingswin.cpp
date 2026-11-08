@@ -37,9 +37,9 @@ void RunHidden(const ws& c) { ws cmd = c; STARTUPINFOW si{sizeof si}; PROCESS_IN
 
 void OpenSettingsWindow() {
     if (g_sw && g_sw->hwnd) { ShowWindow(g_sw->hwnd, SW_SHOW); SetForegroundWindow(g_sw->hwnd); return; }
-    g_sw = std::make_unique<SettingsWnd>(); POINT at{200, 200}; auto bars = AllBars(); if (!bars.empty()) { RECT r = bars[0]->Target(); at = {r.left + 100, r.top + (g_dev ? 100 : -800)}; if (at.y < 0 && !g_dev) at.y = 100; }
+    g_sw = std::make_unique<SettingsWnd>(); POINT at{}; GetCursorPos(&at);   /* opens on the screen you clicked on (the cursor is on that bar), not on the leftmost one */
     HMONITOR mon = MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi); UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy); float sc = dx / 96.f;
-    int w = (int)(560 * sc), h = (int)(760 * sc); int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - w) / 2, y = mi.rcWork.top + std::max(0, (int)(mi.rcWork.bottom - mi.rcWork.top - h) / 2);
+    int w = (int)(560 * sc), h = (int)(std::clamp((mi.rcWork.bottom - mi.rcWork.top) / sc - 90, 420.f, 900.f) * sc);   /* as tall as the screen allows; the rest scrolls */ int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - w) / 2, y = mi.rcWork.top + std::max(0, (int)(mi.rcWork.bottom - mi.rcWork.top - h) / 2);
     g_sw->Create(0, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, x, y, w, h); if (!g_sw->hwnd) return;
     SetWindowTextW(g_sw->hwnd, L"DeskBar settings"); int dark = 1; DwmSetWindowAttribute(g_sw->hwnd, 20, &dark, 4);
     RECT cr; GetClientRect(g_sw->hwnd, &cr); RECT wr; GetWindowRect(g_sw->hwnd, &wr); SetWindowPos(g_sw->hwnd, nullptr, x, y, w + (wr.right - wr.left) - cr.right, h + (wr.bottom - wr.top) - cr.bottom, SWP_NOZORDER);
@@ -58,9 +58,13 @@ void OpenSettingsWindow() {
     add(L"Snap a window fully onto one screen when you let go", S.snapOnRelease, [](bool v) { S.snapOnRelease = v; });
     add(L"Keep a window's size relative to the screen when moving it across", S.keepSizeRatio, [](bool v) { S.keepSizeRatio = v; });
     add(L"Bring windows back when a screen is unplugged", S.rescueWindows, [](bool v) { S.rescueWindows = v; });
+    add(L"Open a program's dialogs and popups on the same screen as the window that opened them", S.popupsFollowOwner, [](bool v) { S.popupsFollowOwner = v; });
     auto* sign = new Check(L"Start DeskBar when I sign in", true, [](bool on) { RunHidden(L"schtasks.exe /Change /TN " N_TASK + ws(on ? L" /ENABLE" : L" /DISABLE")); }); col->Add(sign);
     std::thread([sign] { ws s = TaskState(); bool on = !ContainsI(s, L"Disabled"); UiPost([sign, on] { if (g_sw && g_sw->hwnd) { sign->on = on; sign->Paint(); } }); }).detach();
-    add(L"Check for updates once a day (reads the release list on GitHub; a new version is only installed when you press Update now)", S.updateCheck, [](bool v) { S.updateCheck = v; });
+    SectionLabel(col, L"Widgets on the bar")->margin = Thick(4, 16, 2, 6);
+    for (int i = 0; i < kWidgetCount; i++) { ws id = kWidgets[i].id; add(kWidgets[i].name, HasWidget(id), [id](bool v) { SetWidget(id, v); }); }
+    SectionLabel(col, L"Updates")->margin = Thick(4, 16, 2, 6);
+    add(L"Check for updates once a day (nothing is installed until you press Update now)", S.updateCheck, [](bool v) { S.updateCheck = v; });
     auto* us = MkLabel(col, UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus(), FText(12), Col(K::White, K::Dim)); us->margin = Thick(6, 0, 0, 4);
     auto* btns = MkBox(col, Lay::V); btns->margin = Thick(0, 18, 0, 0); btns->gap = 8;
     UpdateListen([us] { if (g_sw && g_sw->hwnd) us->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus()); });

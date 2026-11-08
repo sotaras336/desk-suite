@@ -245,8 +245,9 @@ static void ApplySettings(const Json& j) {
     S.winKeyOpensStart = BoolOf(j.Find(L"WinKeyOpensStart"), true); S.mouseBridge = BoolOf(j.Find(L"MouseBridge"), true);
     if (auto p = j.Find(L"EdgeResistance")) if (p->t == Json::Num) S.edgeResistance = (int)p->n;
     S.snapOnRelease = BoolOf(j.Find(L"SnapOnRelease"), true); S.keepSizeRatio = BoolOf(j.Find(L"KeepSizeRatio"), true);
-    S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
+    S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.popupsFollowOwner = BoolOf(j.Find(L"PopupsFollowOwner"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
     S.showBatteryPercent = BoolOf(j.Find(L"ShowBatteryPercent"), true);
+    S.widgets = StrList(j.Find(L"Widgets"));
     S.updateCheck = BoolOf(j.Find(L"UpdateCheck"), true); if (auto p = j.Find(L"UpdateLast")) if (p->t == Json::Num) S.updateLast = p->n;
     if (auto p = j.Find(L"UpdateKnown")) if (p->t == Json::Str) S.updateKnown = p->s;
     S.mirrorDevices = StrList(j.Find(L"MirrorDevices"));
@@ -272,9 +273,9 @@ void SaveSettingsNow() {
     Json j = Json::O();
     j.Set(L"TaskbarPins", ListJ(S.taskbarPins)); j.Set(L"PinsImported", Json::B(S.pinsImported));
     j.Set(L"WinKeyOpensStart", Json::B(S.winKeyOpensStart)); j.Set(L"MouseBridge", Json::B(S.mouseBridge)); j.Set(L"EdgeResistance", Json::N(S.edgeResistance));
-    j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows));
+    j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows)); j.Set(L"PopupsFollowOwner", Json::B(S.popupsFollowOwner));
     j.Set(L"ShowMedia", Json::B(S.showMedia)); j.Set(L"ShowBatteryPercent", Json::B(S.showBatteryPercent));
-    j.Set(L"UpdateCheck", Json::B(S.updateCheck)); j.Set(L"UpdateLast", Json::N(S.updateLast)); j.Set(L"UpdateKnown", Json::S(S.updateKnown));
+    j.Set(L"Widgets", ListJ(S.widgets)); j.Set(L"UpdateCheck", Json::B(S.updateCheck)); j.Set(L"UpdateLast", Json::N(S.updateLast)); j.Set(L"UpdateKnown", Json::S(S.updateKnown));
     j.Set(L"MirrorDevices", ListJ(S.mirrorDevices));
     j.Set(L"QuickFolders", ListJ(S.quickFolders)); j.Set(L"FoldersInit", Json::B(S.foldersInit));
     j.Set(L"StartPins", ListJ(S.startPins)); j.Set(L"StartPinsInit", Json::B(S.startPinsInit)); j.Set(L"StartPinsImported", Json::B(S.startPinsImported));

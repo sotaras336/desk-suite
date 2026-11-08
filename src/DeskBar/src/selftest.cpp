@@ -48,6 +48,26 @@ int RunSelfTest(const ws& outFile) {
         int one = WheelStep(0.6f), tail = 0; for (int i = 0; i < 20; i++) tail += WheelStep(0.4f);
         check(L"wheel: small deltas make one step", early == 0 && one == 1 && tail == 0, Fmt(L"%d %d %d", early, one, tail));
     }
+    {   // Discord-style update: the pinned app-1.0.9266 folder is gone, app-1.0.10000 has the exe: the pin follows it (and 10000 beats 9266 by number, not by letters)
+        wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws root = ws(t) + L"db3-selftest-sq"; CreateDirectoryW(root.c_str(), nullptr);
+        for (const wchar_t* v : {L"app-1.0.9267", L"app-1.0.10000"}) { CreateDirectoryW((root + L"\\" + v).c_str(), nullptr); HANDLE h = CreateFileW((root + L"\\" + v + L"\\Z.exe").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr); if (h != INVALID_HANDLE_VALUE) CloseHandle(h); }
+        ws old = root + L"\\app-1.0.9266\\Z.exe", now = root + L"\\app-1.0.10000\\Z.exe";
+        check(L"pins: an updated Squirrel app is followed to its new folder", FollowAppUpdate(old) == now && FollowAppUpdate(now) == now && FollowAppUpdate(root + L"\\other\\Z.exe") == root + L"\\other\\Z.exe", FollowAppUpdate(old));
+        DeleteFileW((root + L"\\app-1.0.9267\\Z.exe").c_str()); DeleteFileW(now.c_str()); RemoveDirectoryW((root + L"\\app-1.0.9267").c_str()); RemoveDirectoryW((root + L"\\app-1.0.10000").c_str()); RemoveDirectoryW(root.c_str());
+    }
+    {   // a popup that opened on the other screen lands centred on its owner, inside the owner's screen
+        RECT a = PopupSpot({-2000, 100, -1400, 500}, {200, 100, 1400, 900}, {0, 0, 1920, 1040}), b = PopupSpot({-2000, 100, -1400, 500}, {1500, 700, 1900, 1000}, {0, 0, 1920, 1040});
+        check(L"popups: centred on the owner, kept on its screen", a.left == 500 && a.top == 300 && a.right == 1100 && a.bottom == 700 && b.right <= 1920 && b.bottom <= 1040 && b.left >= 0 && b.right - b.left == 600, Fmt(L"%d,%d,%d,%d | %d,%d,%d,%d", (int)a.left, (int)a.top, (int)a.right, (int)a.bottom, (int)b.left, (int)b.top, (int)b.right, (int)b.bottom));
+    }
+    {   // the search widget: addresses open as they are, everything else is a Google search with the text percent-encoded as UTF-8
+        check(L"search widget: words become a Google search", WebSearchUrl(L"  hello world ") == L"https://www.google.com/search?q=hello%20world");
+        check(L"search widget: a web address opens as it is", WebSearchUrl(L"example.com/a?b=1") == L"https://example.com/a?b=1" && WebSearchUrl(L"https://x.org") == L"https://x.org" && WebSearchUrl(L"3.14") == L"https://www.google.com/search?q=3.14");
+        check(L"search widget: Greek is encoded, empty opens nothing", WebSearchUrl(L"\x03B5\x03C1").find(L"q=%CE%B5%CF%81") != ws::npos && WebSearchUrl(L"   ").empty());
+    }
+    {   // the bar's "main screen" is the primary monitor, whichever side of the others it is on (the work-area upkeep depends on it)
+        int prim = 0; bool same = true; for (auto& m : Monitors()) if (m.primary) { prim++; same = m.h == MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY); }
+        check(L"exactly one primary monitor, found the same way the bar upkeep finds it", prim == 1 && same, Fmt(L"%d primary", prim));
+    }
     {   // the update check: the checksum of "abc" and the line the release list uses
         std::string sums = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *DeskBar-Setup.exe\r\n" + std::string(64, 'c') + " *DeskTune-Setup.exe\n";
         check(L"update: sha-256 of abc", Sha256HexOf("abc") == L"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

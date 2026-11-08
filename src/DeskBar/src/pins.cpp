@@ -20,7 +20,12 @@ void Load() {
     }
 }
 ws FamilyOfAumid(const ws& a) { size_t i = a.find(L'!'); return i == ws::npos ? ws() : a.substr(0, i); }
+PinInfo Build0(const ws& e);
 PinInfo Build(const ws& e) {
+    PinInfo p0 = Build0(e); if (p0.ok && !p0.exe.empty()) { ws x = FollowAppUpdate(p0.exe); if (x != p0.exe) { p0.exe = x; p0.launch = x; p0.iconKey = L"exe:" + x; } }
+    return p0;
+}
+PinInfo Build0(const ws& e) {
     PinInfo p; p.entry = e;
     if (StartsI(e, L"app:")) {
         p.aumid = e.substr(4); p.family = FamilyOfAumid(p.aumid); p.launch = L"shell:AppsFolder\\" + p.aumid; p.iconKey = L"aum:" + p.aumid;
@@ -48,10 +53,23 @@ PinInfo Build(const ws& e) {
     p.exe = e; p.launch = e; p.name = StemOf(e); p.iconKey = L"exe:" + e; p.family = PackageFamilyFromPath(e); p.ok = true; return p;
 }
 }
+// Squirrel apps (Discord, Slack...) keep their exe in a versioned folder, "...\app-1.0.9266\Discord.exe", that every update replaces: a pin to the old path points at
+// nothing (no icon, "launch failed"). When the file is gone, use the same file in the newest app-* folder next to it.
+ws FollowAppUpdate(const ws& p) {
+    if (FileExists(p)) return p;
+    size_t i = Lower(p).rfind(L"\\app-"); if (i == ws::npos) return p;
+    size_t j = p.find(L'\\', i + 1); if (j == ws::npos) return p;
+    ws root = p.substr(0, i), rest = p.substr(j), best; WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((root + L"\\app-*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do { if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && FileExists(root + L"\\" + fd.cFileName + rest) && (best.empty() || StrCmpLogicalW(fd.cFileName, best.c_str()) > 0)) best = fd.cFileName; } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    return best.empty() ? p : root + L"\\" + best + rest;
+}
 PinInfo ResolvePin(const ws& e) {
     Load();
     uint64_t st = ExtOf(e) == L".lnk" ? Stamp(e) : 0;
-    auto it = g_pc.find(e); if (it != g_pc.end() && it->second.first == st) return it->second.second;
+    auto it = g_pc.find(e); if (it != g_pc.end() && it->second.first == st && (it->second.second.exe.empty() || FileExists(it->second.second.exe))) return it->second.second;   // a cached exe that is gone (an update moved it) is looked up again
     PinInfo p = Build(e); g_pc[e] = {st, p}; return p;
 }
 // Windows keeps desktop-app pins as shortcuts in "User Pinned\TaskBar"; Store apps exist only as app ids inside the undocumented Taskband\Favorites

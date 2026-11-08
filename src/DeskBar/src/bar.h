@@ -31,6 +31,7 @@ struct Bar : Wnd {
     View* statusBtn = nullptr, *clockBtn = nullptr, *langBtn = nullptr;
     Label *mTitle = nullptr, *mArtist = nullptr; Pic* mArt = nullptr; Glyph* mPlay = nullptr, *mNext = nullptr, *mPrev = nullptr;
     std::vector<TaskBtn*> btns; float swipeX = 0, swipeY = 0; bool swipeTouch = false;
+    std::vector<std::pair<ws, View*>> widgetViews;   // webwidget.cpp: this bar's widget pills by id
     ws lastClock, lastMedia;
     Bar(HMONITOR m, int index);
     bool Init();
@@ -44,6 +45,7 @@ struct Bar : Wnd {
     int HeightPx() const { return (int)lroundf(48 * scale); }
 };
 
+void WidgetsBuild(Bar* b, View* parent);  // webwidget.cpp: add this bar's widget pills (hidden unless switched on)
 void BarsStart();                         // build bars for the current monitors
 void BarsStop();
 void BarsTick();
