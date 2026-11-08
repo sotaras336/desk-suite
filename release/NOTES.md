@@ -1,8 +1,10 @@
-## Desk 2.2
+## Desk 2.2.1
+
+Same files as the corrected Desk 2.2 download, under their own version number so the source tag matches the files. If you installed Desk 2.2 before this, you may be offered one more update: press *Check for updates now*, then *Update now*.
 
 A DeskBar update, plus one fix in the update check of all four apps.
 
-**All four apps: Update now no longer refuses a good download.** It used the checksum remembered from an earlier check, which could belong to an older release than the one it then downloaded, so it said "The download didn't match its checksum" and did nothing. Update now now reads the release list again first, and says "You already have the latest version" when that is true. A remembered "update available" is also re-checked at start-up instead of after a day. (The files in this release were replaced once with the fixed builds, so if you installed one earlier today, press *Check for updates now* and then *Update now* once.)
+**All four apps: Update now no longer refuses a good download.** It used the checksum remembered from an earlier check, which could belong to an older release than the one it then downloaded, so it said "The download didn't match its checksum" and did nothing. Update now now reads the release list again first, and says "You already have the latest version" when that is true. A remembered "update available" is also re-checked at start-up instead of after a day.
 
 **DeskBar**
 
