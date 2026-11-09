@@ -5,7 +5,7 @@ A lighter Windows desktop: four small, free apps for Windows 10 and 11.
 | App | Replaces | Size |
 |---|---|---|
 | **DeskBar** | The taskbar, Start and Quick Settings | 1.7 MB |
-| **DeskDrawer** | File Explorer | 1.0 MB |
+| **DeskDrawer** | File Explorer | 1.1 MB |
 | **DeskTune** | Nothing: it switches off what you don't use, and can undo every change | 0.5 MB |
 | **DeskMode** | Nothing: it sets refresh rate, power mode and brightness for your screens, and switches by itself when you dock | 1.3 MB |
 
@@ -55,6 +55,7 @@ An exe whose file name contains "setup" installs itself to `%LOCALAPPDATA%\Progr
 ## What each app changes
 
 - **DeskBar** hides Windows' taskbar while it runs and restores it when it quits. Settings live in `%LOCALAPPDATA%\DeskBar3`.
+- **DeskDrawer** only answers other apps' Open and Save windows if you turn on "Use DeskDrawer for other apps' Open and Save windows": it then reads that window's folder, file name and file types, hides it, and types your answer into it. Nothing leaves your PC; switched off, it does nothing.
 - **DeskDrawer** only opens your folders and Win+E if you turn on "Open folders with DeskDrawer"; that writes per-user entries under `HKEY_CURRENT_USER\Software\Classes` and removes exactly those when switched off. Closing its window keeps it ready in the background (about 20–30 MB of memory), and it starts hidden when you sign in (a `DeskDrawer` value under `HKEY_CURRENT_USER\...\CurrentVersion\Run`), so folders open in about half a second instead of two or three; switch this off with ⋯ > "Keep ready in the background". Settings live in `%LOCALAPPDATA%\DeskDrawer`.
 - **DeskMode** changes refresh rates, the power mode and Energy saver only when you press a preset, or by itself when the monitor you chose is connected and the PC is plugged in (switch that off in Settings); it remembers what was set before and puts it back. Settings live in `%LOCALAPPDATA%\DeskMode`. It starts with Windows if you leave that on.
 - **DeskTune** changes only what you tick. Each change, and what was there before it, is recorded in `%LOCALAPPDATA%\DeskTune\changes.json`, so it can be undone even after a restart. It makes a Windows restore point before the first change that needs administrator rights. It never touches Windows Update, Defender, the page file, SysMain or system files.

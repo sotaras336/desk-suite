@@ -29,7 +29,7 @@ public partial class PanelWindow : Window
         SizeChanged += (_, _) => { if (IsVisible) Anchor(); };
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(Anchor);
         _c.StateChanged += () => Dispatcher.BeginInvoke(Refresh);
-        SourceInitialized += (_, _) => SetHotkeys(_c.Settings.Hotkeys);
+        SourceInitialized += (_, _) => { SetHotkeys(_c.Settings.Hotkeys); int off = 1; DwmSetWindowAttribute(new System.Windows.Interop.WindowInteropHelper(this).Handle, 3, ref off, 4); };
 
         // While the panel is open, re-read the state so changes made elsewhere (Settings, Quick Settings) show up.
         _poll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -40,7 +40,6 @@ public partial class PanelWindow : Window
             if (IsVisible) { _poll.Start(); _c.Games.CheckNow(); } else _poll.Stop();
         };
         Root.SizeChanged += (_, _) => { if (Root.Child is Grid g && Root.ActualWidth > 4) g.Clip = new RectangleGeometry(new Rect(0, 0, Root.ActualWidth - 2, Root.ActualHeight - 2), 11, 11); };   // the glows stay inside the rounded corners
-        IsVisibleChanged += (_, _) => Drift(IsVisible);
         Updater.Changed += () => Dispatcher.BeginInvoke(ShowUpdateBanner);
         ShowUpdateBanner();
         AddWheelSupport(BothSlider, v => _c.SetBothBrightness(v));
@@ -48,44 +47,13 @@ public partial class PanelWindow : Window
         AddWheelSupport(MonitorSlider, v => _c.SetMonitorBrightness(v));
     }
 
-    // ---------- motion ----------
+    // ---------- no motion: the panel just appears (the opening animation, the drifting glows and the pop of a changed number are gone) ----------
 
-    /// The two glows drift slowly while the panel is open and stand still (no drawing at all) when it is hidden.
-    private void Drift(bool on)
-    {
-        foreach (var (t, x, y, secs) in new[] { (GlowA, 70.0, 50.0, 11.0), (GlowB, -60.0, -70.0, 14.0) })
-        {
-            if (!on) { t.BeginAnimation(TranslateTransform.XProperty, null); t.BeginAnimation(TranslateTransform.YProperty, null); continue; }
-            DoubleAnimation Move(double to, double s) { var a = new DoubleAnimation(-to, to, TimeSpan.FromSeconds(s)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } }; Timeline.SetDesiredFrameRate(a, 30); return a; }
-            t.BeginAnimation(TranslateTransform.XProperty, Move(x, secs)); t.BeginAnimation(TranslateTransform.YProperty, Move(y, secs * 1.3));
-        }
-    }
+    private static void SetPulse(TextBlock t, string text) { if (t.Text != text) t.Text = text; }
 
-    /// Each block of the panel rises into place one after the other when it opens.
-    private void Stagger()
-    {
-        int i = 0;
-        foreach (UIElement el in MainPage.Children)
-        {
-            if (el.Visibility != Visibility.Visible) continue;
-            var tt = new TranslateTransform(0, 18); el.RenderTransform = tt; el.Opacity = 0;
-            var begin = TimeSpan.FromMilliseconds(35 * i++);
-            el.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = begin });
-            tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(18, 0, TimeSpan.FromMilliseconds(340)) { BeginTime = begin, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-        }
-    }
+    /// DWMWA_TRANSITIONS_FORCEDISABLED: Windows' own fade / zoom when a window is shown or hidden.
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
 
-    /// A big number that changes pops once, so a change of refresh rate is noticed.
-    private static void SetPulse(TextBlock t, string text)
-    {
-        if (t.Text == text) return;
-        bool first = t.Text.Length == 0; t.Text = text; if (first) return;
-        var s = new ScaleTransform(1.35, 1.35); t.RenderTransformOrigin = new Point(0.5, 0.5); t.RenderTransform = s;
-        var a = new DoubleAnimation(1.35, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
-        s.BeginAnimation(ScaleTransform.ScaleXProperty, a); s.BeginAnimation(ScaleTransform.ScaleYProperty, a);
-    }
-
-    // ---------- updates ----------
 
     private void ShowUpdateBanner()
     {
@@ -178,17 +146,11 @@ public partial class PanelWindow : Window
     {
         Theme.Apply();
         if (settings != _settingsOpen) ShowSettings(settings);
-        Opacity = 0;
+        Opacity = 1; Slide.Y = 0;   // no opening animation: it looked laggy
         Refresh();
         Show();
-        Stagger();
         Anchor();
         Activate();
-
-        Slide.Y = 16;
-        BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)));
-        Slide.BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(0, TimeSpan.FromMilliseconds(220)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
 
         // Pull fresh brightness from the screens (someone may have used the monitor's own buttons).
         Task.Run(() =>

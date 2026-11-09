@@ -19,7 +19,7 @@ public sealed class Settings
     public int IconSize { get; set; } = 96;
     public string GroupBy { get; set; } = "";   // "", Name, Type, Date modified, Size
     public double Zoom { get; set; } = 1.0;
-    public bool ShortcutsMade { get; set; }
+    public bool ShortcutsMade { get; set; }   public bool TakeOverDialogs { get; set; }   // other apps' Open / Save windows are answered by DeskDrawer's picker (off by default)
     /// Each folder's own view (sort, grouping, layout), like File Explorer remembers them. Keys are lower-case paths.
     public Dictionary<string, FolderView> Folders { get; set; } = new();
     public bool PreviewOpen { get; set; } = true;

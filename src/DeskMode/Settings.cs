@@ -69,8 +69,6 @@ public sealed class Settings
     /// Appearance (Settings > Appearance): the accent colour id ("windows" = follow Windows) and dark/light ("auto" = follow Windows).
     public string Accent { get; set; } = "windows";
     public string Look { get; set; } = "auto";
-    /// Fade the screen to black and back while the refresh rate changes (Windows blanks it anyway; this turns the flash into a smooth fade).
-    public bool SmoothSwitch { get; set; } = true;
 
     public Snapshot? Snapshot { get; set; }
 

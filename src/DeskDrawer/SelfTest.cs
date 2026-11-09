@@ -4,7 +4,7 @@ using System.Text;
 namespace DeskDrawer;
 
 /// DeskDrawer.exe --selftest report.txt : exercises the file operations and the shell menu on a throw-away folder, no windows, then exits.
-public static class SelfTest
+public static partial class SelfTest
 {
     public static int Run(string reportFile)
     {

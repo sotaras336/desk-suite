@@ -648,6 +648,7 @@ public partial class MainWindow : Window
         bool def = DefaultApp.IsOn;
         m.Items.Add(MI("Open folders with DeskDrawer", def ? Check : "", () => SetDefault(!def)));
         m.Items.Add(MI("Keep ready in the background (opens faster)", _settings.KeepReady ? Check : "", () => { _settings.KeepReady = !_settings.KeepReady; _settings.Save(); Setup.StartAtSignIn(_settings.KeepReady); }));
+        m.Items.Add(MI("Use DeskDrawer for other apps' Open and Save windows", _settings.TakeOverDialogs ? Check : "", () => { _settings.TakeOverDialogs = !_settings.TakeOverDialogs; DialogSwitch.TakeOver = _settings.TakeOverDialogs; _settings.Save(); Flash(_settings.TakeOverDialogs ? "Open / Save windows now use DeskDrawer" : "Open / Save windows are back to normal"); }));
         m.Items.Add(MI("Use graphics card (smoother, more memory)", _settings.Gpu ? Check : "", () => { _settings.Gpu = !_settings.Gpu; _settings.Save(); Flash("Restart DeskDrawer to apply"); }));
         m.Items.Add(new Separator());
         if (Updater.Newer) m.Items.Add(MI("Update DeskDrawer now", "", UpdateNow, bold: true));

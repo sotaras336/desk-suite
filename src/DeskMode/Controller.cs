@@ -216,29 +216,26 @@ public sealed class Controller : IDisposable
         RefreshEnergySaver();
     }
 
-    /// The actual mode change, for every screen that is not at its wanted rate yet. Windows blanks those screens while it happens, so (unless switched off in Settings)
-    /// they are faded to black first and faded back in after: one smooth dip instead of a flash.
+    /// The actual mode change, for every screen that is not at its wanted rate yet (one commit for all of them).
     private void ChangeRates(List<(DisplayInfo D, int Hz)> changes)
     {
         var need = changes.Where(t => t.D.RefreshRate != t.Hz).ToList();
         if (need.Count == 0 || ReadOnly) return;
-        bool fade = Settings.SmoothSwitch && System.Windows.Application.Current != null;
-        if (fade) try { ScreenFade.Begin(need.Select(t => t.D.DeviceName)); } catch { fade = false; }
-        try { DisplayService.SetRefreshRates(need); }
-        finally { if (fade) try { ScreenFade.End(); } catch { } }
+        DisplayService.SetRefreshRates(need);
     }
 
     /// Sets each screen to its wanted rate (0 = its highest), then looks again and retries a few times: Windows reshuffles the display while the power mode and Energy saver change,
     /// and a single call right after that can be ignored (Go easy straight after Go max stayed at 120 Hz).
     private void ApplyRates(int laptopHz, int monitorHz)
     {
+        if (ReadOnly) return;
         for (int attempt = 0; attempt < 5; attempt++)
         {
             var displays = Displays(); var todo = new List<(DisplayInfo D, int Hz)>();
             if (DisplayService.Internal(displays) is { } l) todo.Add((l, DisplayService.BestRate(l, laptopHz)));
             if (DisplayService.External(displays, Settings.MonitorMatch) is { } m) todo.Add((m, DisplayService.BestRate(m, monitorHz)));
             if (todo.All(t => t.D.RefreshRate == t.Hz)) return;
-            ChangeRates(todo);   // one commit for every screen that has to change: one blink, now a fade
+            ChangeRates(todo);
             Thread.Sleep(500);
         }
     }

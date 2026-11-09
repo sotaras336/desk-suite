@@ -188,7 +188,6 @@ public sealed class SettingsPage : ScrollViewer
         // ---- general ----
         Heading("General");
         c = Card();
-        Switch(c, "Fade the screen while the refresh rate changes", S.SmoothSwitch, v => S.SmoothSwitch = v, "Windows blanks the screen for a moment when the refresh rate changes. This fades it out and back in so it is a smooth dip, not a flash.");
         Switch(c, "Start DeskMode with Windows", Settings.StartWithWindows, v => Settings.StartWithWindows = v, first: true);
         Switch(c, "Keyboard shortcuts: Ctrl+Alt+D panel · M max · B easy · F borderless", S.Hotkeys, v => { S.Hotkeys = v; ((App)Application.Current).Panel?.SetHotkeys(v); }, "Switch these off if another program already uses them");
         Switch(c, "Check for updates once a day", Updater.Enabled, v => Updater.Enabled = v, "Reads the list of releases on GitHub; nothing else is sent. A new version is only installed when you press Update now.");

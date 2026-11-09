@@ -1,23 +1,18 @@
-## Desk 2.4
+## Desk 2.5
 
-A DeskMode update: a new look, colour choices, and a smoother refresh-rate change. DeskBar, DeskDrawer and DeskTune are the same as in 2.3.2.
+DeskDrawer can answer the Open and Save windows of other apps, and DeskMode loses its animations. DeskBar and DeskTune are the same as in 2.4.
 
-**DeskMode: a new look**
+**DeskDrawer: Open and Save windows of other apps (off by default)**
 
-- **What each screen is doing, big:** a glowing mini display at the top shows each screen's refresh rate in large light numerals (with a small "highest" tag when it is at its top rate). It pops when the rate changes.
-- **One card per screen:** each screen has its own card with its refresh-rate chips and brightness slider. Brightness for both screens and the "brightness keys also change the monitor" switch sit in a slim card of their own. The monitor card only appears when a monitor is connected.
-- **The preset that is on is lit:** Go max, the monitor-first preset or Go easy glow with a gradient when the screens and power mode match it.
-- **Gradient chips and tiles with a soft glow**, rounder, roomier cards, header status as small pills, two slow glows drifting behind the panel while it is open (they stop when it is hidden), and each block rising into place when the panel opens.
-- **Easier on the eyes:** softer glows, and a soft off-white instead of pure white text in the dark theme. The selected chip's text is readable in every colour (it was white on pale blue before).
+- Turn it on in DeskDrawer's ⋯ menu: **Use DeskDrawer for other apps' Open and Save windows**. When Word, Chrome or any other app opens a Save As or Open window, DeskDrawer's own picker opens instead, in DeskDrawer's look: your open folders and the usual places on the left, the files in the middle, the file name at the bottom.
+- The file-type list of the original window is a drop-down in the picker (also when saving), and the file name follows the type you choose (report.docx becomes report.pdf).
+- It works by putting Windows' own window out of sight, then typing your answer into it and pressing Open or Save, so the app gets exactly what Windows' window would have given it. Several files in one folder work too. If anything looks unusual (no file-name box, a folder picker, an error), the normal window stays or comes back.
+- It does not replace Windows' file dialogs system-wide and changes nothing in the other app. Windows Store apps use pickers Windows runs itself; those stay as they are.
+- If DeskDrawer is closed or the switch is off, nothing changes at all.
 
-**DeskMode: colour options** (Settings > Appearance, the first card)
+**DeskMode: no animations**
 
-- Colour: *Windows accent* (the default, follows Windows), Indigo, Teal, Green, Orange, Red, Pink, Light pink and Violet. Look: Auto (follows Windows), Dark or Light. Both apply at once.
+- The panel opens at once: the rising-in animation, the drifting glows and the pop of a changed number are gone, and Windows' own fade when it opens and closes is switched off for it.
+- The screen fade around a refresh-rate change is removed, together with its switch in Settings. Windows still blanks the screen for a moment when the rate changes; that part is Windows'.
 
-**DeskMode: a smoother refresh-rate change**
-
-- Windows blanks a screen while its refresh rate changes. DeskMode now fades the screens that are about to change to black and back, so it reads as one smooth dip, not a flash. It can be turned off in Settings ("Fade the screen while the refresh rate changes"). The black windows are click-through and close by themselves after a few seconds if anything goes wrong.
-- When both screens change (Go max, Go easy), they change together: one blink, not one after the other.
-- Go easy straight after Go max sometimes stayed at the high rate, because Windows reshuffles the display while the power mode changes and the change was sent only once. DeskMode now checks the result and retries a few times.
-
-**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer, DeskTune and DeskMode; DeskBar needs nothing extra. With 2.2 or later installed, DeskMode offers this itself: the banner at the top of its panel, or Settings. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
+**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer, DeskTune and DeskMode; DeskBar needs nothing extra. With 2.2 or later installed, DeskDrawer and DeskMode offer this update themselves. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.

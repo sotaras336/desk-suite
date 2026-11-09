@@ -11,7 +11,7 @@ namespace DeskDrawer;
 /// Save / Open dialogs in other apps (Chrome, Word...) belong to those apps and can't be swapped for DeskDrawer. Instead, while one is in front, a small
 /// "DeskDrawer" button sits under it; picking one of your open DeskDrawer folders makes the dialog jump there (it types the folder into the dialog's
 /// file-name box and presses Open/Save, which is how those dialogs navigate, then puts the file name back).
-public static class DialogSwitch
+public static partial class DialogSwitch
 {
     private static Window? _chip;
     private static IntPtr _dialog, _hook;
@@ -31,7 +31,9 @@ public static class DialogSwitch
     private static void Check(IntPtr fg)
     {
         if (_chip != null && fg == new WindowInteropHelper(_chip).Handle) return;   // clicking our own button
-        if (IsFileDialog(fg)) { _dialog = fg; Show(); } else if (fg != _dialog) Hide();
+        if (_picker != null && fg == new WindowInteropHelper(_picker).Handle) return;   // our own picker is in front: leave everything as it is
+        if (TakeOver && Taken.Contains(fg)) return;   // already handled (hidden, or answered): no button under it
+        if (IsFileDialog(fg)) { _dialog = fg; if (TakeOver && TryTakeOver(fg)) { Hide(); return; } Show(); } else { if (fg != _dialog) Hide(); Retry(fg, 1); }
     }
 
     /// The common Save / Open dialog: a #32770 window holding the shell's folder view (DUIViewWndClassName) and a file-name box.
