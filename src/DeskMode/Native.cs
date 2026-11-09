@@ -38,6 +38,7 @@ internal static class Native
     public const int ENUM_CURRENT_SETTINGS = -1;
     public const int DM_PELSWIDTH = 0x80000, DM_PELSHEIGHT = 0x100000, DM_DISPLAYFREQUENCY = 0x400000;
     public const int CDS_UPDATEREGISTRY = 0x1;
+    public const int CDS_NORESET = 0x10000000;
     public const int DISP_CHANGE_SUCCESSFUL = 0;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -48,6 +49,8 @@ internal static class Native
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int ChangeDisplaySettingsEx(string deviceName, ref DEVMODE devMode, IntPtr hwnd, int flags, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "ChangeDisplaySettingsExW")]
+    public static extern int ChangeDisplaySettingsExCommit(string? deviceName, IntPtr devMode, IntPtr hwnd, int flags, IntPtr lParam);
 
     // ---------- Monitors / DDC-CI ----------
     [StructLayout(LayoutKind.Sequential)]

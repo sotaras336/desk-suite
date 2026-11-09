@@ -11,6 +11,12 @@
         <SolidColorBrush x:Key="Fg" Color="#FFFFFFFF"/>
         <SolidColorBrush x:Key="FgDim" Color="#99FFFFFF"/>
         <SolidColorBrush x:Key="Accent" Color="#FF4CC2FF"/>
+        <SolidColorBrush x:Key="AccentSoft" Color="#304CC2FF"/>
+        <SolidColorBrush x:Key="ChipBg" Color="#FF0078D4"/>
+        <Color x:Key="AccentColor">#FF4CC2FF</Color>
+        <Color x:Key="AccentColor2">#FF7F8CFF</Color>
+        <Color x:Key="GlowColor">#FF0078D4</Color>
+        <LinearGradientBrush x:Key="ChipGradient" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF0060AA" Offset="0"/><GradientStop Color="#FF3A4FD0" Offset="1"/></LinearGradientBrush>
         <SolidColorBrush x:Key="OnAccent" Color="#FF000000"/>
         <SolidColorBrush x:Key="Control" Color="#18FFFFFF"/>
         <SolidColorBrush x:Key="ControlHover" Color="#24FFFFFF"/>
@@ -28,15 +34,15 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
-            <Setter Property="Margin" Value="4,14,0,6"/>
+            <Setter Property="Margin" Value="4,16,0,8"/>
         </Style>
 
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="14,12"/>
         </Style>
 
         <!-- Segmented option -->
@@ -49,7 +55,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="B" CornerRadius="5" Background="Transparent" Padding="2,6">
+                        <Border x:Name="B" CornerRadius="8" Background="Transparent" Padding="2,7">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -57,7 +63,8 @@
                                 <Setter TargetName="B" Property="Background" Value="{DynamicResource ControlHover}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="B" Property="Background" Value="{DynamicResource ChipGradient}"/>
+                                <Setter TargetName="B" Property="Effect"><Setter.Value><DropShadowEffect Color="{DynamicResource GlowColor}" BlurRadius="14" ShadowDepth="0" Opacity="0.38"/></Setter.Value></Setter>
                                 <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
@@ -72,7 +79,7 @@
 
         <Style x:Key="SegmentHost" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource Control}"/>
-            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Padding" Value="1"/>
         </Style>
 
@@ -211,16 +218,22 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" CornerRadius="8" Background="{DynamicResource CardBg}"
-                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" Padding="12,10">
+                        <Border x:Name="B" RenderTransformOrigin="0.5,0.5" CornerRadius="14" Background="{DynamicResource CardBg}"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" Padding="14,12">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="B" Property="Background" Value="{DynamicResource ControlHover}"/>
                             </Trigger>
+                            <Trigger Property="Tag" Value="on">
+                                <Setter TargetName="B" Property="Background" Value="{DynamicResource ChipGradient}"/>
+                                <Setter TargetName="B" Property="Effect"><Setter.Value><DropShadowEffect Color="{DynamicResource GlowColor}" BlurRadius="20" ShadowDepth="0" Opacity="0.36"/></Setter.Value></Setter>
+                                <Setter TargetName="B" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="B" Property="Opacity" Value="0.7"/>
+                                <Setter TargetName="B" Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="B" Property="RenderTransform"><Setter.Value><ScaleTransform ScaleX="0.96" ScaleY="0.96"/></Setter.Value></Setter>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

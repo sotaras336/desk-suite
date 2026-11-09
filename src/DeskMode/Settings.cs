@@ -66,6 +66,12 @@ public sealed class Settings
     /// Which three power modes this PC offers: 0 = decide by the PC's maker, 1 = Recommended / Better / Best (Surface), 2 = Efficient / Balanced / Best.
     public int PowerModeStyle { get; set; }
 
+    /// Appearance (Settings > Appearance): the accent colour id ("windows" = follow Windows) and dark/light ("auto" = follow Windows).
+    public string Accent { get; set; } = "windows";
+    public string Look { get; set; } = "auto";
+    /// Fade the screen to black and back while the refresh rate changes (Windows blanks it anyway; this turns the flash into a smooth fade).
+    public bool SmoothSwitch { get; set; } = true;
+
     public Snapshot? Snapshot { get; set; }
 
     /// Where settings live. A test copy points DESKMODE_DATA somewhere else so it never touches the real file.

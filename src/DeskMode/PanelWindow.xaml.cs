@@ -39,11 +39,50 @@ public partial class PanelWindow : Window
             _c.Games.NeedListed = IsVisible;   // the Gaming card is the only reader of the listed-game scan
             if (IsVisible) { _poll.Start(); _c.Games.CheckNow(); } else _poll.Stop();
         };
+        Root.SizeChanged += (_, _) => { if (Root.Child is Grid g && Root.ActualWidth > 4) g.Clip = new RectangleGeometry(new Rect(0, 0, Root.ActualWidth - 2, Root.ActualHeight - 2), 11, 11); };   // the glows stay inside the rounded corners
+        IsVisibleChanged += (_, _) => Drift(IsVisible);
         Updater.Changed += () => Dispatcher.BeginInvoke(ShowUpdateBanner);
         ShowUpdateBanner();
         AddWheelSupport(BothSlider, v => _c.SetBothBrightness(v));
         AddWheelSupport(LaptopSlider, v => _c.SetLaptopBrightness(v));
         AddWheelSupport(MonitorSlider, v => _c.SetMonitorBrightness(v));
+    }
+
+    // ---------- motion ----------
+
+    /// The two glows drift slowly while the panel is open and stand still (no drawing at all) when it is hidden.
+    private void Drift(bool on)
+    {
+        foreach (var (t, x, y, secs) in new[] { (GlowA, 70.0, 50.0, 11.0), (GlowB, -60.0, -70.0, 14.0) })
+        {
+            if (!on) { t.BeginAnimation(TranslateTransform.XProperty, null); t.BeginAnimation(TranslateTransform.YProperty, null); continue; }
+            DoubleAnimation Move(double to, double s) { var a = new DoubleAnimation(-to, to, TimeSpan.FromSeconds(s)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } }; Timeline.SetDesiredFrameRate(a, 30); return a; }
+            t.BeginAnimation(TranslateTransform.XProperty, Move(x, secs)); t.BeginAnimation(TranslateTransform.YProperty, Move(y, secs * 1.3));
+        }
+    }
+
+    /// Each block of the panel rises into place one after the other when it opens.
+    private void Stagger()
+    {
+        int i = 0;
+        foreach (UIElement el in MainPage.Children)
+        {
+            if (el.Visibility != Visibility.Visible) continue;
+            var tt = new TranslateTransform(0, 18); el.RenderTransform = tt; el.Opacity = 0;
+            var begin = TimeSpan.FromMilliseconds(35 * i++);
+            el.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = begin });
+            tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(18, 0, TimeSpan.FromMilliseconds(340)) { BeginTime = begin, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
+    }
+
+    /// A big number that changes pops once, so a change of refresh rate is noticed.
+    private static void SetPulse(TextBlock t, string text)
+    {
+        if (t.Text == text) return;
+        bool first = t.Text.Length == 0; t.Text = text; if (first) return;
+        var s = new ScaleTransform(1.35, 1.35); t.RenderTransformOrigin = new Point(0.5, 0.5); t.RenderTransform = s;
+        var a = new DoubleAnimation(1.35, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
+        s.BeginAnimation(ScaleTransform.ScaleXProperty, a); s.BeginAnimation(ScaleTransform.ScaleYProperty, a);
     }
 
     // ---------- updates ----------
@@ -142,6 +181,7 @@ public partial class PanelWindow : Window
         Opacity = 0;
         Refresh();
         Show();
+        Stagger();
         Anchor();
         Activate();
 
@@ -209,6 +249,14 @@ public partial class PanelWindow : Window
             PowerIcon.Text = plugged ? "" : "";
             PowerStatus.Text = !hasBattery ? "Mains power" : plugged ? $"Plugged in{(pct >= 0 ? $" · {pct}%" : "")}" : $"On battery{(pct >= 0 ? $" · {pct}%" : "")}";
 
+            // what each screen is doing right now, big
+            HeroLaptop.Visibility = laptop != null ? Visibility.Visible : Visibility.Collapsed; HeroMonitor.Visibility = monitor != null ? Visibility.Visible : Visibility.Collapsed;
+            Grid.SetColumnSpan(HeroLaptop, monitor != null ? 1 : 3); Grid.SetColumn(HeroMonitor, laptop != null ? 2 : 0); Grid.SetColumnSpan(HeroMonitor, laptop != null ? 1 : 3);
+            SetPulse(HeroLaptopHz, laptop?.RefreshRate.ToString() ?? ""); SetPulse(HeroMonitorHz, monitor?.RefreshRate.ToString() ?? ""); HeroMonitorName.Text = monitor?.Brand ?? "Monitor";
+            HeroLaptopTag.Text = laptop is { AvailableRates.Count: > 0 } && laptop.RefreshRate == laptop.AvailableRates.Max() ? "highest" : ""; HeroMonitorTag.Text = monitor is { AvailableRates.Count: > 0 } && monitor.RefreshRate == monitor.AvailableRates.Max() ? "highest" : "";
+            Hero.Visibility = laptop != null || monitor != null ? Visibility.Visible : Visibility.Collapsed;
+            LaptopCard.Visibility = laptop != null ? Visibility.Visible : Visibility.Collapsed; LaptopHzNow.Text = laptop != null ? $"{laptop.RefreshRate} Hz" : "";
+            MonitorHzNow.Text = monitor != null ? $"{monitor.RefreshRate} Hz" : "";
             // presets: say what they will really do on this PC
             int lMax = laptop != null ? DisplayService.BestRate(laptop, s.LaptopMaxHz) : 0, mMax = monitor != null ? DisplayService.BestRate(monitor, s.MonitorMaxHz) : 0;
             int lEasy = laptop != null ? DisplayService.BestRate(laptop, s.EasyHz) : 0;
@@ -224,6 +272,14 @@ public partial class PanelWindow : Window
             PowerTitle.Visibility = PowerCard.Visibility = powerOk ? Visibility.Visible : Visibility.Collapsed;
             var mode = PowerService.GetPowerMode();
             FillModes(mode);
+            // which preset is on right now: every screen is at what the preset sets, and so is the power mode
+            int mEasy = monitor != null ? DisplayService.BestRate(monitor, s.EasyHz) : 0;
+            bool any = laptop != null || monitor != null, modeMax = !powerOk || mode == s.MaxPowerMode, modeEasy = !powerOk || mode == s.EasyPowerMode;
+            bool lMaxOn = laptop == null || laptop.RefreshRate == lMax, mMaxOn = monitor == null || monitor.RefreshRate == mMax, lEasyOn = laptop == null || laptop.RefreshRate == lEasy, mEasyOn = monitor == null || monitor.RefreshRate == mEasy;
+            bool monFirst = laptop != null && monitor != null && laptop.RefreshRate == lEasy && monitor.RefreshRate == mMax && modeMax;
+            MaxButton.Tag = any && lMaxOn && mMaxOn && modeMax && !monFirst ? "on" : null;
+            MaxLgButton.Tag = monFirst && !(lMaxOn && mMaxOn) ? "on" : null;
+            SaverButton.Tag = any && lEasyOn && mEasyOn && modeEasy && !(lMaxOn && mMaxOn && modeMax) ? "on" : null;
             if (hasBattery)
             {
                 var other = PowerService.GetPowerMode(!plugged);
@@ -269,7 +325,7 @@ public partial class PanelWindow : Window
             LaptopLabel.Visibility = LaptopSlider.Visibility = LaptopValue.Visibility = lap;
             var mon = _c.Monitor != null || hasMonitor ? Visibility.Visible : Visibility.Collapsed;
             MonitorLabel.Visibility = MonitorSlider.Visibility = MonitorValue.Visibility = LinkKeys.Visibility = mon;
-            MonitorLabel.Text = _c.Monitor?.Brand ?? "Monitor";
+            MonitorCard.Visibility = BothCard.Visibility = mon;
 
             SetSlider(LaptopSlider, LaptopValue, l is { Value: >= 0 } ? l.Value : -1);
             SetSlider(MonitorSlider, MonitorValue, m is { Value: >= 0 } ? m.Value : -1);

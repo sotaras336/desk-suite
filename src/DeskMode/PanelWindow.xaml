@@ -17,6 +17,19 @@
         </Border.RenderTransform>
 
         <Grid>
+        <!-- two slow, drifting glows behind everything (stopped while the panel is hidden) -->
+        <Ellipse Width="380" Height="380" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-150,-170,0,0" Opacity="0.34" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush><GradientStop Color="{DynamicResource GlowColor}" Offset="0"/><GradientStop Color="Transparent" Offset="1"/></RadialGradientBrush>
+            </Ellipse.Fill>
+            <Ellipse.RenderTransform><TranslateTransform x:Name="GlowA"/></Ellipse.RenderTransform>
+        </Ellipse>
+        <Ellipse Width="340" Height="340" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-140,-120" Opacity="0.22" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush><GradientStop Color="{DynamicResource AccentColor2}" Offset="0"/><GradientStop Color="Transparent" Offset="1"/></RadialGradientBrush>
+            </Ellipse.Fill>
+            <Ellipse.RenderTransform><TranslateTransform x:Name="GlowB"/></Ellipse.RenderTransform>
+        </Ellipse>
         <StackPanel x:Name="MainPage" Margin="16,14,16,16">
 
             <!-- Header -->
@@ -26,21 +39,21 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Border Width="34" Height="34" CornerRadius="8" Background="{DynamicResource Accent}" VerticalAlignment="Center">
+                <Border Width="34" Height="34" CornerRadius="8" Background="{DynamicResource Accent}" VerticalAlignment="Top" Margin="0,2,0,0">
                     <TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" FontSize="17"
                                Foreground="{DynamicResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="DeskMode" FontSize="15" FontWeight="SemiBold"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                    <WrapPanel Margin="0,5,0,0"><Border CornerRadius="9" Background="{DynamicResource Control}" Padding="8,2,9,2" Margin="0,0,6,0"><StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="MonitorDot" Width="7" Height="7" Margin="0,1,6,0" Fill="{DynamicResource FgDim}"/>
                         <TextBlock x:Name="MonitorStatus" Text="Looking for screens…" FontSize="12" Foreground="{DynamicResource FgDim}"/>
-                        <TextBlock Text="  ·  " FontSize="12" Foreground="{DynamicResource FgDim}"/>
+                        </StackPanel></Border><Border CornerRadius="9" Background="{DynamicResource Control}" Padding="8,2,9,2" Margin="0,0,6,0"><StackPanel Orientation="Horizontal">
                         <TextBlock x:Name="PowerIcon" FontFamily="{StaticResource IconFont}" FontSize="12" Margin="0,2,4,0" Foreground="{DynamicResource FgDim}"/>
                         <TextBlock x:Name="PowerStatus" FontSize="12" Foreground="{DynamicResource FgDim}"/>
-                    </StackPanel>
+                    </StackPanel></Border></WrapPanel>
                 </StackPanel>
-                <Button x:Name="SettingsButton" Grid.Column="2" Style="{StaticResource IconButton}" Click="Settings_Click" ToolTip="Settings" VerticalAlignment="Center">
+                <Button x:Name="SettingsButton" Grid.Column="2" Style="{StaticResource IconButton}" Click="Settings_Click" ToolTip="Settings" VerticalAlignment="Top">
                     <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="16"/>
                 </Button>
             </Grid>
@@ -49,6 +62,67 @@
             <Button x:Name="UpdateBanner" Style="{StaticResource Preset}" Visibility="Collapsed" Click="Update_Click" Margin="0,12,0,0" ToolTip="Downloads the new version from GitHub, checks it and installs it. DeskMode restarts by itself.">
                 <TextBlock x:Name="UpdateText" Text="A new version is available · Update now" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource Accent}"/>
             </Button>
+
+            <!-- What each screen is doing right now: two glowing mini displays -->
+            <Grid x:Name="Hero" Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="HeroLaptop">
+                    <Border Height="96" CornerRadius="14" Background="{DynamicResource ChipGradient}" BorderBrush="{DynamicResource Accent}" BorderThickness="1.5">
+                        <Border.Effect>
+                            <DropShadowEffect Color="{DynamicResource GlowColor}" BlurRadius="24" ShadowDepth="0" Opacity="0.34"/>
+                        </Border.Effect>
+                        <Grid>
+                            <Rectangle RadiusX="12" RadiusY="12" IsHitTestVisible="False">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0.7,1">
+                                        <GradientStop Color="#40FFFFFF" Offset="0"/>
+                                        <GradientStop Color="#00FFFFFF" Offset="0.5"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock x:Name="HeroLaptopHz" FontFamily="Segoe UI Variable Display, Segoe UI Light" FontSize="46" FontWeight="Light"/>
+                                    <TextBlock Text="Hz" FontSize="14" Foreground="{DynamicResource FgDim}" VerticalAlignment="Bottom" Margin="4,0,0,10"/>
+                                </StackPanel>
+                                <TextBlock x:Name="HeroLaptopTag" FontSize="10.5" HorizontalAlignment="Center" Foreground="{DynamicResource FgDim}" Margin="0,-6,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <Border Width="46" Height="5" CornerRadius="0,0,5,5" Background="{DynamicResource Control}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="HeroLaptopName" Text="Built-in" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource FgDim}" Margin="0,6,0,0"/>
+                </StackPanel>
+                <StackPanel x:Name="HeroMonitor" Grid.Column="2">
+                    <Border Height="96" CornerRadius="14" Background="{DynamicResource ChipGradient}" BorderBrush="{DynamicResource Accent}" BorderThickness="1.5">
+                        <Border.Effect>
+                            <DropShadowEffect Color="{DynamicResource GlowColor}" BlurRadius="24" ShadowDepth="0" Opacity="0.34"/>
+                        </Border.Effect>
+                        <Grid>
+                            <Rectangle RadiusX="12" RadiusY="12" IsHitTestVisible="False">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0.7,1">
+                                        <GradientStop Color="#40FFFFFF" Offset="0"/>
+                                        <GradientStop Color="#00FFFFFF" Offset="0.5"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock x:Name="HeroMonitorHz" FontFamily="Segoe UI Variable Display, Segoe UI Light" FontSize="46" FontWeight="Light"/>
+                                    <TextBlock Text="Hz" FontSize="14" Foreground="{DynamicResource FgDim}" VerticalAlignment="Bottom" Margin="4,0,0,10"/>
+                                </StackPanel>
+                                <TextBlock x:Name="HeroMonitorTag" FontSize="10.5" HorizontalAlignment="Center" Foreground="{DynamicResource FgDim}" Margin="0,-6,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <Border Width="46" Height="5" CornerRadius="0,0,5,5" Background="{DynamicResource Control}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="HeroMonitorName" Text="Monitor" HorizontalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource FgDim}" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Grid>
 
             <!-- Presets -->
             <TextBlock Text="Apply a preset" Style="{StaticResource SectionTitle}"/>
@@ -63,7 +137,7 @@
                 <Button x:Name="MaxButton" Style="{StaticResource Preset}" Click="Max_Click"
                         ToolTip="Your Go max settings: power mode, Energy saver and each screen's refresh rate (change them in Settings)">
                     <StackPanel>
-                        <TextBlock Text="&#xEC4A;" FontFamily="{StaticResource IconFont}" FontSize="18" Foreground="{DynamicResource Accent}"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left"><TextBlock Text="&#xEC4A;" FontFamily="{StaticResource IconFont}" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                         <TextBlock Text="Go max" FontWeight="SemiBold" Margin="0,6,0,0"/>
                         <TextBlock x:Name="MaxSub" Text="Highest rates" FontSize="11.5" Foreground="{DynamicResource FgDim}"/>
                     </StackPanel>
@@ -71,7 +145,7 @@
                 <Button x:Name="MaxLgButton" Grid.Column="2" Style="{StaticResource Preset}" Click="MaxLg_Click"
                         ToolTip="Same as Go max, but the built-in screen stays at the easy rate so less GPU work goes to it">
                     <StackPanel>
-                        <TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" FontSize="18" Foreground="{DynamicResource Accent}"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left"><TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                         <TextBlock x:Name="FirstTitle" Text="Monitor first" FontWeight="SemiBold" Margin="0,6,0,0"/>
                         <TextBlock x:Name="FirstSub" Text="Built-in easy" FontSize="11.5" Foreground="{DynamicResource FgDim}"/>
                     </StackPanel>
@@ -79,7 +153,7 @@
                 <Button x:Name="SaverButton" Grid.Column="4" Style="{StaticResource Preset}" Click="Saver_Click"
                         ToolTip="Your Go easy settings: power mode, Energy saver and one gentle refresh rate on every screen (change them in Settings)">
                     <StackPanel>
-                        <TextBlock Text="&#xEBB4;" FontFamily="{StaticResource IconFont}" FontSize="18" Foreground="{DynamicResource Accent}"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left"><TextBlock Text="&#xEBB4;" FontFamily="{StaticResource IconFont}" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                         <TextBlock Text="Go easy" FontWeight="SemiBold" Margin="0,6,0,0"/>
                         <TextBlock x:Name="EasySub" Text="60Hz · saver" FontSize="11.5" Foreground="{DynamicResource FgDim}"/>
                     </StackPanel>
@@ -103,68 +177,70 @@
                 </StackPanel>
             </Border>
 
-            <!-- Refresh rate -->
-            <TextBlock Text="Refresh rate" Style="{StaticResource SectionTitle}"/>
-            <Border Style="{StaticResource Card}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="82"/>
-                        <ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition Height="8"/>
-                        <RowDefinition/>
-                    </Grid.RowDefinitions>
-                    <TextBlock x:Name="LaptopRatesLabel" Text="Built-in" VerticalAlignment="Center"/>
-                    <Border x:Name="LaptopRatesHost" Grid.Column="1" Style="{StaticResource SegmentHost}">
+            <!-- Screens: one card each, with its refresh rate and brightness -->
+            <TextBlock x:Name="ScreensTitle" Text="Screens" Style="{StaticResource SectionTitle}"/>
+            <Border x:Name="LaptopCard" Style="{StaticResource Card}">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock x:Name="LaptopRatesLabel" Text="Built-in" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock x:Name="LaptopHzNow" HorizontalAlignment="Right" Foreground="{DynamicResource Accent}" FontWeight="SemiBold"/>
+                    </Grid>
+                    <Border x:Name="LaptopRatesHost" Style="{StaticResource SegmentHost}" Margin="0,10,0,0">
                         <UniformGrid x:Name="LaptopRates" Rows="1"/>
                     </Border>
-                    <TextBlock x:Name="MonitorRatesLabel" Grid.Row="2" Text="Monitor" VerticalAlignment="Center"/>
-                    <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource SegmentHost}">
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28"/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="44"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LaptopLabel" Text="&#xE706;" FontFamily="{StaticResource IconFont}" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}"/>
+                        <Slider x:Name="LaptopSlider" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Laptop_Changed"/>
+                        <TextBlock x:Name="LaptopValue" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border x:Name="MonitorCard" Style="{StaticResource Card}" Margin="0,8,0,0">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock x:Name="MonitorRatesLabel" Text="Monitor" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock x:Name="MonitorHzNow" HorizontalAlignment="Right" Foreground="{DynamicResource Accent}" FontWeight="SemiBold"/>
+                    </Grid>
+                    <Border Style="{StaticResource SegmentHost}" Margin="0,10,0,0">
                         <UniformGrid x:Name="MonitorRates" Rows="1"/>
                     </Border>
-                </Grid>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28"/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="44"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="MonitorLabel" Text="&#xE706;" FontFamily="{StaticResource IconFont}" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}"/>
+                        <Slider x:Name="MonitorSlider" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Monitor_Changed"/>
+                        <TextBlock x:Name="MonitorValue" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}"/>
+                    </Grid>
+                </StackPanel>
             </Border>
-
-            <!-- Brightness -->
-            <TextBlock Text="Brightness" Style="{StaticResource SectionTitle}"/>
-            <Border Style="{StaticResource Card}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="82"/>
-                        <ColumnDefinition/>
-                        <ColumnDefinition Width="38"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <StackPanel x:Name="BothLabel" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="&#xE706;" FontFamily="{StaticResource IconFont}" Margin="0,1,8,0"/>
-                        <TextBlock Text="Both" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    <Slider x:Name="BothSlider" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Both_Changed"/>
-                    <TextBlock x:Name="BothValue" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold"/>
-
-                    <Border x:Name="BothSeparator" Grid.Row="1" Grid.ColumnSpan="3" Height="1" Background="{DynamicResource CardBorder}" Margin="0,8"/>
-
-                    <TextBlock x:Name="LaptopLabel" Grid.Row="2" Text="Built-in" VerticalAlignment="Center"/>
-                    <Slider x:Name="LaptopSlider" Grid.Row="2" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Laptop_Changed"/>
-                    <TextBlock x:Name="LaptopValue" Grid.Row="2" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}"/>
-
-                    <TextBlock x:Name="MonitorLabel" Grid.Row="3" Text="Monitor" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                    <Slider x:Name="MonitorSlider" Grid.Row="3" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Monitor_Changed" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="MonitorValue" Grid.Row="3" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource FgDim}" Margin="0,6,0,0"/>
-
-                    <CheckBox x:Name="LinkKeys" Grid.Row="4" Grid.ColumnSpan="3" Style="{StaticResource Switch}" Margin="0,12,0,0" Click="LinkKeys_Click">
+            <Border x:Name="BothCard" Style="{StaticResource Card}" Margin="0,8,0,0">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="64"/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="44"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel x:Name="BothLabel" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#xE706;" FontFamily="{StaticResource IconFont}" Margin="0,1,8,0"/>
+                            <TextBlock Text="Both" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <Slider x:Name="BothSlider" Grid.Column="1" Style="{StaticResource Brightness}" ValueChanged="Both_Changed"/>
+                        <TextBlock x:Name="BothValue" Grid.Column="2" TextAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                    </Grid>
+                    <Border x:Name="BothSeparator" Height="1" Background="{DynamicResource CardBorder}" Margin="0,10"/>
+                    <CheckBox x:Name="LinkKeys" Style="{StaticResource Switch}" Click="LinkKeys_Click">
                         <TextBlock x:Name="LinkKeysText" Text="Brightness keys also change the monitor" Foreground="{DynamicResource FgDim}" FontSize="12.5"/>
                     </CheckBox>
-                </Grid>
+                </StackPanel>
             </Border>
 
             <!-- Gaming -->

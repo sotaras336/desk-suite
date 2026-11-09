@@ -136,6 +136,24 @@ public static class DisplayService
         return ChangeDisplaySettingsEx(d.DeviceName, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero) == DISP_CHANGE_SUCCESSFUL;
     }
 
+    /// Several screens at once. Windows blanks a screen for a moment whenever its mode changes; changing each screen on its own blanks them one after the other,
+    /// so the changes are queued (CDS_NORESET) and applied with a single commit: one blink, all screens together. Screens already at the wanted rate are not touched.
+    public static bool SetRefreshRates(IEnumerable<(DisplayInfo D, int Hz)> changes)
+    {
+        var todo = changes.Where(c => c.D.RefreshRate != c.Hz && c.D.AvailableRates.Contains(c.Hz)).ToList();
+        if (todo.Count == 0) return true;
+        if (todo.Count == 1) return SetRefreshRate(todo[0].D, todo[0].Hz);
+        bool ok = true;
+        foreach (var (disp, hz) in todo)
+        {
+            var dm = DEVMODE.Create();
+            if (!EnumDisplaySettings(disp.DeviceName, ENUM_CURRENT_SETTINGS, ref dm)) { ok = false; continue; }
+            dm.dmDisplayFrequency = hz; dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+            ok &= ChangeDisplaySettingsEx(disp.DeviceName, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY | CDS_NORESET, IntPtr.Zero) == DISP_CHANGE_SUCCESSFUL;
+        }
+        return ChangeDisplaySettingsExCommit(null, IntPtr.Zero, IntPtr.Zero, 0, IntPtr.Zero) == DISP_CHANGE_SUCCESSFUL && ok;
+    }
+
     /// 0 = the highest rate the screen offers. Otherwise the requested rate if offered, else the highest rate not above it (or the lowest there is).
     public static int BestRate(DisplayInfo d, int wanted)
     {

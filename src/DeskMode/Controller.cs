@@ -202,8 +202,7 @@ public sealed class Controller : IDisposable
         var displays = Displays();
         ApplyPower(Settings.MaxPowerMode, Settings.MaxEnergySaverOff ? false : null);
 
-        if (DisplayService.Internal(displays) is { } l) DisplayService.SetRefreshRate(l, DisplayService.BestRate(l, laptopEasy ? Settings.EasyHz : Settings.LaptopMaxHz));
-        if (DisplayService.External(displays, Settings.MonitorMatch) is { } m) DisplayService.SetRefreshRate(m, DisplayService.BestRate(m, Settings.MonitorMaxHz));
+        ApplyRates(laptopEasy ? Settings.EasyHz : Settings.LaptopMaxHz, Settings.MonitorMaxHz);
         RefreshEnergySaver();
     }
 
@@ -213,9 +212,35 @@ public sealed class Controller : IDisposable
         if (ReadOnly) return;
         var displays = Displays();
         ApplyPower(Settings.EasyPowerMode, Settings.EasyEnergySaverOn ? true : null);
-        if (DisplayService.Internal(displays) is { } l) DisplayService.SetRefreshRate(l, DisplayService.BestRate(l, Settings.EasyHz));
-        if (DisplayService.External(displays, Settings.MonitorMatch) is { } m) DisplayService.SetRefreshRate(m, DisplayService.BestRate(m, Settings.EasyHz));
+        ApplyRates(Settings.EasyHz, Settings.EasyHz);
         RefreshEnergySaver();
+    }
+
+    /// The actual mode change, for every screen that is not at its wanted rate yet. Windows blanks those screens while it happens, so (unless switched off in Settings)
+    /// they are faded to black first and faded back in after: one smooth dip instead of a flash.
+    private void ChangeRates(List<(DisplayInfo D, int Hz)> changes)
+    {
+        var need = changes.Where(t => t.D.RefreshRate != t.Hz).ToList();
+        if (need.Count == 0 || ReadOnly) return;
+        bool fade = Settings.SmoothSwitch && System.Windows.Application.Current != null;
+        if (fade) try { ScreenFade.Begin(need.Select(t => t.D.DeviceName)); } catch { fade = false; }
+        try { DisplayService.SetRefreshRates(need); }
+        finally { if (fade) try { ScreenFade.End(); } catch { } }
+    }
+
+    /// Sets each screen to its wanted rate (0 = its highest), then looks again and retries a few times: Windows reshuffles the display while the power mode and Energy saver change,
+    /// and a single call right after that can be ignored (Go easy straight after Go max stayed at 120 Hz).
+    private void ApplyRates(int laptopHz, int monitorHz)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            var displays = Displays(); var todo = new List<(DisplayInfo D, int Hz)>();
+            if (DisplayService.Internal(displays) is { } l) todo.Add((l, DisplayService.BestRate(l, laptopHz)));
+            if (DisplayService.External(displays, Settings.MonitorMatch) is { } m) todo.Add((m, DisplayService.BestRate(m, monitorHz)));
+            if (todo.All(t => t.D.RefreshRate == t.Hz)) return;
+            ChangeRates(todo);   // one commit for every screen that has to change: one blink, now a fade
+            Thread.Sleep(500);
+        }
     }
 
     /// Windows drops Energy Saver whenever the power mode changes, so set the mode first and the
@@ -263,8 +288,8 @@ public sealed class Controller : IDisposable
         RefreshEnergySaver();
     });
 
-    public void SetLaptopHz(int hz) { if (!ReadOnly && Laptop is { } l) DisplayService.SetRefreshRate(l, hz); StateChanged?.Invoke(); }
-    public void SetMonitorHz(int hz) { if (!ReadOnly && Monitor is { } m) DisplayService.SetRefreshRate(m, hz); StateChanged?.Invoke(); }
+    public void SetLaptopHz(int hz) { if (!ReadOnly && Laptop is { } l) ChangeRates(new() { (l, hz) }); StateChanged?.Invoke(); }
+    public void SetMonitorHz(int hz) { if (!ReadOnly && Monitor is { } m) ChangeRates(new() { (m, hz) }); StateChanged?.Invoke(); }
 
     // Brightness: each screen keeps its own level. "Both" and the brightness keys move them
     // together while keeping the gap between them (Settings.BrightnessOffset = monitor - built-in).

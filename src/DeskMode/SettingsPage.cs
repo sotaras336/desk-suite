@@ -108,6 +108,23 @@ public sealed class SettingsPage : ScrollViewer
         Add(Dim("Everything here applies as soon as you change it.")).Margin = new Thickness(4, 8, 0, 0);
 
         // ---- monitor ----
+        // ---- appearance ----
+        Heading("Appearance");
+        var ca = Card();
+        var dots = new List<(string Id, Border B)>();
+        void Mark() { foreach (var (id, b) in dots) b.BorderBrush = id == Theme.AccentId ? (Brush)FindResource("Fg") : Brushes.Transparent; }
+        var wrap = new WrapPanel();
+        foreach (var (id, name, _) in Theme.AccentChoices)
+        {
+            string pick = id;
+            var dot = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Margin = new Thickness(0, 0, 6, 4), BorderThickness = new Thickness(2.5), Background = new SolidColorBrush(Theme.Swatch(id)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = name };
+            dot.MouseLeftButtonUp += (_, _) => { S.Accent = pick; Theme.AccentId = pick; Theme.Apply(); Mark(); Changed(); };
+            if (id == "windows") dot.Child = new TextBlock { Text = "\uE790", FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };   // follows Windows: marked, so it is not mistaken for a plain blue
+            dots.Add((id, dot)); wrap.Children.Add(dot);
+        }
+        Mark(); ca.Children.Add(Row("Colour", wrap));
+        ca.Children.Add(Row("Look", Segments(new List<(string, string)> { ("Auto", "auto"), ("Dark", "dark"), ("Light", "light") }, S.Look, v => { S.Look = v; Theme.Look = v; Theme.Apply(); }), top: 8));
+
         Heading("Monitor");
         var c = Card();
         c.Children.Add(Dim("DeskMode treats this monitor as the trigger: when it is connected (and the PC is plugged in) it can switch to Go max by itself."));
@@ -171,6 +188,7 @@ public sealed class SettingsPage : ScrollViewer
         // ---- general ----
         Heading("General");
         c = Card();
+        Switch(c, "Fade the screen while the refresh rate changes", S.SmoothSwitch, v => S.SmoothSwitch = v, "Windows blanks the screen for a moment when the refresh rate changes. This fades it out and back in so it is a smooth dip, not a flash.");
         Switch(c, "Start DeskMode with Windows", Settings.StartWithWindows, v => Settings.StartWithWindows = v, first: true);
         Switch(c, "Keyboard shortcuts: Ctrl+Alt+D panel · M max · B easy · F borderless", S.Hotkeys, v => { S.Hotkeys = v; ((App)Application.Current).Panel?.SetHotkeys(v); }, "Switch these off if another program already uses them");
         Switch(c, "Check for updates once a day", Updater.Enabled, v => Updater.Enabled = v, "Reads the list of releases on GitHub; nothing else is sent. A new version is only installed when you press Update now.");

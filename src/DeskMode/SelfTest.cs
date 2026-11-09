@@ -30,6 +30,13 @@ public static class SelfTest
             sv.UpdateLayout();
             Check("wheel: a touchpad swipe moves one notch, not ten", Math.Abs(sv.VerticalOffset - Wheel.Px(120)) < 0.5 && Wheel.Px(120) >= 16, $"{sv.VerticalOffset} px");
         }
+        {   // the fade windows sit exactly over each screen (built invisible and closed again at once: nothing shows)
+            ScreenFade.Begin(null, instant: true);
+            var shown = ScreenFade.Rects(); var screens = System.Windows.Forms.Screen.AllScreens.Select(s => s.Bounds).ToList();
+            Check("fade: one window per screen, exactly over it", shown.Count == screens.Count && screens.All(b => shown.Contains(b)), $"{shown.Count} windows, {screens.Count} screens");
+            ScreenFade.CloseNow(); Check("fade: closes completely", ScreenFade.Count == 0);
+            { var named = DisplayService.GetDisplays(); Check("fade: screens are matched by the same device names the display list uses", named.Count > 0 && named.All(d => screens.Count == 0 || System.Windows.Forms.Screen.AllScreens.Any(s => string.Equals(s.DeviceName, d.DeviceName, StringComparison.OrdinalIgnoreCase))), string.Join(",", named.Select(d => d.DeviceName)) + " vs " + string.Join(",", System.Windows.Forms.Screen.AllScreens.Select(s => s.DeviceName))); }
+        }
         try
         {
             Controller.ReadOnly = true;
