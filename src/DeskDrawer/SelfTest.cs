@@ -148,6 +148,7 @@ public static partial class SelfTest
         var t = new System.Text.StringBuilder(1024); SendMessage(c, 0x000D, (IntPtr)1024, t); return t.ToString();
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetLayeredWindowAttributes(IntPtr h, out uint key, out byte alpha, out uint flags);
     private delegate bool EnumProc(IntPtr h, IntPtr l);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc f, IntPtr l);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr h, EnumProc f, IntPtr l);

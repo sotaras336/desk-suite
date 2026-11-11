@@ -20,7 +20,8 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr h);
 
     [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
-    public static extern int StrCmpLogicalW(string a, string b);   // "file2" before "file10", like File Explorer
+    public static extern int StrCmpLogicalW(string a, string b);
+    [DllImport("user32.dll")] public static extern uint GetDoubleClickTime();   // "file2" before "file10", like File Explorer
 
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 

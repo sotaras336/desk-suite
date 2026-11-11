@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "dmstyle.h"
 #include "quick.h"
 
 // Quick Settings detail pages: Wi-Fi, Bluetooth, Sound (output devices, "also play", per-app volume and routing).
@@ -78,13 +79,14 @@ Brush CardRed() { return LinearB(0, 0, 1, 1, {{0, Col(0xE5675F)}, {1, Col(0xA13A
 struct WifiPage : PageBase {
     ws connecting, justConnected, formErr, savedPass, savedUser; bool askPass = false, askUser = false; uint64_t connStart = 0; int step = 0; Label* connLabel = nullptr;
     ConnectArt* art = nullptr; Sweep* sweep = nullptr; Label *connTop = nullptr, *connSub = nullptr; View *connCard = nullptr, *connActs = nullptr;   // connecting: the network being joined right now (the form stays put until the answer arrives)
+    Label* netsLabel = nullptr;
     View *hero, *list, *netsHead = nullptr; ws expanded; std::vector<WifiNet> nets; Toggle* tg = nullptr; TextBox *pwd = nullptr, *user = nullptr; Label* err = nullptr; View *pwdBox = nullptr, *userBox = nullptr, *pwdHint = nullptr, *userHint = nullptr, *btn = nullptr;
     WifiPage(QuickPanel* p) : PageBase(p) {
         auto* h = PageHeader(this, L"Wi-Fi", [p] { p->Back(); }, &tg); (void)h;
         tg->Set(NetSnap().wifiOn); tg->onChange = [this](bool on) { NetSetWifi(on); GUARD UiOnce(on ? 1500 : 200, [this, w_, on] { IFALIVE Load(on); }); };
         hero = MkBox(this, Lay::V);
-        auto* head = MkBox(this, Lay::H); netsHead = head; auto* sl = SectionLabel(head, L"Available networks"); sl->star = 1; sl->va = Al::Center;
-        auto* rf = IconBtn(head, 0xE72C, 26, 11, [this] { Load(true, true); }); rf->bg = Brush{}; rf->tip = L"Scan again";
+        auto* head = MkBox(this, Lay::H); netsHead = head; auto* sl = SectionLabel(head, L"Available networks"); sl->star = 1; sl->va = Al::Center; netsLabel = sl;
+        auto* rf = IconBtn(head, 0xE72C, 36, 13, [this] { Load(true, true); });   /* bigger: at 26 a finger often missed it */ rf->bg = Brush{}; rf->tip = L"Scan again";
         list = MkBox(this, Lay::V);
         auto* f = Footer(this); MiniPill(f, L"Wi-Fi settings", 0xE713, false, [] { CloseAnd(L"ms-settings:network-wifi"); }); MiniPill(f, L"Hidden network", 0xE710, false, [] { CloseAnd(L"ms-settings:network-wifi"); });
         Load(NetSnap().wifiOn);
@@ -105,8 +107,9 @@ struct WifiPage : PageBase {
             WifiScan(false, [this, w_](bool, std::vector<WifiNet> v) { IFALIVE if (nets.empty() && !v.empty()) { nets = v; Render(); } });
             Skeleton(list, 4);
         } else Render();
+        if (forceFresh && netsLabel) netsLabel->Set(L"Searching 26");   // the press shows at once: the list often comes back the same, which looked like nothing happened
         WifiScan(true, [this, w_](bool access, std::vector<WifiNet> v) {
-            IFALIVE
+            IFALIVE if (netsLabel) netsLabel->Set(L"Available networks");
             if (!access) {
                 list->Clear(); Empty(list, 0xE707, L"Windows blocked the network list", L"Allow desktop apps to use location, then try again.");
                 Pill(list, L"Open location settings", 0xE707, true, [] { CloseAnd(L"ms-settings:privacy-location"); }); q->Relayout(); return;
@@ -262,13 +265,13 @@ struct BtPage : PageBase {
         GUARD tg->onChange = [this, w_](bool on) { NetSetBt(on); UiOnce(on ? 1200 : 200, [this, w_] { IFALIVE Load(); }); };
         content = MkBox(this, Lay::V);
         auto* f = Footer(this); MiniPill(f, L"Add device", 0xE710, true, [] { CloseAnd(L"ms-settings-connectabledevices:devicediscovery"); }); MiniPill(f, L"Bluetooth settings", 0xE713, false, [] { CloseAnd(L"ms-settings:bluetooth"); });
-        MiniPill(f, L"Refresh", 0xE72C, false, [this] { Load(); });
+        MiniPill(f, L"Refresh", 0xE72C, false, [this] { Load(true); });
         Load();
     }
-    void Load() {
+    void Load(bool asked = false) {
         content->Clear(); if (!NetSnap().btOn) { Empty(content, 0xE702, L"Bluetooth is off", L"Turn it on to use your pen, earbuds and other devices."); q->Relayout(); return; }
         auto cached = BtCached(); GUARD
-        if (!cached.empty()) Render(cached); else { SectionLabel(content, L"Connected"); Skeleton(content, 2); }
+        if (!cached.empty() && !asked) Render(cached); else { SectionLabel(content, asked ? L"Searching 26" : L"Connected"); Skeleton(content, 2); }   // Refresh: the placeholder rows show that the press was taken
         BtDevices([this, w_](std::vector<BtDev> v) { IFALIVE Render(v); });
         q->Relayout();
     }
@@ -365,7 +368,9 @@ struct SoundPage : PageBase {
         });
     }
     void Reload(int ms) { GUARD UiOnce(ms, [this, w_] { IFALIVE q->ShowDetail(MakeSoundPage(q)); }); }
+    std::set<ws> dupNames;
     void Build(const std::vector<AudioDev>& d, const std::vector<AppAudio>& apps) {
+        dupNames.clear(); { std::map<ws, int> n; for (auto& dev : d) n[AudioShortName(dev.name)]++; for (auto& [k, c] : n) if (c > 1) dupNames.insert(k); }   // one headset listed twice (USB + Bluetooth): show the full names so they can be told apart
         for (auto& dev : d) { OutputRow(dev); if (dev.vol >= 0 && !S.mirrorDevices.empty() && (dev.def || MirrorIsOn(dev.id))) DeviceVolume(dev); }
         if (apps.empty()) { auto* l = MkLabel(mixer, L"No apps are playing sound right now", FText(12), Col(K::White, K::Dim)); l->margin = Thick(4, 0, 0, 8); }
         for (auto& a : apps) AppRow(a, d);
@@ -384,7 +389,7 @@ struct SoundPage : PageBase {
         auto* c = ClickCard(outputs, [this, w_, id] { if (MirrorIsOn(id)) MirrorRemove(id); AudioSetDefault(id, [this, w_] { IFALIVE Reload(350); }); }, d.def);
         auto* row = MkBox(c, Lay::H); row->gap = 12;
         Bubble(row, head ? 0xE7F6 : 0xE7F5, d.def ? SolidB(K::Accent) : mir ? SolidB(K::Green) : SolidB(K::White, K::CardHover), d.def || mir ? Col(K::Black) : Col(K::White), 32);
-        auto* nm = MkBox(row, Lay::V); nm->star = 1; nm->va = Al::Center; MkLabel(nm, AudioShortName(d.name), FText(13));
+        auto* nm = MkBox(row, Lay::V); nm->star = 1; nm->va = Al::Center; MkLabel(nm, dupNames.count(AudioShortName(d.name)) ? d.name : AudioShortName(d.name), FText(13));
         if (d.def) MkLabel(nm, L"Main output", FText(11), Col(K::White, K::Dim)); else if (mir) MkLabel(nm, L"Also playing here", FText(11), Col(K::White, K::Dim));
         if (!d.def) {
             auto* also = Pill(row, mir ? L"Playing too" : L"Also play", mir ? 0xE73E : 0xE710, false, [this, w_, id, mir] { MirrorSet(id, !mir); Reload(100); });
@@ -422,3 +427,202 @@ View* MakeWifiPage(QuickPanel* q) { return new WifiPage(q); }
 View* MakeBtPage(QuickPanel* q) { return new BtPage(q); }
 View* MakeSoundPage(QuickPanel* q) { return new SoundPage(q); }
 View* MakeThemePage(QuickPanel* q) { return new ThemePage(q); }
+
+// ======================================================= Screens and power (what DeskMode did, now here, in DeskMode's own look)
+// DeskMode's panel, piece by piece: the big readout of each screen, the two preset cards, the power-mode strip, and one card per screen with its refresh rates.
+namespace dm {
+// DeskMode's own colours, the same whatever colour the bar wears (raw colours, not passed through DeskBar's theme)
+D2D1_COLOR_F Raw(uint32_t rgb, int a) { return D2D1::ColorF(rgb, a / 255.f); }
+Brush Glow() { return LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
+Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
+View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
+View* Title(View* parent, const ws& t) { auto* l = MkLabel(parent, t, FText(13.5f), Col(K::White, 0xD8)); l->margin = Thick(4, 6, 0, 8); return l; }
+// a strip of equal segments; the chosen one wears the gradient (DeskMode's segmented control)
+void Strip(View* parent, const std::vector<ws>& items, int chosen, int cols, std::function<void(int)> pick) {
+    auto* bg = MkBox(parent, Lay::Uniform); bg->cols = std::max(1, std::min((int)items.size(), cols)); bg->bg = Fill(0x0A); bg->radius = 10; bg->pad = Thick(4); bg->gap = 2;
+    for (int i = 0; i < (int)items.size(); i++) {
+        auto* it = MkBox(bg, Lay::H); it->hit = true; it->radius = 8; it->pad = items.size() <= 3 ? Thick(1, 8) : Thick(6, 8); it->bgHover = SolidB(K::White, 0x14);
+        if (i == chosen) { it->bg = Glow(); it->bgHover = Glow(); }
+        auto* l = MkLabel(it, items[i], FText(items.size() <= 3 ? 12.5f : 13, i == chosen ? 600 : 400)); l->ha = Al::Center; l->star = 1; l->ta = TA::Center;
+        it->onClick = [pick, i] { pick(i); };
+    }
+}
+}
+struct DisplayPage : PageBase {
+    DisplayPage(QuickPanel* p) : PageBase(p) {
+        bg = SolidC(dm::Raw(0x202226)); radius = 0; lay = Lay::Overlay; pad = Thick(0);   // DeskMode's dark panel
+        auto* glowA = MkBox(this); glowA->bg = RadialRel(0.05f, 0.0f, 0.75f, 0.32f, {{0, dm::Raw(0x1167C4, 0x80)}, {1, dm::Raw(0x1167C4, 0)}}); glowA->hit = false;   // DeskMode's two soft glows
+        auto* glowB = MkBox(this); glowB->bg = RadialRel(1.0f, 1.0f, 0.8f, 0.35f, {{0, dm::Raw(0x1FA7B9, 0x5A)}, {1, dm::Raw(0x1FA7B9, 0)}}); glowB->hit = false;
+        auto* col = MkBox(this, Lay::V); col->pad = Thick(18, 16, 18, 14);
+        auto scr = ScreenModes(); int pm = PowerModeNow();
+        bool ext0 = std::any_of(scr.begin(), scr.end(), [](const ScreenMode& m) { return !m.internal; }); ws extName; for (auto& m : scr) if (!m.internal) extName = m.name;
+        {   // DeskMode's header: the app tile (back to Quick Settings), the name, the status pills, the gear
+            auto* h = MkBox(col, Lay::H); h->gap = 12; h->margin = Thick(0, 0, 0, 14);
+            auto* tile = MkBox(h); tile->fw = tile->fh = 34; tile->radius = 8; tile->bg = SolidC(dm::Raw(0x4CC2FF)); tile->hit = true; tile->va = Al::Start; tile->tip = L"Back to Quick Settings"; tile->onClick = [p] { p->Back(); };
+            auto* tg = MkGlyph(tile, 0xE7F4, 17, dm::Raw(0x000000)); tg->ha = tg->va = Al::Center;
+            auto* tx = MkBox(h, Lay::V); tx->star = 1;
+            MkLabel(tx, L"DeskMode", FText(15, 600));
+            auto* pills = MkBox(tx, Lay::H); pills->gap = 6; pills->margin = Thick(0, 5, 0, 0);
+            auto pill = [&](const ws& t, bool dot) { auto* bx = MkBox(pills, Lay::H); bx->bg = dm::Fill(0x12); bx->radius = 9; bx->pad = Thick(8, 2, 9, 3); bx->gap = 6;
+                if (dot) { auto* d = MkBox(bx); d->fw = d->fh = 7; d->radius = 3.5f; d->va = Al::Center; d->bg = SolidC(ext0 ? dm::Raw(0x4CC2FF) : dm::Raw(0xFFFFFF, 0x90)); }
+                MkLabel(bx, t, FText(12), Col(K::White, 0xB0)); };
+            pill(ext0 ? extName + L" connected" : ws(L"No external monitor"), true);
+            SYSTEM_POWER_STATUS ps{}; GetSystemPowerStatus(&ps); bool ac = ps.ACLineStatus != 0; int pct = ps.BatteryLifePercent <= 100 ? ps.BatteryLifePercent : -1;
+            pill(ws(ac ? L"Plugged in" : L"On battery") + (pct >= 0 ? Fmt(L" \u00B7 %d%%", pct) : ws()), false);
+            auto* gear = IconBtn(h, 0xE713, 32, 15, [p] { p->ShowDetail(MakeDeskModeSettings(p), true); }); gear->bg = Brush{}; gear->va = Al::Start; gear->tip = L"Settings";
+        }
+        // what each screen is doing, big
+        auto* hero = MkBox(col, Lay::Uniform); hero->cols = std::max<int>(1, (int)scr.size()); hero->gap = 10; hero->margin = Thick(0, 4, 0, 6);
+        for (auto& sc : scr) {
+            auto* hc = MkBox(hero, Lay::V);
+            auto* t = MkBox(hc, Lay::H); t->bg = dm::Glow(); t->radius = 14; t->pad = Thick(8, 8); t->hit = true; t->tip = L"Change its refresh rate"; t->onClick = [p] { p->ShowDetail(MakeDeskModeRates(p), true); }; t->borderW = 1.5f; t->border = Col(0x7FD3FF, 0xA0);
+            auto* sp = MkBox(t, Lay::H); sp->ha = Al::Center; sp->star = 1;
+            auto* n = MkLabel(sp, std::to_wstring(sc.hz), FDisp(34, 300)); n->va = Al::Center;
+            auto* hz = MkLabel(sp, L"Hz", FText(12), Col(K::White, 0xB0)); hz->va = Al::End; hz->margin = Thick(4, 0, 0, 10);
+            auto* stand = MkBox(hc); stand->fw = 34; stand->fh = 5; stand->radius = 2.5f; stand->ha = Al::Center; stand->bg = dm::Fill(0x22); stand->margin = Thick(0, 4, 0, 0);   // the monitor's little stand
+            auto* nm = MkLabel(hc, sc.internal ? L"Built-in" : sc.name, FText(12), Col(K::White, 0xB0)); nm->ha = Al::Center; nm->margin = Thick(0, 6, 0, 0);
+        }
+        // the presets, as cards
+        dm::Title(col, L"Apply a preset");
+        bool atMax = !scr.empty(), atEasy = !scr.empty();
+        for (auto& sc : scr) { if (sc.rates.empty()) continue; if (sc.hz != PickRate(sc, sc.internal ? S.dmMaxLaptopHz : S.dmMaxMonitorHz)) atMax = false; if (sc.hz != PickRate(sc, S.dmEasyHz)) atEasy = false; }
+        auto* pr = MkBox(col, Lay::Uniform); pr->cols = ext0 ? 3 : 2; pr->gap = 10; pr->margin = Thick(0, 0, 0, 6);
+        ws maxSub, easySub = std::to_wstring(S.dmEasyHz) + L"Hz" + (S.dmEasySaverOn ? L" \u00B7 saver" : L"");
+        for (auto& sc : scr) if (!sc.rates.empty()) maxSub += (maxSub.empty() ? L"" : L" + ") + std::to_wstring(PickRate(sc, sc.internal ? S.dmMaxLaptopHz : S.dmMaxMonitorHz)); maxSub += L"Hz";
+        Preset(pr, 0xEC4A, L"Go max", maxSub, atMax && pm == S.dmMaxMode, [this, scr] { Apply(scr, true); });
+        if (ext0) {   // DeskMode's "monitor first": the monitor at its best, the built-in screen at 60
+            ws firstSub = L"60 + "; for (auto& sc : scr) if (!sc.internal && !sc.rates.empty()) firstSub += std::to_wstring(sc.rates.back()); firstSub += L"Hz";
+            bool atFirst = true; for (auto& sc : scr) { if (sc.rates.empty()) continue; if (sc.internal ? sc.hz > 60 : sc.hz != sc.rates.back()) atFirst = false; }
+            ws shortName = extName.substr(0, extName.find(L' '));
+            Preset(pr, 0xE7F4, shortName + L" first", firstSub, atFirst && !atMax && pm == 2, [this] { GUARD std::thread([this, w_] { DeskModeFirst(); UiPost([this, w_] { IFALIVE q->ShowDetail(MakeDisplayPage(q), true); }); }).detach(); });
+        }
+        Preset(pr, 0xEC48, L"Go easy", easySub, atEasy && pm == S.dmEasyMode, [this, scr] { Apply(scr, false); });
+        // power mode
+        dm::Title(col, L"Power mode right now");
+        auto* pc = dm::Card(col);
+        dm::Strip(pc, {L"Recommended", L"Better", L"Best"}, pm, 3, [this](int i) { Change({}, i); });
+
+        { int es = EnergySaverIsOn(); if (es >= 0) {
+            auto* r = MkBox(pc, Lay::H); r->margin = Thick(2, 12, 0, 0); auto* g = MkGlyph(r, 0xEBB4, 14, Col(K::White, 0xC0)); g->va = Al::Center; g->margin = Thick(0, 0, 10, 0);
+            auto* l = MkLabel(r, L"Energy saver", FText(13.5f)); l->star = 1; l->va = Al::Center;
+            auto* t = r->Add(new Toggle()); t->rawOn = 0x4CC2FF; t->va = Al::Center; t->Set(es == 1); t->onChange = [](bool on) { std::thread([on] { EnergySaverSet(on); }).detach(); }; } }
+        // the screens: each one's refresh rates and brightness, in one card (kept compact so the panel needs no scrolling)
+        dm::Title(col, L"Screens");
+        auto* bcard = dm::Card(col);
+        for (size_t si = 0; si < scr.size(); si++) {
+            auto& sc = scr[si];
+            auto* hh = MkBox(bcard, Lay::H); hh->margin = Thick(2, si ? 14 : 0, 0, 8);
+            auto* nm = MkLabel(hh, sc.internal ? L"Built-in" : sc.name, FText(13.5f, 600)); nm->star = 1;
+            MkLabel(hh, Fmt(L"%d Hz", sc.hz), FText(12.5f), dm::Raw(0x7FD3FF));
+            std::vector<ws> rs; int chosen = -1; for (size_t i = 0; i < sc.rates.size(); i++) { rs.push_back(std::to_wstring(sc.rates[i])); if (sc.rates[i] == sc.hz) chosen = (int)i; }
+            ws dev = sc.device; auto rates = sc.rates;
+            dm::Strip(bcard, rs, chosen, std::min<int>(8, (int)rs.size()), [this, dev, rates](int i) { Change({{dev, rates[i]}}, -1); });
+            Brightness(bcard, sc.device, L"");
+        }
+        if (scr.size() > 1) {   // both screens at once, keeping the gap between them (DeskMode's "both" slider)
+            auto* row = MkBox(bcard, Lay::H); row->gap = 10; row->margin = Thick(2, 12, 0, 0);
+            auto* l = MkLabel(row, L"Both", FText(13.5f)); l->fw = 56; l->va = Al::Center;
+            auto* s = row->Add(new Slider()); s->star = 1; s->va = Al::Center; both = s; s->value = 50;
+            auto* pct = MkLabel(row, L"", FText(12.5f), Col(K::White, 0xB0)); pct->fw = 40; pct->ta = TA::Right; pct->va = Al::Center; bothPct = pct;
+            s->onChange = [this](float v, bool) {
+                if (bothBase < 0) bothBase = v;   // the first move: the gap is what the screens have now
+                float d = v - bothBase; for (auto& [dev, sl] : sliders) { int to = std::clamp((int)lroundf(base[dev] + d), 0, 100); BrightSet(dev, to); sl->Set((float)to); }
+                bothPct->Set(Fmt(L"%d%%", (int)lroundf(v)));
+            };
+        }
+
+    }
+    std::map<ws, Slider*> sliders; std::map<ws, float> base; Slider* both = nullptr; Label* bothPct = nullptr; float bothBase = -1;
+    void Brightness(View* card, const ws& dev, const ws& label) {   // the screen's brightness (the monitor over DDC/CI, like DeskMode), greyed when the screen doesn't allow it
+        auto* row = MkBox(card, Lay::H); row->gap = 10; row->margin = Thick(2, 8, 0, 0);
+        if (label.empty()) { auto* gl = MkGlyph(row, 0xE706, 15, Col(K::White, 0xC0)); gl->va = Al::Center; } else { auto* g = MkLabel(row, label, FText(13)); g->fw = 56; g->va = Al::Center; }
+        auto* s = row->Add(new Slider()); s->star = 1; s->va = Al::Center; s->enabled = false; s->opacity = 0.5f;
+        auto* pct = MkLabel(row, L"", FText(12.5f), Col(K::White, 0xB0)); pct->fw = 40; pct->ta = TA::Right; pct->va = Al::Center;
+        sliders[dev] = s;
+        s->onChange = [this, dev, pct](float v, bool) { BrightSet(dev, (int)lroundf(v)); pct->Set(Fmt(L"%d%%", (int)lroundf(v))); base[dev] = v; bothBase = -1; };
+        Mon m{}; bool found = false; for (auto& x : Monitors()) { MONITORINFOEXW mi{}; mi.cbSize = sizeof mi; if (GetMonitorInfoW(x.h, &mi) && EqI(mi.szDevice, dev)) { m = x; found = true; } }
+        if (!found) return;
+        GUARD BrightOpen(m, [this, w_, s, pct, dev](bool ok, int v) {
+            IFALIVE s->enabled = ok; s->opacity = ok ? 1.f : 0.5f; if (v >= 0) { s->Set((float)v); pct->Set(Fmt(L"%d%%", v)); base[dev] = (float)v; }
+            if (both && !base.empty()) { float avg = 0; for (auto& [k, b] : base) avg += b; avg /= base.size(); both->Set(avg); bothPct->Set(Fmt(L"%d%%", (int)lroundf(avg))); bothBase = -1; }
+            Invalidate();
+        });
+    }
+    void Preset(View* parent, wchar_t glyph, const ws& title, const ws& sub, bool on, std::function<void()> fn) {
+        auto* c = MkBox(parent, Lay::V); c->hit = true; c->radius = 14; c->pad = Thick(12, 10); c->borderW = 1; c->border = Col(K::White, on ? 0x60 : 0x1C);
+        c->bg = on ? dm::Glow() : dm::Fill(0x0C); c->bgHover = on ? dm::Glow() : dm::Fill(0x18); c->onClick = std::move(fn);
+        auto* disc = MkBox(c); disc->fw = disc->fh = 32; disc->radius = 16; disc->ha = Al::Start; disc->bg = SolidB(K::White, on ? 0x30 : 0x18);
+        auto* g = MkGlyph(disc, glyph, 16); g->ha = g->va = Al::Center;
+        auto* t = MkLabel(c, title, FText(14.5f, 600)); t->margin = Thick(0, 8, 0, 1);
+        MkLabel(c, sub, FText(12), Col(K::White, 0xB0));
+    }
+    void Apply(const std::vector<ScreenMode>&, bool max) { GUARD std::thread([this, w_, max] { DeskModeGo(max); UiPost([this, w_] { IFALIVE q->ShowDetail(MakeDisplayPage(q), true); }); }).detach(); }
+    void Change(std::vector<std::pair<ws, int>> want, int mode) {
+        GUARD std::thread([this, w_, want, mode] {
+            if (mode >= 0) SetPowerModeNow(mode);   // the power mode first: Windows reshuffles the screens when it changes
+            if (!want.empty()) SetScreenRates(want);
+            UiPost([this, w_] { IFALIVE q->ShowDetail(MakeDisplayPage(q), true); });
+        }).detach();
+    }
+};
+View* MakeDisplayPage(QuickPanel* q) { return new DisplayPage(q); }
+
+// Each screen's refresh rates (a tap on a screen in DeskMode's panel)
+struct DeskModeRates : PageBase {
+    DeskModeRates(QuickPanel* p) : PageBase(p) {
+        bg = SolidC(dm::Raw(0x202226)); radius = 0;
+        auto* h = MkBox(this, Lay::H); h->gap = 10; h->margin = Thick(0, 0, 0, 6);
+        auto* bk = IconBtn(h, 0xE72B, 32, 14, [p] { p->ShowDetail(MakeDisplayPage(p), true); }); bk->bg = Brush{}; bk->tip = L"Back";
+        auto* t = MkLabel(h, L"Refresh rate", FText(17, 600)); t->va = Al::Center;
+        for (auto& sc : ScreenModes()) {
+            auto* c = dm::Card(this);
+            auto* hh = MkBox(c, Lay::H); hh->margin = Thick(0, 0, 0, 10);
+            auto* nm = MkLabel(hh, sc.internal ? L"Built-in" : sc.name, FText(14, 600)); nm->star = 1;
+            MkLabel(hh, Fmt(L"%d Hz", sc.hz), FText(13), dm::Raw(0x7FD3FF));
+            std::vector<ws> rs; int chosen = -1; for (size_t i = 0; i < sc.rates.size(); i++) { rs.push_back(std::to_wstring(sc.rates[i])); if (sc.rates[i] == sc.hz) chosen = (int)i; }
+            ws dev = sc.device; auto rates = sc.rates;
+            dm::Strip(c, rs, chosen, std::min<int>(8, (int)rs.size()), [this, dev, rates](int i) {
+                GUARD std::thread([this, w_, dev, rates, i] { SetScreenRates({{dev, rates[i]}}); UiPost([this, w_] { IFALIVE q->ShowDetail(MakeDeskModeRates(q), true); }); }).detach(); });
+        }
+        auto* note = MkLabel(this, L"Each change makes Windows blank the screen for a moment.", FText(11.5f), Col(K::White, 0xA0)); note->wrap = true; note->margin = Thick(4, 2, 0, 0);
+    }
+};
+View* MakeDeskModeRates(QuickPanel* q) { return new DeskModeRates(q); }
+
+// DeskMode's Settings page, in the same panel and the same look: what Go max and Go easy set, and what DeskMode does by itself.
+struct DeskModeSettings : PageBase {
+    DeskModeSettings(QuickPanel* p) : PageBase(p) {
+        bg = SolidC(dm::Raw(0x202226)); radius = 0;
+        auto* h = MkBox(this, Lay::H); h->gap = 10; h->margin = Thick(0, 0, 0, 6);
+        auto* bk = IconBtn(h, 0xE72B, 32, 14, [p] { p->ShowDetail(MakeDisplayPage(p), true); }); bk->bg = Brush{}; bk->tip = L"Back";
+        auto* t = MkLabel(h, L"Settings", FText(17, 600)); t->va = Al::Center;
+        auto* sub = MkLabel(this, L"Everything here applies as soon as you change it.", FText(12), Col(K::White, 0xA0)); sub->margin = Thick(4, 0, 0, 4);
+        auto scr = ScreenModes(); std::vector<int> lap, mon; for (auto& s : scr) (s.internal ? lap : mon) = s.rates;
+        auto rateStrip = [&](View* c, const ws& label, const std::vector<int>& rates, int* val, bool withMax) {
+            if (rates.empty()) return; auto* l = MkLabel(c, label, FText(12.5f), Col(K::White, 0xB0)); l->margin = Thick(2, 8, 0, 6);
+            std::vector<ws> items; std::vector<int> vals; if (withMax) { items.push_back(L"Max"); vals.push_back(0); } for (int r : rates) { items.push_back(std::to_wstring(r)); vals.push_back(r); }
+            int chosen = 0; for (size_t i = 0; i < vals.size(); i++) if (vals[i] == *val) chosen = (int)i;
+            dm::Strip(c, items, chosen, 5, [this, val, vals](int i) { *val = vals[i]; SaveSettingsSoon(); Reload(); });
+        };
+        auto modeStrip = [&](View* c, int* val) { auto* l = MkLabel(c, L"Power mode", FText(12.5f), Col(K::White, 0xB0)); l->margin = Thick(2, 10, 0, 6);
+            dm::Strip(c, {L"Recommended", L"Better", L"Best"}, *val, 3, [this, val](int i) { *val = i; SaveSettingsSoon(); Reload(); }); };
+        auto sw = [&](View* c, const ws& text, bool* val) {
+            auto* r = MkBox(c, Lay::H); r->margin = Thick(2, 10, 0, 0); auto* l = MkLabel(r, text, FText(13)); l->star = 1; l->wrap = true; l->va = Al::Center;
+            auto* tg = r->Add(new Toggle()); tg->rawOn = 0x4CC2FF; tg->va = Al::Center; tg->Set(*val); tg->onChange = [val](bool on) { *val = on; SaveSettingsSoon(); }; };
+        dm::Title(this, L"\u201CGo max\u201D"); auto* c1 = dm::Card(this);
+        auto* d1 = MkLabel(c1, L"What the Go max button (and Ctrl+Alt+M) sets. \u201CMax\u201D uses the best refresh rate each screen offers.", FText(12), Col(K::White, 0xB0)); d1->wrap = true;
+        rateStrip(c1, L"Built-in screen", lap, &S.dmMaxLaptopHz, true); rateStrip(c1, L"Monitor", mon, &S.dmMaxMonitorHz, true); modeStrip(c1, &S.dmMaxMode); sw(c1, L"Turn Energy saver off", &S.dmMaxSaverOff);
+        dm::Title(this, L"\u201CGo easy\u201D"); auto* c2 = dm::Card(this);
+        auto* d2 = MkLabel(c2, L"What the Go easy button (and Ctrl+Alt+B) sets: a gentle refresh rate on every screen, for battery life and quiet fans.", FText(12), Col(K::White, 0xB0)); d2->wrap = true;
+        std::vector<int> all; for (auto& s : scr) for (int r : s.rates) if (std::find(all.begin(), all.end(), r) == all.end()) all.push_back(r); std::sort(all.begin(), all.end());
+        rateStrip(c2, L"Refresh rate", all, &S.dmEasyHz, false); modeStrip(c2, &S.dmEasyMode); sw(c2, L"Turn Energy saver on", &S.dmEasySaverOn);
+        dm::Title(this, L"By itself"); auto* c3 = dm::Card(this);
+        sw(c3, L"Go max when a monitor and the charger are connected", &S.dmAutoMax);
+        sw(c3, L"Go back to how things were when the PC runs on battery or the monitor is unplugged", &S.dmRestore);
+        sw(c3, L"Leave screen modes alone while a full-screen game is up", &S.dmGameLock);
+        dm::Title(this, L"Shortcuts"); auto* c4 = dm::Card(this);
+        auto* k = MkLabel(c4, L"Ctrl+Alt+D the panel \u00B7 M Go max \u00B7 B Go easy \u00B7 F the window in front without its frame (borderless)", FText(12.5f), Col(K::White, 0xC0)); k->wrap = true;
+    }
+    void Reload() { GUARD UiOnce(0, [this, w_] { IFALIVE q->ShowDetail(MakeDeskModeSettings(q), true); }); }
+};
+View* MakeDeskModeSettings(QuickPanel* q) { return new DeskModeSettings(q); }

@@ -244,8 +244,11 @@ static void ApplySettings(const Json& j) {
     S.taskbarPins = StrList(j.Find(L"TaskbarPins")); S.pinsImported = BoolOf(j.Find(L"PinsImported"), false);
     S.winKeyOpensStart = BoolOf(j.Find(L"WinKeyOpensStart"), true); S.mouseBridge = BoolOf(j.Find(L"MouseBridge"), true);
     if (auto p = j.Find(L"EdgeResistance")) if (p->t == Json::Num) S.edgeResistance = (int)p->n;
+    for (auto [k, v] : std::initializer_list<std::pair<const wchar_t*, int*>>{{L"DmMaxLaptopHz", &S.dmMaxLaptopHz}, {L"DmMaxMonitorHz", &S.dmMaxMonitorHz}, {L"DmMaxMode", &S.dmMaxMode}, {L"DmEasyHz", &S.dmEasyHz}, {L"DmEasyMode", &S.dmEasyMode}})
+        if (auto p = j.Find(k)) if (p->t == Json::Num) *v = (int)p->n;
+    S.dmMaxSaverOff = BoolOf(j.Find(L"DmMaxSaverOff"), true); S.dmEasySaverOn = BoolOf(j.Find(L"DmEasySaverOn"), true);
     S.snapOnRelease = BoolOf(j.Find(L"SnapOnRelease"), true); S.keepSizeRatio = BoolOf(j.Find(L"KeepSizeRatio"), true);
-    S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.popupsFollowOwner = BoolOf(j.Find(L"PopupsFollowOwner"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
+    S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.popupsFollowOwner = BoolOf(j.Find(L"PopupsFollowOwner"), true); S.dmAutoMax = BoolOf(j.Find(L"DmAutoMax"), true); S.dmRestore = BoolOf(j.Find(L"DmRestore"), true); S.dmGameLock = BoolOf(j.Find(L"DmGameLock"), true); S.dmButton = BoolOf(j.Find(L"DmButton"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
     S.showBatteryPercent = BoolOf(j.Find(L"ShowBatteryPercent"), true);
     S.widgets = StrList(j.Find(L"Widgets"));
     S.updateCheck = BoolOf(j.Find(L"UpdateCheck"), true); if (auto p = j.Find(L"UpdateLast")) if (p->t == Json::Num) S.updateLast = p->n;
@@ -273,7 +276,7 @@ void SaveSettingsNow() {
     Json j = Json::O();
     j.Set(L"TaskbarPins", ListJ(S.taskbarPins)); j.Set(L"PinsImported", Json::B(S.pinsImported));
     j.Set(L"WinKeyOpensStart", Json::B(S.winKeyOpensStart)); j.Set(L"MouseBridge", Json::B(S.mouseBridge)); j.Set(L"EdgeResistance", Json::N(S.edgeResistance));
-    j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows)); j.Set(L"PopupsFollowOwner", Json::B(S.popupsFollowOwner));
+    j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows)); j.Set(L"DmAutoMax", Json::B(S.dmAutoMax)); j.Set(L"DmRestore", Json::B(S.dmRestore)); j.Set(L"DmGameLock", Json::B(S.dmGameLock)); j.Set(L"DmButton", Json::B(S.dmButton)); j.Set(L"DmMaxLaptopHz", Json::N(S.dmMaxLaptopHz)); j.Set(L"DmMaxMonitorHz", Json::N(S.dmMaxMonitorHz)); j.Set(L"DmMaxMode", Json::N(S.dmMaxMode)); j.Set(L"DmEasyHz", Json::N(S.dmEasyHz)); j.Set(L"DmEasyMode", Json::N(S.dmEasyMode)); j.Set(L"DmMaxSaverOff", Json::B(S.dmMaxSaverOff)); j.Set(L"DmEasySaverOn", Json::B(S.dmEasySaverOn)); j.Set(L"PopupsFollowOwner", Json::B(S.popupsFollowOwner));
     j.Set(L"ShowMedia", Json::B(S.showMedia)); j.Set(L"ShowBatteryPercent", Json::B(S.showBatteryPercent));
     j.Set(L"Widgets", ListJ(S.widgets)); j.Set(L"UpdateCheck", Json::B(S.updateCheck)); j.Set(L"UpdateLast", Json::N(S.updateLast)); j.Set(L"UpdateKnown", Json::S(S.updateKnown));
     j.Set(L"MirrorDevices", ListJ(S.mirrorDevices));

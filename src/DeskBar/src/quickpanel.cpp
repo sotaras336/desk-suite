@@ -73,11 +73,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     d->tiles = main->Add(new Scroll()); auto* content = MkBox(nullptr, Lay::V); d->tiles->content = d->tiles->Add(content);
     d->grid1 = MkBox(content, Lay::Uniform); d->grid1->cols = 3; for (auto* t : top) d->grid1->Add(t);
     auto* grid2 = MkBox(content, Lay::Uniform); grid2->cols = 3; for (auto* t : extra) grid2->Add(t);
-    // two page dots instead of a scroll bar (click one to jump)
-    auto* dots = MkBox(main, Lay::H); dots->ha = Al::Center; dots->gap = 6; dots->margin = Thick(0, 0, 0, 6);
-    struct Dot : View { Scroll* s; bool end; Dot(Scroll* sc, bool e) : s(sc), end(e) { fw = fh = 6; } void PaintContent(Gfx& g) override { bool down = s->content && -s->content->ty > s->MaxOff() / 2; g.Circle(rc.cx(), rc.cy(), 3, Col(K::White, (down == end) ? 255 : K::Faint)); } };
-    auto dot = [&](bool end) { auto* hb = MkBox(dots); hb->pad = Thick(4); hb->hit = true; auto* e = hb->Add(new Dot(d->tiles, end)); hb->onClick = [this, end] { d->tiles->ScrollTo(end ? d->tiles->MaxOff() : 0); }; return e; };
-    d->dot1 = dot(false); d->dot2 = dot(true);
+    // the tiles scroll with their own slider: the two page dots that sat under it as well were removed (one control for one job)
     Divider(main, Thick(-20, 4, -20, 14));
     d->brightRow = MkBox(main, Lay::H); d->brightRow->margin = Thick(0, 0, 0, 10);
     d->brightG = MkGlyph(d->brightRow, 0xE706, 16); d->brightG->fw = 40; d->brightG->va = Al::Center; d->brightG->margin = Thick(0);
@@ -91,7 +87,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     { auto* a = MkGlyph(mx, 0xE9E9, 14); a->va = Al::Center; auto* b = MkGlyph(mx, 0xE76C, 10); b->va = Al::Center; }
     mx->onClick = [this] { ShowDetail(MakeSoundPage(this)); };
     // footer
-    auto* footBox = MkBox(root); footBox->fh = 48; footBox->bg = SolidB(0x001030, 0x30);
+    auto* footBox = MkBox(root); footBox->fh = 48; footBox->bg = SolidB(0x001030, 0x30); this->foot = footBox;
     auto* foot = MkBox(footBox, Lay::H); foot->pad = Thick(20, 0, 12, 0);
     { auto* line = MkBox(footBox); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, K::CardLine); }
     auto* bat = MkBox(foot, Lay::H); bat->star = 1; bat->ha = Al::Start; bat->fh = 36; bat->va = Al::Center; bat->hit = true; bat->radius = 4; bat->pad = Thick(6, 0, 8, 0); bat->gap = 8; bat->bgHover = SolidB(K::White, 0x16);
@@ -101,12 +97,21 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     auto* set = IconBtn(foot, 0xE713, 36, 14, [] { ClosePanels(); Launch(L"ms-settings:"); }); set->bg = Brush{}; set->va = Al::Center; set->ha = Al::End; set->tip = L"All settings";
 }
 
-void QuickPanel::ShowDetail(View* p) {
-    Back(); page = p; detail->content = detail->Add(p); detail->visible = true; main->visible = false; detail->ScrollTo(0, false); Relayout();
+void QuickPanel::ShowDetail(View* p, bool ownHeight) {
+    Back(); page = p; detail->content = detail->Add(p); detail->visible = true; main->visible = false; detail->ScrollTo(0, false);
+    if (foot) foot->visible = !ownHeight;   // DeskMode's pages have no Quick Settings footer (it was a blue strip under the dark panel)
+    if (ownHeight) {   // the DeskMode page: as tall as its content, like DeskMode's own panel, but never taller than the screen it opens on
+        MONITORINFO mi{sizeof mi}; float k = 1; if (GetMonitorInfoW(mon, &mi)) { UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy); k = dx / 96.f; }
+        float maxH = (mi.rcWork.bottom - mi.rcWork.top) / k - 40;   // some air (no footer on these pages)
+        Sz s = p->Measure({widthDip, INF}); pages->fh = std::min(ceilf(s.h), std::max(300.f, maxH)); Refit();
+    }
+    Relayout();
 }
 void QuickPanel::Back() {
     if (!page) { if (!main->visible) { main->visible = true; } return; }
-    detail->content = nullptr; detail->Remove(page); page = nullptr; detail->visible = false; main->visible = true; Refresh(); Relayout();
+    detail->content = nullptr; detail->Remove(page); page = nullptr; detail->visible = false; main->visible = true; if (foot) foot->visible = true;
+    { float before = pages->fh; pages->fh = NAN; Sz s = main->Measure({widthDip, INF}); pages->fh = ceilf(s.h); if (before != pages->fh) Refit(); }   // back to the main page's height (the DeskMode page may have grown it)
+    Refresh(); Relayout();
 }
 void QuickPanel::OnSysChange() { Refresh(); }
 void QuickPanel::Refresh() {

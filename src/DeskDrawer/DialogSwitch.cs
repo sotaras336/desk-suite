@@ -42,7 +42,7 @@ public static partial class DialogSwitch
         if (h == IntPtr.Zero || ClassOf(h) != "#32770") return false;
         GetWindowThreadProcessId(h, out uint pid); if (pid == Environment.ProcessId) return false;
         bool view = false;
-        EnumChildWindows(h, (c, _) => { if (ClassOf(c) == "DUIViewWndClassName") view = true; return !view; }, IntPtr.Zero);
+        EnumChildWindows(h, (c, _) => { if (ClassOf(c) is "DUIViewWndClassName" or "SHELLDLL_DefView") view = true; return !view; }, IntPtr.Zero);   // the Vista-style view, or the classic one (older programs such as Quartus)
         return view && FindNameBox(h) != IntPtr.Zero;
     }
 
@@ -55,7 +55,7 @@ public static partial class DialogSwitch
         {
             if (ClassOf(c) != "Edit") return true;
             IntPtr p = GetParent(c);
-            if (GetDlgCtrlID(c) == 1148 || GetDlgCtrlID(p) == 1148 || (ClassOf(p) == "ComboBox" && ClassOf(GetParent(p)) != "ComboBoxEx32")) { edit = c; return false; }
+            if (GetDlgCtrlID(c) == 1148 || GetDlgCtrlID(p) == 1148 || GetDlgCtrlID(c) == 1152 || (ClassOf(p) == "ComboBox" && ClassOf(GetParent(p)) != "ComboBoxEx32")) { edit = c; return false; }
             return true;
         }, IntPtr.Zero);
         return edit;

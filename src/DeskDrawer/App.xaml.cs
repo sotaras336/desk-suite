@@ -38,7 +38,7 @@ public partial class App : Application
             else if (!e.Args[i].StartsWith("--")) StartPaths.Add(CleanPath(e.Args[i]));
         }
         if (selfTest != null) { Shutdown(SelfTest.Run(selfTest)); return; }
-        for (int i = 0; i + 1 < e.Args.Length; i++) if (e.Args[i] == "--dialogtest") { Shutdown(SelfTest.DialogTest(e.Args[i + 1])); return; } else if (e.Args[i] == "--pickshot") { Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.PickShot(e.Args[i + 1])); return; } else if (e.Args[i] == "--picktest") { Shutdown(SelfTest.PickTest(e.Args[i + 1])); return; }
+        for (int i = 0; i + 1 < e.Args.Length; i++) if (e.Args[i] == "--dialogtest") { Shutdown(SelfTest.DialogTest(e.Args[i + 1])); return; } else if (e.Args[i] == "--pickshot") { Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.PickShot(e.Args[i + 1])); return; } else if (e.Args[i] == "--settingsshot") { App.SnapshotFile = e.Args[i + 1]; Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.SettingsShot(e.Args[i + 1])); return; } else if (e.Args[i] == "--picktest") { Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.PickTest(e.Args[i + 1])); return; }
         for (int i = 0; i + 1 < e.Args.Length; i++) if (e.Args[i] == "--makeicon") { IconMaker.Make(e.Args[i + 1]); Shutdown(0); return; }
         if (e.Args.Contains("--shortcuts")) { Shortcuts.Make(); Shutdown(0); return; }
         var st = Settings.Load();
@@ -54,7 +54,7 @@ public partial class App : Application
         SessionEnding += (_, _) => Quitting = true;
         var w = new MainWindow(); w.Show();
         if (UiTest != null) { w.RunUiTest(UiTest); return; }
-        if (!test) { Instance.Listen(w.OpenFromOutside); DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); }
+        if (!test) { if (Resident) Instance.Listen(w.OpenFromOutside);   /* only the resident copy takes folder hand-offs: a --new-window copy used to grab them when the resident was not running, then crashed once its window was closed */ DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); }
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
         if (!test || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
     }

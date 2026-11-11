@@ -32,7 +32,7 @@ struct Brush {
     enum Kind { None, Solid, Linear, Radial } k = None;
     D2D1_COLOR_F c{};
     float x0 = 0, y0 = 0, x1 = 1, y1 = 1;   // linear: start/end in unit coordinates of the target rect; radial: centre unit coords
-    float rx = 0, ry = 0;                    // radial radii (dip)
+    float rx = 0, ry = 0; bool rel = false;  // radial radii (dip; rel: fractions of the box's width and height)
     Stop st[3]; int ns = 0;
     bool none() const { return k == None; }
 };
@@ -40,6 +40,7 @@ Brush SolidB(uint32_t rgb, int a = 255);
 Brush SolidC(D2D1_COLOR_F c);
 Brush LinearB(float x0, float y0, float x1, float y1, std::initializer_list<Stop> s);
 Brush RadialB(float cx, float cy, float rx, float ry, std::initializer_list<Stop> s);
+inline Brush RadialRel(float cx, float cy, float rx, float ry, std::initializer_list<Stop> s) { Brush b = RadialB(cx, cy, rx, ry, s); b.rel = true; return b; }   // a glow that scales with its box
 
 struct Font { const wchar_t* fam; float size; int weight; };
 Font FText(float size, int weight = 400);   // Segoe UI Variable Text
@@ -153,7 +154,7 @@ struct Slider : View {
     void From(float x, bool fin);
 };
 struct Toggle : View {
-    bool on = false; std::function<void(bool)> onChange; float knob = 0;
+    bool on = false; std::function<void(bool)> onChange; float knob = 0; uint32_t rawOn = 0;   // rawOn: an exact colour when on (DeskMode's blue), not the theme's accent
     Toggle();
     void Set(bool v);
     Sz MeasureContent(Sz) override { return {42, 22}; } void PaintContent(Gfx& g) override;

@@ -188,7 +188,7 @@ Toggle::Toggle() {
 void Toggle::Set(bool v) { if (v == on) return; on = v; Anim(this, &knob, on ? 1.f : 0.f, 130); }
 void Toggle::PaintContent(Gfx& g) {
     Rf r = rc; float op = enabled ? 1 : 0.5f; float oa = g.alpha; g.alpha *= op;
-    D2D1_COLOR_F acc = Col(K::Accent), off = Col(K::White, 0xB0);
+    D2D1_COLOR_F acc = rawOn ? D2D1::ColorF(rawOn) : Col(K::Accent), off = Col(K::White, 0xB0);
     auto mix = [&](float t) { return D2D1_COLOR_F{off.r + (acc.r - off.r) * t, off.g + (acc.g - off.g) * t, off.b + (acc.b - off.b) * t, 1.f}; };
     if (knob > 0.01f) g.FillC(r, mix(knob), 11);
     g.Stroke(r, mix(knob), 11, 1);

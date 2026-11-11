@@ -136,6 +136,45 @@ public partial class MainWindow
                 }
                 SetViewMode("Details"); await Task.Delay(300);
             }
+            if (only != null && only.Split(',').Contains("thispc"))   // only when asked for: it clicks a real drive tile
+            {   // This PC: a click on a drive opens it in the SAME tab (the user saw a new window open)
+                Navigate(ThisPcTag); await Task.Delay(1800);
+                IEnumerable<DependencyObject> All(DependencyObject d) { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) { var c = VisualTreeHelper.GetChild(d, i); yield return c; foreach (var x in All(c)) yield return x; } }
+                var tiles = All(HomePane).OfType<Border>().Where(x => x.ToolTip is string t && t.Length == 3 && t[1] == ':').ToList();
+                Check("This PC shows drive tiles", tiles.Count > 0, $"({tiles.Count})");
+                foreach (var tile in tiles)
+                {
+                    Navigate(ThisPcTag); await Task.Delay(1200);
+                    string drive = (string)tile.ToolTip; var known = Process.GetProcessesByName("DeskDrawer").Select(p => p.Id).ToHashSet();
+                    int windows = Application.Current.Windows.OfType<MainWindow>().Count(), tabs = _tabs.Count;
+                    var t2 = All(HomePane).OfType<Border>().First(x => x.ToolTip is string t && t == drive);   // the page was rebuilt: the tile is a new object
+                    t2.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent, Source = t2 });
+                    var seen = new HashSet<int>(); for (int i = 0; i < 60; i++) { await Task.Delay(50); foreach (var p in Process.GetProcessesByName("DeskDrawer")) if (!known.Contains(p.Id)) seen.Add(p.Id); }
+                    int w2 = Application.Current.Windows.OfType<MainWindow>().Count();
+                    Check($"tile {drive}: opens in the same tab, no new window / tab / process", w2 == windows && _tabs.Count == tabs && seen.Count == 0 && (string.Equals(_tab.Current, drive, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(drive)), $"(now {_tab.Current}; windows {windows}->{w2}, tabs {tabs}->{_tabs.Count}, new processes {seen.Count})");
+
+                    // the same drive picked in the folder tree (This PC > the drive)
+                    Navigate(ThisPcTag); await Task.Delay(800); known = Process.GetProcessesByName("DeskDrawer").Select(p => p.Id).ToHashSet(); windows = Application.Current.Windows.OfType<MainWindow>().Count(); tabs = _tabs.Count;
+                    TreeViewItem? FindNode(ItemsControl parent) { foreach (var o in parent.Items) if (o is TreeViewItem ti) { if (ti.Tag is string tg && string.Equals(tg, drive, StringComparison.OrdinalIgnoreCase)) return ti; ti.IsExpanded = true; ti.UpdateLayout(); if (FindNode(ti) is { } f) return f; } return null; }
+                    var node = FindNode(Tree);
+                    if (node == null) sb.AppendLine($"INFO tree: no node found for {drive}");
+                    else
+                    {
+                        node.IsSelected = true; node.BringIntoView(); seen.Clear(); for (int i = 0; i < 60; i++) { await Task.Delay(50); foreach (var p in Process.GetProcessesByName("DeskDrawer")) if (!known.Contains(p.Id)) seen.Add(p.Id); }
+                        w2 = Application.Current.Windows.OfType<MainWindow>().Count();
+                        Check($"tree {drive}: selecting it opens it in the same tab, no new window / tab / process", w2 == windows && _tabs.Count == tabs && seen.Count == 0 && (string.Equals(_tab.Current, drive, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(drive)), $"(now {_tab.Current}; windows {windows}->{w2}, tabs {tabs}->{_tabs.Count}, new processes {seen.Count})");
+                    }
+                }
+            }
+            if (Want("address") || only != null && only.Split(',').Contains("thispc"))
+            {   // the second click of a double-click that began on a card must not act on the folder's list that replaced the page
+                Check("a plain double-click in a folder is never swallowed (no card was clicked)", !SwallowCardContinuation(2));
+                _cardClickAt = Environment.TickCount64;
+                Check("a double-click's second click right after a card click is swallowed", SwallowCardContinuation(2) && !SwallowCardContinuation(1));
+                _cardClickAt = Environment.TickCount64 - (long)Native.GetDoubleClickTime() - 200;
+                Check("...but an ordinary double-click later is not", !SwallowCardContinuation(2));
+                _cardClickAt = -10_000_000;
+            }
             if (Want("bench") && Environment.GetEnvironmentVariable("DD_SEARCHBENCH") is { Length: > 0 } bench && bench.Split('|') is { Length: 2 } bp)   // DD_SEARCHBENCH="folder|words": how long a live search takes there
             {
                 var sw = Stopwatch.StartNew(); r = await Search(bp[0], bp[1]); sw.Stop();

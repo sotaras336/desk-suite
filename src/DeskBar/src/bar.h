@@ -28,7 +28,7 @@ struct Bar : Wnd {
     HMONITOR hmon = nullptr; int idx = 0; RECT mon{}; bool hiddenFs = false; uint64_t created = 0;
     View *left = nullptr, *right = nullptr, *startBtn = nullptr, *trayBox = nullptr, *overflowBtn = nullptr, *mediaBox = nullptr, *kbBtn = nullptr;
     Label *clockT = nullptr, *clockD = nullptr, *lang = nullptr, *battPct = nullptr; Glyph *gNet = nullptr, *gVol = nullptr, *gBattFill = nullptr, *gBattOutline = nullptr;
-    View* statusBtn = nullptr, *clockBtn = nullptr, *langBtn = nullptr;
+    View* statusBtn = nullptr, *clockBtn = nullptr, *langBtn = nullptr, *dmBtn = nullptr;
     Label *mTitle = nullptr, *mArtist = nullptr; Pic* mArt = nullptr; Glyph* mPlay = nullptr, *mNext = nullptr, *mPrev = nullptr;
     std::vector<TaskBtn*> btns; float swipeX = 0, swipeY = 0; bool swipeTouch = false;
     std::vector<std::pair<ws, View*>> widgetViews;   // webwidget.cpp: this bar's widget pills by id

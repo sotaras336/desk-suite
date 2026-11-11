@@ -1,16 +1,31 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Windows;
 
 namespace DeskDrawer;
 
 public static partial class SelfTest
 {
+    /// --settingsshot file.png: opens the Settings window off screen and saves a picture of it.
+    public static int SettingsShot(string png)
+    {
+        var w = new MainWindow { Left = -32000, Top = 0, ShowInTaskbar = false }; w.Show(); w.ShowSettings(); var sw = w._settingsWin!; sw.Left = -32000;
+        var frame = new System.Windows.Threading.DispatcherFrame(); var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        t.Tick += (_, _) => { t.Stop(); frame.Continue = false; }; t.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
+        var el = (System.Windows.FrameworkElement)sw.Content; double k = System.Windows.Media.VisualTreeHelper.GetDpi(el).DpiScaleX;
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)(el.ActualWidth * k), (int)(el.ActualHeight * k), 96 * k, 96 * k, System.Windows.Media.PixelFormats.Pbgra32);
+        var dv = new System.Windows.Media.DrawingVisual(); using (var dc = dv.RenderOpen()) { var r = new System.Windows.Rect(0, 0, el.ActualWidth, el.ActualHeight); dc.DrawRectangle(sw.Background, null, r); dc.DrawRectangle(new System.Windows.Media.VisualBrush(el), null, r); }
+        rtb.Render(dv); var enc = new System.Windows.Media.Imaging.PngBitmapEncoder(); enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using (var fs = File.Create(png)) enc.Save(fs);
+        App.Quitting = true; return 0;
+    }
+
     /// --pickshot file.png: opens the picker over a pretend dialog, waits for the folder and icons, saves a picture of it (for looking at the design).
     public static int PickShot(string png)
     {
         var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var w = new PickerWindow(docs, "", "Open", new[] { "Word Documents (*.docx;*.doc)", "OpenDocument Text (*.odt)", "All Files (*.*)" }, 0, "Open", new List<string> { Path.Combine(docs, "..") }, 300, 200, 1300, 800);
+        var w = MainWindow.ForPick(docs, "", "Open", new[] { "Word Documents (*.docx;*.doc)", "OpenDocument Text (*.odt)", "All Files (*.*)" }, 0, "Open", 300, 200, 1300, 800);
         w.Show();
         var frame = new System.Windows.Threading.DispatcherFrame(); var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3000) };
         t.Tick += (_, _) => { t.Stop(); frame.Continue = false; }; t.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
@@ -72,17 +87,44 @@ public static partial class SelfTest
         {   // the whole takeover with the real hooks: the dialog goes invisible at once, the picker opens, answering it gives the app the path
             try
             {
-                DialogSwitch.Start(() => new List<string> { root }); DialogSwitch.TakeOver = true;
+                Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;   // the test has no main window: closing the first picker must not end it
+                DialogSwitch.Start(() => new List<string> { root }); DialogSwitch.TakeOver = true; MainWindow.PrewarmPicker(); { var fr0 = new System.Windows.Threading.DispatcherFrame(); var t0 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3000) }; t0.Tick += (_, _) => { t0.Stop(); fr0.Continue = false; }; t0.Start(); System.Windows.Threading.Dispatcher.PushFrame(fr0); }   // as in the app: built and drawn before the first dialog
                 var ps = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -Command \"" + head + "$d = New-Object System.Windows.Forms.SaveFileDialog; $d.InitialDirectory = 'C:\\Windows'; $d.FileName = 'keep.txt'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.FileName) }\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
                 void Pump(int ms) { var fr = new System.Windows.Threading.DispatcherFrame(); var tm = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) }; tm.Tick += (_, _) => { tm.Stop(); fr.Continue = false; }; tm.Start(); System.Windows.Threading.Dispatcher.PushFrame(fr); }
                 var sw = Stopwatch.StartNew(); while (!DialogSwitch.PickerOpen && sw.ElapsedMilliseconds < 10000) Pump(25);
                 Check("takeover: the picker opens by itself", DialogSwitch.PickerOpen, $"{sw.ElapsedMilliseconds} ms after the process started");
                 IntPtr any = IntPtr.Zero; EnumWindows((h, _) => { GetWindowThreadProcessId(h, out uint p); if (p == ps.Id && DialogSwitchProbe(h)) { any = h; return false; } return true; }, IntPtr.Zero);
-                Check("takeover: Windows' own dialog is not on screen", any != IntPtr.Zero && !IsWindowVisible(any));
+                Check("takeover: Windows' own dialog is not on screen", any != IntPtr.Zero && (!IsWindowVisible(any) || GetLayeredWindowAttributes(any, out _, out byte al, out _) && al == 0));   // hidden, or fully see-through
                 string want = Path.Combine(root, "answered.txt"); DialogSwitch.TestAnswer(want); Pump(2500);
                 string ans = ps.WaitForExit(4000) ? ps.StandardOutput.ReadToEnd().Trim() : "(still open)";
                 Check("takeover: the app gets the path answered in the picker", ans == want, $"got \"{ans}\"");
                 if (!ps.HasExited) ps.Kill();
+                // Cancel: the app gets "cancelled", its dialog never comes back on screen, and the picker is gone
+                var ps2 = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -Command \"" + head + "$d = New-Object System.Windows.Forms.OpenFileDialog; $r = $d.ShowDialog(); [Console]::Out.Write([string]$r)\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+                sw.Restart(); while (!DialogSwitch.PickerOpen && sw.ElapsedMilliseconds < 10000) Pump(25);
+                Check("cancel: the picker opens for a second dialog", DialogSwitch.PickerOpen);
+                DialogSwitch.TestCancel(); bool flashed = false;
+                for (int i = 0; i < 60 && !ps2.HasExited; i++) { Pump(50); EnumWindows((h, _) => { GetWindowThreadProcessId(h, out uint pp); if (pp == ps2.Id && DialogSwitchProbe(h) && IsWindowVisible(h)) flashed = true; return true; }, IntPtr.Zero); }
+                string r2 = ps2.WaitForExit(3000) ? ps2.StandardOutput.ReadToEnd().Trim() : "(still open)";
+                Check("cancel: the app is told Cancel and its own dialog never shows", r2 == "Cancel" && !flashed, $"got \"{r2}\", dialog shown: {flashed}");
+                Pump(300); Check("cancel: the picker is gone", !DialogSwitch.PickerOpen && !Application.Current.Windows.OfType<MainWindow>().Any(w => w.IsVisible));
+                if (!ps2.HasExited) ps2.Kill();
+                // A folder picker (the Vista-style "Select Folder" Quartus shows): the app gets the folder that was open in the picker
+                string fps = Path.Combine(root, "pickfolder.ps1"), target = Path.Combine(root, "chosen folder"); Directory.CreateDirectory(target);
+                File.WriteAllText(fps, "Add-Type -TypeDefinition @'\nusing System; using System.Runtime.InteropServices;\n" +
+                    "[ComImport, Guid(\"43826d1e-e718-42ee-bc55-a1e261c37bfe\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] public interface IShellItem { void BindToHandler(IntPtr a, ref Guid b, ref Guid c, out IntPtr d); void GetParent(out IShellItem p); void GetDisplayName(uint s, [MarshalAs(UnmanagedType.LPWStr)] out string n); }\n" +
+                    "[ComImport, Guid(\"42f85136-db7e-439c-85f1-e4075d135fc8\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] public interface IFileDialog { [PreserveSig] int Show(IntPtr p); void SetFileTypes(uint c, IntPtr f); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i); void Advise(IntPtr e, out uint c); void Unadvise(uint c); void SetOptions(uint o); void GetOptions(out uint o); void SetDefaultFolder(IShellItem i); void SetFolder(IShellItem i); void GetFolder(out IShellItem i); void GetCurrentSelection(out IShellItem i); void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n); void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n); void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t); void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t); void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t); void GetResult(out IShellItem i); }\n" +
+                    "[ComImport, Guid(\"DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7\")] public class FileOpenDialogCo { }\n" +
+                    "public static class Pick { public static string Folder() { var d = (IFileDialog)new FileOpenDialogCo(); d.SetOptions(0x20 | 0x40); if (d.Show(IntPtr.Zero) != 0) return \"Cancel\"; IShellItem r; d.GetResult(out r); string p; r.GetDisplayName(0x80058000, out p); return p; } }\n" +
+                    "'@\n[Console]::Out.Write([Pick]::Folder())\n");
+                var ps3 = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File \"" + fps + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+                sw.Restart(); while (!DialogSwitch.PickerOpen && sw.ElapsedMilliseconds < 15000) Pump(25);
+                Check("folder picker: the picker opens for a Select Folder dialog", DialogSwitch.PickerOpen);
+                if (DialogSwitch.PickerOpen) DialogSwitch.TestAnswer(target);
+                Pump(3000); EnumWindows((h, _) => { GetWindowThreadProcessId(h, out uint pp); if (pp == ps3.Id && DialogSwitchProbe(h)) { var t = new System.Text.StringBuilder(256); GetWindowText(h, t, 256); sb.AppendLine($"INFO folder dialog still there: title \"{t}\" visible={IsWindowVisible(h)} address \"{AddressOf(h)}\" name \"{NameBoxOf(h)}\""); } return true; }, IntPtr.Zero);
+                string r3 = ps3.WaitForExit(6000) ? ps3.StandardOutput.ReadToEnd().Trim() : "(still open)";
+                Check("folder picker: the app gets the folder chosen in the picker", string.Equals(r3, target, StringComparison.OrdinalIgnoreCase), $"got \"{r3}\"");
+                if (!ps3.HasExited) ps3.Kill();
             }
             catch (Exception ex) { Check("takeover live: no exception", false, ex.ToString()); }
         }

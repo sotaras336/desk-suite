@@ -31,6 +31,11 @@ HWND MainTray();                         // Windows' own Shell_TrayWnd (never ou
 namespace Explorer { void Hide(); void KeepHidden(); void Restore(); }
 namespace Dock { void Register(HWND h, const RECT& mon, int hpx); void Reserve(HWND h, const RECT& mon, int hpx); void Remove(HWND h); }
 void Launch(const ws& target, const ws& args = L"", bool admin = false, const ws& dir = L"");   // async ShellExecute
+struct ScreenMode { ws device, name; bool internal = false; int hz = 0; std::vector<int> rates; };   // displaymode.cpp: DeskMode's core inside DeskBar
+std::vector<ScreenMode> ScreenModes(); bool SetScreenRates(const std::vector<std::pair<ws, int>>& want); int PowerModeNow(); void SetPowerModeNow(int mode);
+void OpenDeskModePanel(Wnd* from); void DeskModeGo(bool max); void DeskModeFirst(); void ToggleBorderless(HWND h); int PickRate(const ScreenMode& s, int want); void DeskModeTick(); void DeskModeHotkeysStart(); bool DeskModeAppRunning();
+ws DeskDrawerExe();   // DeskDrawer's exe when it is the user's folder handler ("Open folders with DeskDrawer" is on), else empty
+bool ExplorerAsDeskDrawer(const ws& target, const ws& args, ws& arg);   // would this launch of File Explorer open DeskDrawer instead? arg = what to give it
 void OpenProps(const ws& path);
 void ToggleDesktop();                                                                               // Show desktop / bring the windows back, like Win+D
 void SendKeys(std::initializer_list<WORD> vks);                                                    // press in order, release in reverse
@@ -149,6 +154,7 @@ void TypeAheadEnd();
 // ---------- app lifecycle ----------
 void AppQuit(bool restart);                       // false: quit and give Windows its taskbar back
 int RunInstall(); int RunUninstall();
+void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);

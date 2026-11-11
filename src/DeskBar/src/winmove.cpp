@@ -72,9 +72,21 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
 }
 // ---- popups: a dialog or popup shows up on the screen of the window that opened it (Quartus II's popups opened on the other screen than its main window) ----
 void MoveOnly(HWND h, const RECT& v) { RECT o; GetWindowRect(h, &o); RECT vis = VisibleRect(h); SetWindowPos(h, nullptr, v.left + (o.left - vis.left), v.top + (o.top - vis.top), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER); }   // position only: a different DPI on the other screen resizes it the Windows way
+// Which windows count as a program's popup. It used to be only "normal" windows with a caption, which left out exactly the ones that strayed: tool windows and
+// frameless panels (Quartus' message and progress windows, Qt tool windows), and dialogs whose owner is a hidden helper window.
+static bool PopupCandidate(HWND h) {
+    if (!IsWindowVisible(h) || IsZoomed(h) || IsIconic(h)) return false;
+    LONG_PTR st = GetWindowLongPtrW(h, GWL_STYLE); if (st & WS_CHILD) return false;
+    DWORD pid = 0; GetWindowThreadProcessId(h, &pid); if (pid == GetCurrentProcessId()) return false;
+    ws c = Lower(ClassOf(h)); for (const wchar_t* bad : {L"#32768", L"tooltip", L"popup", L"dropdown", L"combolbox", L"shadow", L"progman", L"workerw", L"shell_", L"ime", L"notify", L"toast"}) if (c.find(bad) != ws::npos) return false;   // menus, tooltips, drop-downs: they open at the pointer
+    RECT r = VisibleRect(h); if (W(r) < 150 || H(r) < 100) return false;
+    if (!GetWindow(h, GW_OWNER) && (st & WS_MAXIMIZEBOX)) return false;   // an unowned window that can be maximised is a main window (a browser tab dragged out): it stays where it was put
+    return true;
+}
 bool MovePopup(HWND h) {
-    if (!IsAppWindow(h) || IsZoomed(h) || IsIconic(h)) return false;
-    HWND ref = GetWindow(h, GW_OWNER);   // its owner, else the foreground window of the same program
+    if (!PopupCandidate(h)) return false;
+    HWND ref = GetWindow(h, GW_OWNER);   // its owner; a hidden owner (a helper window) -> the program's visible top window; else the foreground window of the same program
+    if (ref && !IsAppWindow(ref)) { HWND root = GetAncestor(h, GA_ROOTOWNER); ref = (root && root != h && IsAppWindow(root)) ? root : nullptr; }
     if (!ref) { HWND fg = GetForegroundWindow(); DWORD a = 0, b = 0; GetWindowThreadProcessId(h, &a); if (fg && fg != h) GetWindowThreadProcessId(fg, &b); if (a && a == b) ref = fg; }
     if (!ref || ref == h || !IsAppWindow(ref) || IsIconic(ref)) return false;
     HMONITOR mr = MonitorFromWindow(ref, MONITOR_DEFAULTTONEAREST); if (mr == MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)) return false;

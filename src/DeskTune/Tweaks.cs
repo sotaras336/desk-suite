@@ -121,7 +121,7 @@ public static class Catalogue
         {
             Id = "widgets", Category = "Windows extras", Title = "Turn off Widgets", Preset = "recommended",
             Lose = "The widgets board (news, weather, stocks) and its taskbar button.",
-            Ops = new() { M(@"Software\Policies\Microsoft\Dsh", "AllowNewsAndInterests", 0), U(ADV, "TaskbarDa", 0) }, Processes = new[] { "Widgets", "WidgetService" },
+            Ops = new() { M(@"Software\Policies\Microsoft\Dsh", "AllowNewsAndInterests", 0) }, Processes = new[] { "Widgets", "WidgetService" },   // the policy alone: newer Windows 11 refuses writes to the TaskbarDa value ("unauthorized operation"), which made the whole switch fail
         };
         yield return new Tweak
         {
@@ -199,6 +199,9 @@ public static class Catalogue
         yield return S("svc-demo", "Turn off Retail Demo", "Nothing: it's for PCs on display in shops.", "recommended", Array.Empty<string>(), "RetailDemo");
         yield return S("svc-maps", "Turn off offline maps updates", "Downloaded offline maps stop updating.", "recommended", Array.Empty<string>(), "MapsBroker");
         yield return S("svc-xbox", "Turn off Xbox services", "Xbox app sign-in, cloud game saves and Xbox Live in PC games.", "", Array.Empty<string>(), "XblAuthManager", "XblGameSave", "XboxNetApiSvc");
+        yield return S("svc-gaming", "Turn off Gaming Services", "Xbox app and Game Pass games stop installing, updating and starting until you switch this back on. Frees about 80 MB.", "", new[] { "gamingservices", "gamingservicesnet" }, "GamingServices", "GamingServicesNet");
+        yield return S("svc-search", "Turn off the Windows Search index", "Search in File Explorer, Outlook and Windows' own Start gets slow or stops finding files. DeskBar and DeskDrawer use their own index and are not affected. Frees about 170 MB.", "", new[] { "SearchIndexer", "SearchProtocolHost", "SearchFilterHost" }, "WSearch");
+        yield return S("svc-surfaceml", "Turn off the Surface Machine Learning service", "Surface camera and sensor extras such as automatic framing. Frees about 140 MB.", "", Array.Empty<string>(), "SurfaceMachineLearningService");
         yield return S("svc-location", "Turn off location", "Apps can't find where you are (Weather, Maps, Find my device).", "", Array.Empty<string>(), "lfsvc");
         if (!HasRealPrinter()) yield return S("svc-print", "Turn off printing (no printer is set up)", "Printing, until you add a printer and switch this back on.", "recommended", new[] { "spoolsv" }, "Spooler");
     }

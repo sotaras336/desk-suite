@@ -3,9 +3,9 @@
 #include "widgets.h"
 
 struct QuickPanel : Flyout {
-    View *pages = nullptr, *main = nullptr; Scroll* detail = nullptr; View* page = nullptr;
+    View *pages = nullptr, *main = nullptr; Scroll* detail = nullptr; View* page = nullptr; View* foot = nullptr;
     QuickPanel();
-    void ShowDetail(View* p);
+    void ShowDetail(View* p, bool ownHeight = false);
     void Back();
     bool OnEsc() override { if (page) { Back(); return true; } return false; }
     void OnClose() override { Back(); }
@@ -22,5 +22,8 @@ extern ws g_wifiPreview;                              // dev: --wifipreview conn
 View* MakeBtPage(QuickPanel* q);
 View* MakeSoundPage(QuickPanel* q);
 View* MakeThemePage(QuickPanel* q);
+View* MakeDisplayPage(QuickPanel* q);
+View* MakeDeskModeSettings(QuickPanel* q);
+View* MakeDeskModeRates(QuickPanel* q);
 void MirrorSet(const ws& deviceId, bool on);          // "Also play" (mirror.cpp)
 bool MirrorIsOn(const ws& deviceId);

@@ -40,9 +40,10 @@ static void AppTick() {
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
         if (Panel p = OpenPanel(); p != Panel::None) Panel_(p)->Snapshot(DataPath(L"live_panel.png")); } }
-    if (!g_dev) { WinMoveTick(n); StartSafetyNet(); if (n % 12 == 0) BarsWorkAreaUpkeep(); }
+    if (!g_dev) { WinMoveTick(n); StartSafetyNet(); if (n % 12 == 0) BarsWorkAreaUpkeep(); if (n % 8 == 0) DeskModeTick(); }
 }
 
+static bool g_openSettings = false; void SettingsSnapshot(const ws& file);
 int RunTaskbar(bool real) {
     g_dev = !real; g_start = Now();
     HANDLE mtx = CreateMutexW(nullptr, FALSE, real ? N_INSTANCE : N_INSTANCE L".Dev");
@@ -60,7 +61,7 @@ int RunTaskbar(bool real) {
     // everything below is deferred: the bar is what you are waiting for
     UiOnce(100, [real] {
         SysStart(); MirrorStart();
-        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); }
+        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); DeskModeHotkeysStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
         if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own
@@ -68,6 +69,7 @@ int RunTaskbar(bool real) {
             else std::thread([] { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); auto v = WindowsTaskbarPins(); CoUninitialize(); UiPost([v] { if (S.taskbarPins.empty()) S.taskbarPins = v; S.pinsImported = true; SaveSettingsSoon(); BarsSync(); }); }).detach();
         }
         if (real || GetEnvironmentVariableW(L"DESK_UPDATE_BASE", nullptr, 0)) UpdateStart();   // a dev copy never asks GitHub (unless a test points it at a local server)
+        if (real) std::thread([] { Sleep(60000); EnsureSignInTask(); }).detach();   // sign-in is crowded: look after the first minute
         Boot(L"services started");
     });
     if (g_clickX >= 0) UiOnce(1000, [] { if (AllBars().empty()) return; HWND h = AllBars()[0]->hwnd; LPARAM lp = MAKELPARAM(g_clickX, g_clickY); SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(80); SendMessageW(h, WM_LBUTTONUP, 0, lp); });   // debug: --click x,y (device px) on the first bar
@@ -77,10 +79,12 @@ int RunTaskbar(bool real) {
         if (AllBars().empty()) return; TogglePanel(g_openPanel, AllBars()[0]);
         if (g_openPanel == Panel::Quick && !g_page.empty()) UiOnce(400, [] {
             auto* q = (QuickPanel*)Panel_(Panel::Quick);
-            q->ShowDetail(g_page == L"wifi" ? MakeWifiPage(q) : g_page == L"bt" ? MakeBtPage(q) : g_page == L"theme" ? MakeThemePage(q) : MakeSoundPage(q));
+            q->ShowDetail(g_page == L"wifi" ? MakeWifiPage(q) : g_page == L"bt" ? MakeBtPage(q) : g_page == L"theme" ? MakeThemePage(q) : g_page == L"display" ? MakeDisplayPage(q) : g_page == L"dmsettings" ? MakeDeskModeSettings(q) : MakeSoundPage(q), g_page == L"display" || g_page == L"dmsettings");
         });
     });
+    if (g_openSettings) UiOnce(1200, [] { OpenSettingsWindow(); });
     if (g_snapMs) UiOnce(g_snapMs, [] {
+        if (g_openSettings) SettingsSnapshot(g_snapDir + L"\\snap_settings.png");
         int i = 0; for (auto* b : AllBars()) b->Snapshot(g_snapDir + Fmt(L"\\snap_bar%d.png", i++));
         if (g_openPanel != Panel::None) Panel_(g_openPanel)->Snapshot(g_snapDir + L"\\snap_panel.png");
         else if (Panel o = OpenPanel(); o != Panel::None) Panel_(o)->Snapshot(g_snapDir + L"\\snap_panel.png");
@@ -100,7 +104,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     auto val = [&](const wchar_t* a) -> ws { for (int i = 1; i + 1 < argc; i++) if (EqI(argv[i], a)) return argv[i + 1]; return {}; };
     if (!val(L"--screen").empty()) g_devScreen = val(L"--screen");
     if (!val(L"--snap").empty()) { g_snapMs = _wtoi(val(L"--snap").c_str()); g_snapDir = val(L"--snapdir"); if (g_snapDir.empty()) g_snapDir = DataDir(); }
-    { ws o = val(L"--open"); g_openPanel = o == L"start" ? Panel::Start : o == L"quick" ? Panel::Quick : o == L"clock" ? Panel::Clock : Panel::None; g_openPreview = o == L"preview"; g_stall = o == L"stall"; }
+    { ws o = val(L"--open"); g_openPanel = o == L"start" ? Panel::Start : o == L"quick" ? Panel::Quick : o == L"clock" ? Panel::Clock : Panel::None; g_openPreview = o == L"preview"; g_openSettings = o == L"settings"; g_stall = o == L"stall"; }
     { ws c = val(L"--click"); if (c.find(L',') != ws::npos) { g_clickX = _wtoi(c.c_str()); g_clickY = _wtoi(c.c_str() + c.find(L',') + 1); } }
     g_wifiPreview = val(L"--wifipreview"); g_page = val(L"--page"); g_withTray = has(L"--tray"); g_sup = has(L"--sup");
     if (has(L"--restore")) { LogInit(false); LoadSettings(); Explorer::Restore(); Sleep(400); return 0; }
@@ -116,6 +120,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws d = ws(t) + L"db3-selftest"; CreateDirectoryW(d.c_str(), nullptr); SetEnvironmentVariableW(L"DB3_DATA", d.c_str());
         LogInit(false); return RunSelfTest(val(L"--selftest"));
     }
+    if (!val(L"--signintest").empty()) { LogInit(false); return SignInTest(val(L"--signintest")); }
     if (has(L"--uninstall")) return RunUninstall();
     if (has(L"--install") || [] { wchar_t m[MAX_PATH]; GetModuleFileNameW(nullptr, m, MAX_PATH); return ContainsI(FileNameOf(m), L"setup"); }()) return RunInstall();
     return RunTaskbar(has(L"--run"));

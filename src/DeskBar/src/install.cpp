@@ -57,6 +57,27 @@ void KillOthersAt(const ws& dir) {   // by install path, never by image name: th
 }
 }
 
+// The sign-in task: at sign-in, normal rights, above-normal priority (the default "below normal" made sign-in much slower), restart 3x/1 min, no time limit.
+DWORD RegisterSignInTask(const ws& exe) {
+    ws user = []() { wchar_t u[256], d[256]; DWORD un = 256, dn = 256; GetUserNameW(u, &un); GetEnvironmentVariableW(L"USERDOMAIN", d, dn); return ws(d) + L"\\" + u; }();
+    ws xml = L"<?xml version=\"1.0\" encoding=\"UTF-16\"?><Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" + user + L"</UserId></LogonTrigger></Triggers>"
+        L"<Principals><Principal id=\"A\"><UserId>" + user + L"</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>"
+        L"<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>3</Priority>"
+        L"<RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings>"
+        L"<Actions Context=\"A\"><Exec><Command>" + exe + L"</Command><Arguments>--supervise</Arguments></Exec></Actions></Task>";
+    ws xf = DirOf(exe) + L"\\task.xml"; { std::string raw((const char*)xml.c_str(), xml.size() * 2); raw.insert(0, "\xFF\xFE", 2); WriteAtomic(xf, raw); }
+    ws xq = xf; for (size_t p = 0; (p = xq.find(L'\'', p)) != ws::npos; p += 2) xq.insert(p, L"'");   // PowerShell single-quote escaping (a user name can hold an apostrophe)
+    DWORD rc = Run(Ps(L"Register-ScheduledTask -TaskName '" N_TASK L"' -Xml (Get-Content -Raw -LiteralPath '" + xq + L"') -Force | Out-Null")); DeleteFileW(xf.c_str());   // schtasks.exe fails on some PCs; the ScheduledTasks cmdlets don't
+    return rc;
+}
+
+// What the task is doing: "Ready", "Running", "Disabled"; empty when there is no such task; "?" when PowerShell could not tell (never treated as missing).
+ws SignInTaskState() {
+    DWORD rc = Run(Ps(L"$t = Get-ScheduledTask -TaskName '" N_TASK L"' -ErrorAction SilentlyContinue; if ($t) { [string]$t.State } else { '' }"));
+    if (rc != 0) return L"?";
+    ws s = g_runOut; while (!s.empty() && (s.back() == L'\r' || s.back() == L'\n' || s.back() == L' ')) s.pop_back(); return s;
+}
+
 int RunInstall() {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); LogInit(false);
     bool yes = wcsstr(GetCommandLineW(), L"--yes") != nullptr;   // already confirmed by the user: no dialogs
@@ -70,16 +91,7 @@ int RunInstall() {
     IL(L"install start: self=%s target=%s elevated-user=%s", self, exe.c_str(), KnownFolder(FOLDERID_LocalAppData).c_str());
     KillOthersAt(dir); Sleep(500); SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
     if (!EqI(self, exe) && !CopyFileW(self, exe.c_str(), FALSE)) { IL(L"copy failed %lu", GetLastError()); Explorer::Restore(); if (!yes) MessageBoxW(nullptr, L"Couldn't copy DeskBar into place (is it still running?).", L"DeskBar", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND); return 1; }   // Restore: the old bar was just stopped, never leave the user without a taskbar
-    // scheduled task: at sign-in, normal rights, above-normal priority (the default "below normal" made sign-in much slower), restart 3x/1 min, no time limit
-    ws user = []() { wchar_t u[256], d[256]; DWORD un = 256, dn = 256; GetUserNameW(u, &un); GetEnvironmentVariableW(L"USERDOMAIN", d, dn); return ws(d) + L"\\" + u; }();
-    ws xml = L"<?xml version=\"1.0\" encoding=\"UTF-16\"?><Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" + user + L"</UserId></LogonTrigger></Triggers>"
-        L"<Principals><Principal id=\"A\"><UserId>" + user + L"</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>"
-        L"<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>3</Priority>"
-        L"<RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings>"
-        L"<Actions Context=\"A\"><Exec><Command>" + exe + L"</Command><Arguments>--supervise</Arguments></Exec></Actions></Task>";
-    ws xf = dir + L"\\task.xml"; { std::string raw((const char*)xml.c_str(), xml.size() * 2); raw.insert(0, "\xFF\xFE", 2); WriteAtomic(xf, raw); }
-    ws xq = xf; for (size_t p = 0; (p = xq.find(L'\'', p)) != ws::npos; p += 2) xq.insert(p, L"'");   // PowerShell single-quote escaping (a user name can hold an apostrophe)
-    DWORD rc = Run(Ps(L"Register-ScheduledTask -TaskName '" N_TASK L"' -Xml (Get-Content -Raw -LiteralPath '" + xq + L"') -Force | Out-Null")); DeleteFileW(xf.c_str());   // schtasks.exe fails on some PCs; the ScheduledTasks cmdlets don't
+    DWORD rc = RegisterSignInTask(exe);
     if (rc != 0) { Log(L"install: Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); IL(L"Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); if (!yes) MessageBoxW(nullptr, (L"Couldn't create the sign-in task (DeskBar will still start through the Run key):\n\n" + g_runOut).c_str(), L"DeskBar", MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND); }
     if (rc != 0) {   // no scheduled-task rights: fall back to the HKCU Run key (sign-in start is delayed by Windows, but it works)
         HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0, KEY_WRITE, nullptr, &k, nullptr) == 0) { ws v = L"\"" + exe + L"\" --supervise"; RegSetValueExW(k, L"DeskBar", 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)(v.size() + 1) * 2); RegCloseKey(k); }
@@ -101,4 +113,31 @@ int RunUninstall() {
     ws sm = StartMenuDir(); DeleteFileW((sm + L"\\DeskBar.lnk").c_str()); DeleteFileW((sm + L"\\Uninstall DeskBar.lnk").c_str()); RemoveDirectoryW(sm.c_str());
     Run(L"cmd.exe /c ping -n 3 127.0.0.1 >nul & rmdir /s /q \"" + DirOf(dir) + L"\"", false);   // the folder goes once this process has ended
     MessageBoxW(nullptr, L"DeskBar was removed.", L"DeskBar", MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND); return 0;
+}
+
+// Self-heal: DeskBar once stopped starting with Windows because its sign-in task was gone (nothing else started it, and nothing said so).
+// The installed copy checks once, a minute after it starts, and puts the task back when it is missing. A dev or test copy never touches it.
+void EnsureSignInTask() {
+    wchar_t self[MAX_PATH]; GetModuleFileNameW(nullptr, self, MAX_PATH); ws exe = InstallDir() + L"\\DeskBar.exe";
+    if (!EqI(self, exe) || GetEnvironmentVariableW(L"DB3_DATA", nullptr, 0)) return;
+    if (!SignInTaskState().empty()) return;   // there (whatever its state: a disabled task is the user's choice), or PowerShell could not tell ("?"): leave it alone
+    DWORD rc = RegisterSignInTask(exe); Log(L"sign-in task was missing: re-created, rc=%lu %s", rc, g_runOut.c_str());
+    if (rc != 0) {   // no scheduled-task rights: fall back to the HKCU Run key (a minute or two later at sign-in, but it works)
+        HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0, KEY_WRITE, nullptr, &k, nullptr) == 0) { ws v = L"\"" + exe + L"\" --supervise"; RegSetValueExW(k, L"DeskBar", 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)(v.size() + 1) * 2); RegCloseKey(k); }
+    }
+}
+
+// Settings > "Start DeskBar when I sign in": on re-creates the task if it is gone, then enables it; off disables it.
+void SetSignInTask(bool on) {
+    if (on && SignInTaskState() == L"") { wchar_t self[MAX_PATH]; GetModuleFileNameW(nullptr, self, MAX_PATH); RegisterSignInTask(self); }
+    Run(Ps(std::wstring(on ? L"Enable" : L"Disable") + L"-ScheduledTask -TaskName '" N_TASK L"' | Out-Null"));
+}
+
+// dev: --signintest <report>: the self-heal's view of the sign-in task; when it is missing, re-creates it for the INSTALLED exe exactly as the installer does. Touches the real task: run it on purpose.
+int SignInTest(const ws& report) {
+    ws exe = InstallDir() + L"\\DeskBar.exe", before = SignInTaskState(), out; DWORD rc = 0;
+    if (before.empty()) { rc = RegisterSignInTask(exe); out = g_runOut; }
+    ws after = SignInTaskState();
+    WriteAtomic(report, Narrow(Fmt(L"before=[%s] register rc=%lu after=[%s] %s\r\n", before.c_str(), rc, after.c_str(), out.c_str())));
+    return after.empty() || after == L"?" ? 1 : 0;
 }

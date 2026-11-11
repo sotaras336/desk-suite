@@ -68,7 +68,8 @@ public partial class App : Application
         }
         Theme.Load("black"); Theme.Apply();
         var w = new MainWindow(); w.Show();
-        if (!a.Contains("--snapshot") || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
+        if (!a.Contains("--snapshot") && !a.Contains("--settingsshot") || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
         for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--snapshot") SelfTest.SnapshotLater(w, a[i + 1]);
+        for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--settingsshot") { w.OpenSettings(); SelfTest.SnapshotLater(w.Settings!, a[i + 1]); break; }   // dev: a picture of Settings (DT_SETPAGE picks the page)
     }
 }

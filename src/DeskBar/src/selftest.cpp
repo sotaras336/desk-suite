@@ -73,5 +73,14 @@ int RunSelfTest(const ws& outFile) {
         check(L"update: sha-256 of abc", Sha256HexOf("abc") == L"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
         check(L"update: reads the checksum for a file", UpdateHashFor(sums, L"DeskBar-Setup.exe") == Sha256HexOf("abc") && UpdateHashFor(sums, L"deskTune-setup.exe") == Widen(std::string(64, 'c')) && UpdateHashFor(sums, L"DeskMode-Setup.exe").empty());
     }
+    {   // File Explorer requests that DeskDrawer takes over (when it is the folder handler), and the ones that stay with Explorer
+        ws a;
+        check(L"explorer: no arguments -> DeskDrawer's Home", ExplorerAsDeskDrawer(L"explorer.exe", L"", a) && a == L"shell:Home");
+        check(L"explorer: /select, -> the file path itself", ExplorerAsDeskDrawer(L"C:\\Windows\\explorer.exe", L"/select,\"C:\\a b\\c.txt\"", a) && a == L"C:\\a b\\c.txt");
+        check(L"explorer: the File Explorer app id counts too", ExplorerAsDeskDrawer(L"shell:AppsFolder\\Microsoft.Windows.Explorer", L"", a) && a == L"shell:Home");
+        check(L"explorer: a folder path or another shell: place stays with Explorer", !ExplorerAsDeskDrawer(L"explorer.exe", L"C:\\Users", a) && !ExplorerAsDeskDrawer(L"explorer.exe", L"shell:RecycleBinFolder", a));
+        check(L"explorer: other programs are never touched", !ExplorerAsDeskDrawer(L"notepad.exe", L"", a) && !ExplorerAsDeskDrawer(L"C:\\x\\myexplorer.exe", L"", a));
+        ws dd = DeskDrawerExe(); check(L"explorer: DeskDrawer's exe is empty or a real file", dd.empty() || FileExists(dd), dd);
+    }
     out += Narrow(Fmt(L"%d failure(s)\r\n", fails)); WriteAtomic(outFile, out); return fails;
 }

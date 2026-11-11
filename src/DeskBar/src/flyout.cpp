@@ -25,6 +25,13 @@ void Flyout::Place(bool animate) {
     curX = std::clamp(curX, (int)mi.rcMonitor.left, std::max((int)mi.rcMonitor.left, (int)mi.rcMonitor.right - curW));
     SetWindowPos(hwnd, nullptr, curX, curY, curW, curH, SWP_NOACTIVATE | SWP_NOZORDER); needLayout = true;
 }
+void Flyout::Refit() {
+    if (!hwnd || !IsWindowVisible(hwnd)) return;
+    MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi); float sc = scale, gap = 12 * sc; RECT w = mi.rcWork;
+    float maxH = (w.bottom - w.top - 2 * gap) / sc, h = std::min(fixedH > 0 ? fixedH : ContentHeight(maxH), maxH);
+    curH = (int)ceilf(h * sc); curY = (int)(w.bottom - gap - curH);
+    SetWindowPos(hwnd, nullptr, curX, curY, curW, curH, SWP_NOACTIVATE | SWP_NOZORDER); needLayout = true; Invalidate();
+}
 void Flyout::Open(HMONITOR m) {
     mon = m; bool wasHiding = hiding; hiding = false; AnimCancel(this);
     if (!wasHiding) { OnOpen(); Place(true); if (needLayout) Layout(); }

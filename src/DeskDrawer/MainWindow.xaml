@@ -74,6 +74,7 @@
             <RowDefinition Height="52"/>
             <RowDefinition Height="46"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="30"/>
         </Grid.RowDefinitions>
 
@@ -257,8 +258,27 @@
             </Grid>
         </Grid>
 
+        <!-- Picker mode only (MainWindow.Pick.cs): file name, the dialog's file types, Open / Save -->
+        <Border x:Name="PickBar" Grid.Row="4" Visibility="Collapsed" Background="{DynamicResource BarBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0" Height="60">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock x:Name="PickLabel" Text="File name" Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBox x:Name="PickName" Grid.Column="1" Style="{StaticResource Field}" VerticalAlignment="Center" KeyDown="PickName_KeyDown"/>
+                <Button x:Name="PickType" Grid.Column="2" Style="{StaticResource Cmd}" Margin="10,0,0,0" Click="PickType_Click"/>
+                <Button x:Name="PickOk" Grid.Column="3" Margin="8,0,0,0" Height="34" Focusable="False" Foreground="{DynamicResource OnAccent}" Click="PickOk_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" CornerRadius="17" Padding="28,0" Background="{DynamicResource Accent}"><TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button Grid.Column="4" Style="{StaticResource Cmd}" Content="Cancel" Margin="4,0,0,0" Click="PickCancel_Click"/>
+            </Grid>
+        </Border>
+
         <!-- Status bar -->
-        <Border Grid.Row="4" Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="5" Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0">
             <Grid Margin="16,0">
                 <TextBlock x:Name="Status" Foreground="{DynamicResource FgDim}" FontSize="12" VerticalAlignment="Center"/>
                 <TextBlock x:Name="UpdateLink" Foreground="{DynamicResource Accent}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" Cursor="Hand" Visibility="Collapsed"

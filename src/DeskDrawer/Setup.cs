@@ -56,6 +56,23 @@ public static class Setup
             if (on) k.SetValue(Name, $"\"{Environment.ProcessPath}\" --background"); else k.DeleteValue(Name, false);
         }
         catch { }
+        SignInTask(on);
+    }
+
+    /// The Run key alone is not enough: Windows starts Run-key programs late (ten minutes after sign-in was measured, and sometimes not at all), so the first folder of the day
+    /// opened cold, in seconds instead of half a second. A sign-in task starts the hidden copy right away. Only the installed copy owns the task; it is made once, in the background.
+    private static void SignInTask(bool on)
+    {
+        if (!string.Equals(Environment.ProcessPath, Exe, StringComparison.OrdinalIgnoreCase)) return;
+        string script = on
+            ? "$t = Get-ScheduledTask -TaskName 'DeskDrawer' -ErrorAction SilentlyContinue; if (-not $t -or $t.Actions[0].Execute -ne '" + Exe.Replace("'", "''") + "') { " +
+              "$a = New-ScheduledTaskAction -Execute '" + Exe.Replace("'", "''") + "' -Argument '--background'; $g = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name); " +
+              "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero); Register-ScheduledTask -TaskName 'DeskDrawer' -Action $a -Trigger $g -Settings $s -Force | Out-Null }"
+            : "Unregister-ScheduledTask -TaskName 'DeskDrawer' -Confirm:$false -ErrorAction SilentlyContinue";
+        new Thread(() =>
+        {
+            try { Thread.Sleep(on ? 20000 : 0); Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + script + "\"") { UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(30000); } catch { }
+        }) { IsBackground = !on, Priority = ThreadPriority.BelowNormal }.Start();
     }
 
     static void Link(string lnk, string target, string args, string description)

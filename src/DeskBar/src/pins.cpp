@@ -32,13 +32,13 @@ PinInfo Build0(const ws& e) {
         p.name = ShellNameOf(p.iconKey); if (p.name.empty()) p.name = p.aumid; p.ok = true; return p;
     }
     if (ExtOf(e) == L".lnk") {
-        p.launch = e; p.name = StemOf(e);
+        p.launch = e; p.name = StemOf(e); bool plainExplorer = false;
         ComPtr<IShellLinkW> sl;
         if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&sl)))) {
             ComPtr<IPersistFile> pf;
             if (SUCCEEDED(sl.As(&pf)) && SUCCEEDED(pf->Load(e.c_str(), STGM_READ))) {
-                wchar_t t[1024] = {}; sl->GetPath(t, 1024, nullptr, SLGP_RAWPATH); p.exe = ExpandEnv(t);
-                p.aumid = AumidOfShortcut(e);
+                wchar_t t[1024] = {}, ar[1024] = {}; sl->GetPath(t, 1024, nullptr, SLGP_RAWPATH); sl->GetArguments(ar, 1024); p.exe = ExpandEnv(t);
+                p.aumid = AumidOfShortcut(e); plainExplorer = EqI(FileNameOf(p.exe), L"explorer.exe") && !ar[0];
             }
         }
         ws exeName = Lower(FileNameOf(p.exe));
@@ -46,6 +46,7 @@ PinInfo Build0(const ws& e) {
         if (!p.aumid.empty() && shellHost) { p.iconKey = L"aum:" + p.aumid; p.exe.clear(); }
         else if (!p.exe.empty()) p.iconKey = L"exe:" + p.exe;
         else p.iconKey = L"file:" + e;
+        if (plainExplorer) p.launch = L"explorer.exe";   // the same thing the shortcut does, but Launch() can hand it to DeskDrawer
         p.family = !p.exe.empty() ? PackageFamilyFromPath(p.exe) : ws();
         if (p.family.empty()) p.family = FamilyOfAumid(p.aumid);
         p.ok = true; return p;

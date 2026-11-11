@@ -186,6 +186,7 @@ std::vector<WifiNet> WifiLast() { std::lock_guard<std::mutex> l(g_mu); return g_
 static ws ConnectedSsid() {
     try { auto pr = g_adapter.NetworkAdapter().GetConnectedProfileAsync().get(); if (!pr) return {}; auto d = pr.WlanConnectionProfileDetails(); if (!d) return {}; return ws(d.GetConnectedSsid().c_str()); } catch (...) { return {}; }
 }
+static std::atomic<int> g_connecting{0};   // a connect is under way: no fresh scan may start under it (a scan aborts a connection that is starting)
 void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
     Post([=] {
         std::vector<WifiNet> out; bool access = true;
@@ -194,7 +195,7 @@ void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
             else {
                 if (!g_adapter) { auto all = WiFiAdapter::FindAllAdaptersAsync().get(); if (all.Size()) g_adapter = all.GetAt(0); }
                 if (g_adapter) {
-                    if (fresh) for (int attempt = 0; attempt < 2; attempt++) {   // "Operation aborted" = a connection was starting under the scan: once more, then use what the adapter already knows (its report is still right about who is connected)
+                    if (fresh && !g_connecting) for (int attempt = 0; attempt < 2; attempt++) {   // "Operation aborted" = a connection was starting under the scan: once more, then use what the adapter already knows (its report is still right about who is connected)
                         try { g_adapter.ScanAsync().get(); break; } catch (hresult_error const& e) { Log(L"wifi scan: %s", e.message().c_str()); if (!attempt) Sleep(1200); }
                     }
                     ws connected = ConnectedSsid();
@@ -258,11 +259,14 @@ static ws ConnectBlocking(const ws& ssid, const ws& pass, const ws& user, bool u
     return err;
 }
 void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, std::function<void(ws)> cb) {
-    Post([=] {
-        ws err = ConnectBlocking(ssid, pass, user, usePass);
+    // On its own thread, at once: it used to wait in the worker's queue behind the scan the Wi-Fi page had just started (seconds), and a scan started by reopening the
+    // panel could abort it. Closing the panel never stops it: only the page's "done" callback is skipped when the page is gone.
+    std::thread([=] {
+        winrt::init_apartment(); g_connecting++;
+        ws err = ConnectBlocking(ssid, pass, user, usePass); g_connecting--;
         if (err.empty()) { std::lock_guard<std::mutex> l(g_mu); for (auto& n : g_wifiLast) n.connected = n.ssid == ssid; }   // the saved list still says the OLD network is the connected one until a scan succeeds: the page showed that one right after the green check
-        RefreshNow(); UiPost([cb, err] { cb(err); });
-    });
+        Post([] { RefreshNow(); }); UiPost([cb, err] { cb(err); });
+    }).detach();
 }
 // "DeskBar.exe --wifitest <ssid>": drops the connection, connects again exactly as the Wi-Fi page does (a saved profile, no password), and logs how it went.
 int WifiTest(const ws& ssid, bool keep) {

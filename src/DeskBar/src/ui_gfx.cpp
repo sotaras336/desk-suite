@@ -108,7 +108,7 @@ void Gfx::Fill(const Rf& r, const Brush& b, float rad) {
         br = lb;
     } else {
         ComPtr<ID2D1RadialGradientBrush> rb;
-        rt->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(r.l + b.x0 * r.w(), r.t + b.y0 * r.h()), D2D1::Point2F(0, 0), b.rx, b.ry), col.Get(), &rb);
+        rt->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(r.l + b.x0 * r.w(), r.t + b.y0 * r.h()), D2D1::Point2F(0, 0), b.rel ? b.rx * r.w() : b.rx, b.rel ? b.ry * r.h() : b.ry), col.Get(), &rb);
         br = rb;
     }
     if (br) FillGeom(*this, r, br.Get(), rad);

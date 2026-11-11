@@ -231,6 +231,11 @@ bool Bar::Init() {
     { auto* g = MkGlyph(kbBtn, 0xE765, 16); g->va = Al::Center; }
     kbBtn->visible = GetSystemMetrics(SM_MAXIMUMTOUCHES) > 0 && scale >= 1.5f;
     kbBtn->onClick = [] { ToggleTouchKeyboard(); };
+    dmBtn = BarBtn(right); dmBtn->pad = Thick(9, 0); dmBtn->tip = L"DeskMode"; dmBtn->visible = S.dmButton; dmBtn->onClick = [this] { OpenDeskModePanel(this); };
+    {   // DeskMode's own icon, from the exe (resource 2)
+        static ImgP dmIcon; if (!dmIcon) if (HICON h = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(2), IMAGE_ICON, 32, 32, 0)) { dmIcon = ImgFromHIcon(h, 32); DestroyIcon(h); }
+        auto* p = dmBtn->Add(new Pic()); p->fw = p->fh = 16; p->va = Al::Center; p->img = dmIcon;
+    }
     langBtn = BarBtn(right); langBtn->pad = Thick(12, 0, 12, 0); langBtn->visible = false; langBtn->onClick = [] { SendKeys({VK_LWIN, VK_SPACE}); };
     lang = MkLabel(langBtn, L"", FText(12)); lang->va = Al::Center;
     statusBtn = BarBtn(right); statusBtn->pad = Thick(10, 0, 10, 0); statusBtn->margin = Thick(0, 0, 2, 0); statusBtn->gap = 12;
@@ -309,7 +314,7 @@ void Bar::UpdateMedia() {
 void Bar::Tick() {
     ws c = TimeText() + DateText();
     if (c != lastClock) { lastClock = c; clockT->Set(TimeText()); clockD->Set(DateText()); }
-    ws k = KeyboardLabel(GetForegroundWindow()); langBtn->Show(!k.empty()); lang->Set(k);
+    ws k = KeyboardLabel(GetForegroundWindow()); langBtn->Show(!k.empty()); lang->Set(k); dmBtn->Show(S.dmButton);
     UpdateMedia();
     ws who; bool fs = IsFullscreenOn(mon, &who, hiddenFs);
     if (fs != hiddenFs) { hiddenFs = fs; Log(L"bar %d: %s %s", idx, fs ? L"hidden by fullscreen window" : L"shown again, fullscreen window gone", who.c_str()); if (fs) SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW); else SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); }

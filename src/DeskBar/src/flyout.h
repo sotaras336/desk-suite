@@ -19,6 +19,7 @@ struct Flyout : Wnd {
     bool keepOpen = false;                          // a modal dialog of ours is up: don't dismiss
     virtual float ContentHeight(float maxH);        // dip; default = measured
     void Place(bool animate);
+    void Refit();   // the height follows the content again (a page that is taller or shorter), kept on the same spot at the bottom
 };
 Flyout* Panel_(Panel p);
 void PanelsSysChanged();

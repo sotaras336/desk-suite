@@ -55,10 +55,14 @@ public partial class MainWindow
     /// Folders sent by a later launch (double-click on the desktop, Win+E...): each becomes a tab here, and the window comes to the front.
     public void OpenFromOutside(List<string> paths)
     {
-        if (paths is ["--quit"]) { App.Quitting = true; Close(); return; }   // Setup is replacing or removing this copy
+        if (paths is ["--quit"]) { App.Quitting = true; Close(); Application.Current.Shutdown(); return; }   // Shutdown too: a hidden helper window (the dialog button, the picker) would keep the process, and the exe locked, after Close()   // Setup is replacing or removing this copy
         if (App.Background) EndWarmUp();   // asked for before the sign-in warm-up finished
         if (!IsVisible) Wake(paths);   // waking from the background: the folders asked for, or the last session
-        else foreach (var p in paths) if (IsVirtual(p) || Directory.Exists(p)) NewTab(p);
+        else foreach (var p in paths)
+        {
+            if (!IsVirtual(p) && File.Exists(p) && Path.GetDirectoryName(p) is { } dir) { NewTab(dir); _tab.SelectAfterLoad.Add(p); }   // a file: its folder, the file selected
+            else if (IsVirtual(p) || Directory.Exists(p)) NewTab(p);
+        }
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate(); Topmost = true; Topmost = false; Focus();
     }

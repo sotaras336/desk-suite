@@ -31,9 +31,12 @@ public partial class MainWindow : Window
     private string _sortKey = "Name"; private bool _sortAsc = true;
     private static readonly string[] ColumnNames = { "Name", "Date modified", "Type", "Size" };
 
-    public MainWindow()
+    public MainWindow() : this(null) { }
+    public MainWindow(PickRequest? pick)
     {
+        _pick = pick;
         InitializeComponent();
+        HomePane.PreviewMouseLeftButtonUp += (_, _) => _cardClickAt = Environment.TickCount64;   // a click on a card of Home / This PC / Quick access / Recent: see SwallowCardContinuation
         BuildCommandBar(); Activated += (_, _) => UpdateCommands();   // the clipboard may have changed while we were in the background
         _grid = (GridView)List.View; _rowsPanel = List.ItemsPanel;
         _iconSize = _settings.IconSize; _zoom = 1; _groupBy = _settings.GroupBy;   // zoom now steps through the views instead of scaling
@@ -50,16 +53,17 @@ public partial class MainWindow : Window
         List.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler(Header_Click));
         _previewTimer.Tick += (_, _) => { _previewTimer.Stop(); UpdatePreview(); };
         SetPreview(App.SnapshotFile != null);   // the preview pane starts closed; Alt+P or View opens it
-        SourceInitialized += (_, _) => { if (App.Background) Cloak(true); ApplyChrome(); HwndSource.FromHwnd(Hwnd)!.AddHook(CaptionHook); OnStateChanged(); };
-        if (App.Background) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
+        SourceInitialized += (_, _) => { if (App.Background && _pick == null) Cloak(true); ApplyChrome(); HwndSource.FromHwnd(Hwnd)!.AddHook(CaptionHook); OnStateChanged(); };
+        if (App.Background && _pick == null) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
         StateChanged += (_, _) => OnStateChanged();
         MouseMove += (_, _) => MaxBtn.Tag = null;   // back in the client area: no longer over the (hit-test) maximise button
         Loaded += (_, _) => { Start(); ShellNew.Preload(); };
-        Closing += (_, e) => { SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
+        Closing += (_, e) => { if (_pick != null) { e.Cancel = PickClosing(); return; }   /* a picker window: nothing of yours is saved, and it really closes */ SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
         PreviewKeyDown += Window_PreviewKeyDown;
         PreviewMouseDown += (_, e) => { if (e.ChangedButton == MouseButton.XButton1) { GoBack(); e.Handled = true; } else if (e.ChangedButton == MouseButton.XButton2) { GoForward(); e.Handled = true; } };   // the mouse's back / forward buttons
         _reload.Tick += (_, _) => { _reload.Stop(); ReloadActive(); };
         BuildTree();
+        if (_pick != null) PickInit();
     }
 
     // Cached: the shell operations ask for the owner window from a worker thread, and WPF refuses WindowInteropHelper.Handle off the UI thread
@@ -146,7 +150,7 @@ public partial class MainWindow : Window
 
     private void Start()
     {
-        OpenTabs(App.StartPaths);
+        OpenTabs(_pick != null ? new List<string> { _pick.Folder } : App.StartPaths);
         if (App.SnapshotFile != null)
         {
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -161,10 +165,12 @@ public partial class MainWindow : Window
     /// The folders asked for, or else the tabs open last time (This PC, Home... included; searches aren't re-run), or else Documents.
     private void OpenTabs(IEnumerable<string> asked)
     {
+        var pick = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // a file path asked for = its folder, with that file selected ("Open file location")
+        asked = asked.Select(p => { if (!IsVirtual(p) && File.Exists(p) && Path.GetDirectoryName(p) is { } d) { pick[d] = p; return d; } return p; }).ToList();
         var paths = asked.Where(p => IsVirtual(p) || Directory.Exists(p)).ToList(); int active = paths.Count - 1;
         if (paths.Count == 0 && App.SnapshotFile == null) { paths = _settings.Tabs.Where(p => IsPage(p) || Directory.Exists(p)).ToList(); active = _settings.ActiveTab; }
         if (paths.Count == 0) paths.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
-        foreach (var p in paths) AddTab(p);
+        foreach (var p in paths) { AddTab(p); if (pick.TryGetValue(p, out var f)) _tabs[^1].SelectAfterLoad.Add(f); }
         Activate(_tabs[Math.Clamp(active, 0, _tabs.Count - 1)]);
     }
 
@@ -248,7 +254,7 @@ public partial class MainWindow : Window
 
     private void AddTab(string path)
     {
-        var t = new TabState(); _tabs.Add(t); NavigateTab(t, path, push: false);
+        var t = new TabState(); if (_pick != null) t.Shows = PickShows; _tabs.Add(t); NavigateTab(t, path, push: false);
     }
 
     private void Activate(TabState t)
@@ -396,6 +402,7 @@ public partial class MainWindow : Window
         else if ((ctrl && key == Key.E) || key == Key.F3) Search.Focus();
         else if (ctrl && shift && key == Key.C && Keyboard.FocusedElement is not TextBox) CopyPaths();
         else if (ctrl && key == Key.H) ToggleHidden();
+        else if (ctrl && key == Key.OemComma) ShowSettings();
         else if (ctrl && key == Key.N && !shift) OpenNewWindow();
         else if (ctrl && key == Key.Z && Keyboard.FocusedElement is not TextBox) Undo();
         else if (ctrl && key is Key.OemPlus or Key.Add) Zoom(1);
@@ -645,15 +652,8 @@ public partial class MainWindow : Window
         m.Items.Add(MI("Open in new tab", "", () => NewTab(_tab.Current)));
         m.Items.Add(MI("Properties", "", ShowProperties, "Alt+Enter", enabled: !InHome || Sel().Count > 0));
         m.Items.Add(new Separator());
-        bool def = DefaultApp.IsOn;
-        m.Items.Add(MI("Open folders with DeskDrawer", def ? Check : "", () => SetDefault(!def)));
-        m.Items.Add(MI("Keep ready in the background (opens faster)", _settings.KeepReady ? Check : "", () => { _settings.KeepReady = !_settings.KeepReady; _settings.Save(); Setup.StartAtSignIn(_settings.KeepReady); }));
-        m.Items.Add(MI("Use DeskDrawer for other apps' Open and Save windows", _settings.TakeOverDialogs ? Check : "", () => { _settings.TakeOverDialogs = !_settings.TakeOverDialogs; DialogSwitch.TakeOver = _settings.TakeOverDialogs; _settings.Save(); Flash(_settings.TakeOverDialogs ? "Open / Save windows now use DeskDrawer" : "Open / Save windows are back to normal"); }));
-        m.Items.Add(MI("Use graphics card (smoother, more memory)", _settings.Gpu ? Check : "", () => { _settings.Gpu = !_settings.Gpu; _settings.Save(); Flash("Restart DeskDrawer to apply"); }));
-        m.Items.Add(new Separator());
         if (Updater.Newer) m.Items.Add(MI("Update DeskDrawer now", "", UpdateNow, bold: true));
-        m.Items.Add(MI("Check for updates", "", () => { _userCheck = true; _ = Updater.CheckAsync(); }));
-        m.Items.Add(MI("Check for updates once a day", Updater.Enabled ? Check : "", () => Updater.Enabled = !Updater.Enabled));
+        m.Items.Add(MI("Settings", "", ShowSettings, "Ctrl+,"));   // the switches that used to sit here are in the Settings window now, each with a line saying what it does
         m.IsOpen = true;
     }
 
@@ -723,10 +723,11 @@ public partial class MainWindow : Window
     private static void ApplyFilter(TabState t)
     {
         if (t.View == null) return;
-        string q = t.Filter, k = t.Kind;
-        t.View.Filter = q.Length == 0 && k.Length == 0 ? null : o =>
+        string q = t.Filter, k = t.Kind; var shows = t.Shows;
+        t.View.Filter = q.Length == 0 && k.Length == 0 && shows == null ? null : o =>
         {
             var e = (FileEntry)o;
+            if (shows != null && !shows(e)) return false;
             if (q.Length > 0 && !e.Name.Contains(q, StringComparison.OrdinalIgnoreCase)) return false;
             return k switch { "" => true, "Folders" => e.IsDir, "Files" => !e.IsDir, _ => !e.IsDir && Kinds[k].Contains(e.Ext) };
         };
@@ -881,7 +882,7 @@ public partial class MainWindow : Window
     private void List_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
         if (_mqActive) return;   // the selection box updates the status once per step, not once per item
-        PreviewSoon(); UpdateCommands(); UpdateSelectionStatus();
+        PreviewSoon(); UpdateCommands(); UpdateSelectionStatus(); if (_pick != null) PickSelection();
     }
 
     private void UpdateSelectionStatus()
@@ -945,6 +946,7 @@ public partial class MainWindow : Window
     {
         var sel = Sel(); if (sel.Count == 0) return;
         if (sel[0].IsDir) { Navigate(sel[0].FullPath); return; }
+        if (_pick != null) { PickDone(sel.Where(x => !x.IsDir).Select(x => x.FullPath).ToList()); return; }   // picker mode: the files are the answer
         foreach (var f in sel.Where(x => !x.IsDir)) OpenFile(f.FullPath);
     }
 
@@ -1172,8 +1174,15 @@ public partial class MainWindow : Window
 
     // ---------- drag and drop (to Explorer, from Explorer, between folders) ----------
 
+    /// The cards open on a single click, but people double-click a drive the way File Explorer taught them: the first click swapped the page for the folder's list, and the second
+    /// landed on whatever now sits under the pointer (and, as the second click of a double-click, opened it: a file there started its program, which looked like a new window).
+    /// So the second click of a double-click that began on a card is swallowed.
+    private long _cardClickAt = -10_000_000;   // "long ago" (long.MinValue overflowed in the subtraction below and swallowed EVERY double-click)
+    internal bool SwallowCardContinuation(int clickCount) => clickCount >= 2 && Environment.TickCount64 - _cardClickAt <= Native.GetDoubleClickTime();
+
     private void List_PreviewDown(object s, MouseButtonEventArgs e)
     {
+        if (SwallowCardContinuation(e.ClickCount)) { e.Handled = true; return; }
         var under = EntryUnder(e.OriginalSource); _dragStart = e.GetPosition(null); _pendingSingle = null;
         _dragItem = OnContent(e.OriginalSource as DependencyObject) ? under : null;   // only a name or icon is grabbed to drag a file; the blank part of a row starts the selection box
         ArmRename(e, _dragItem); MarqueeArm(e, under);

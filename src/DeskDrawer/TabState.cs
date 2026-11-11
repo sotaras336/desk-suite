@@ -10,6 +10,7 @@ public sealed class TabState : INotifyPropertyChanged
     public readonly Stack<string> Back = new(), Fwd = new();
     public ListCollectionView? View;
     public List<FileEntry>? Entries;
+    public Func<FileEntry, bool>? Shows;   // picker mode: the dialog's file-type filter
     public string Filter = "", Kind = "";   // Kind = the Filter menu's choice (Folders, Pictures...)
     public string ViewSig = "";   // which sort / grouping the list was last arranged with (each folder has its own)
     public CancellationTokenSource? Cts;

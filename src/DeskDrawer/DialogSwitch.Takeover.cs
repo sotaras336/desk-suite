@@ -9,22 +9,21 @@ using System.Windows.Threading;
 namespace DeskDrawer;
 
 /// "Use DeskDrawer for other apps' Open and Save windows" (off by default). When another app opens a Save / Open dialog, that dialog is hidden, DeskDrawer's own picker
-/// (PickerWindow) opens in its place, and the answer is typed into the hidden dialog's file-name box and its Open / Save button is pressed: the app gets exactly what it
+/// (MainWindow) opens in its place, and the answer is typed into the hidden dialog's file-name box and its Open / Save button is pressed: the app gets exactly what it
 /// would have got from Windows' dialog. Anything unusual (no file-name box, a folder picker, an error) leaves the normal dialog on screen.
 public static partial class DialogSwitch
 {
     private static bool _takeOver;
-    public static bool TakeOver { get => _takeOver; set { _takeOver = value; if (value) StartEarly(); else StopEarly(); } }
+    public static bool TakeOver { get => _takeOver; set { _takeOver = value; if (value) { StartEarly(); After(8000, () => { if (_takeOver) MainWindow.PrewarmPicker(); }); } else StopEarly(); } }
     private static readonly HashSet<IntPtr> Taken = new();   // dialogs already handled once: never taken over twice
     private static readonly Dictionary<IntPtr, Mutex> Owned = new();   // one named lock per dialog: with two DeskDrawers running (a trial and the installed one) only one answers
-    private static PickerWindow? _picker;
+    private static MainWindow? _picker;
 
     private static bool TryTakeOver(IntPtr dlg)
     {
         foreach (var h in Taken.Where(h => !IsWindow(h)).ToList()) { Taken.Remove(h); Faded.Remove(h); if (Owned.Remove(h, out var old)) old.Dispose(); }
         if (_picker != null || Taken.Contains(dlg)) return false;
         var d = Describe(dlg);
-        if (d.Button.Contains("Folder", StringComparison.OrdinalIgnoreCase)) return false;   // folder pickers keep the normal dialog
         var mx = new Mutex(true, "Local\\DeskDrawerPicker" + dlg.ToInt64(), out bool mine);
         if (!mine) { mx.Dispose(); return false; }   // another DeskDrawer already took this one
         Owned[dlg] = mx; Taken.Add(dlg);
@@ -33,20 +32,36 @@ public static partial class DialogSwitch
             var places = _folders?.Invoke() ?? new();
             string start = Directory.Exists(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             GetWindowRect(dlg, out var r);
-            var p = new PickerWindow(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, places, r.Left, r.Top, r.Right, r.Bottom);
+            var sw0 = System.Diagnostics.Stopwatch.StartNew();
+            var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
             _picker = p;
-            ShowWindow(dlg, 0 /*SW_HIDE*/); KeepHidden(dlg);
-            p.Closed += (_, _) =>
-            {
-                _picker = null;
-                if (!IsWindow(dlg)) return;
-                if (p.Result is { Count: > 0 } paths) Fill(dlg, paths, p.TypeIndex); else Cancel(dlg);
-            };
-            p.Show(); p.Activate();
+            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
+            p.OnAnswer = pw => Answer(dlg, pw);
+            long built = sw0.ElapsedMilliseconds;
+            p.PickShow(); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
-        catch { _picker = null; Reveal(dlg); return false; }
+        catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); return false; }
     }
+
+    /// The picker was answered (or cancelled). Order matters, and getting it wrong is what hid the app: the answer goes into the dialog while the picker still owns the
+    /// foreground (it is only moved off screen), then we wait until the dialog is really gone, hand the foreground to the app that asked, and only then close the picker.
+    /// Closing first let Windows give the foreground to whatever window was next, and the app dropped behind it.
+    private static void Answer(IntPtr dlg, MainWindow pw)
+    {
+        _picker = null;   // KeepHidden stops; a new dialog may be taken over again
+        IntPtr owner = IsWindow(dlg) ? GetWindow(dlg, 4 /*GW_OWNER*/) : IntPtr.Zero;
+        if (!IsWindow(dlg)) { pw.FinishPick(); return; }
+        if (pw.Result is { Count: > 0 } paths) Fill(dlg, paths, pw.TypeIndex, follow: false, folder: pw.PickIsFolder); else PressCancel(dlg);
+        WaitGone(dlg, owner, 0,
+            gone: () => { BringBack(owner); pw.FinishPick(); },
+            still: () => { pw.FinishPick(); Reveal(dlg); SetForegroundWindow(dlg); });   // the app has something to say (replace this file? bad name?): its own dialog shows it
+    }
+
+    /// Gone = the window is destroyed, or the app that owns it is usable again (its modal loop ended). Still there after 2.4 s = the app is asking something.
+    private static void WaitGone(IntPtr dlg, IntPtr owner, int n, Action gone, Action still) => After(30, () => { if (!IsWindow(dlg) || (n > 3 && owner != IntPtr.Zero && IsWindowEnabled(owner) && !IsWindowVisible(dlg))) gone(); else if (n >= 80) still(); else WaitGone(dlg, owner, n + 1, gone, still); });
+
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr h);
 
     /// Some apps show their dialog again by themselves (Word does, now and then): while the picker is open it is put away again.
     private static void KeepHidden(IntPtr dlg) => After(250, () => { if (_picker == null || !IsWindow(dlg)) return; if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg); });
@@ -98,7 +113,7 @@ public static partial class DialogSwitch
     }
 
     /// Types the answer into the dialog and presses its default button. Several files in one folder: quoted full paths.
-    public static void Fill(IntPtr dlg, List<string> paths, int typeIndex = -1)
+    public static void Fill(IntPtr dlg, List<string> paths, int typeIndex = -1, bool follow = true, bool folder = false)
     {
         IntPtr edit = FindNameBox(dlg), owner = GetWindow(dlg, 4 /*GW_OWNER*/);
         if (edit == IntPtr.Zero) { Reveal(dlg); return; }
@@ -115,11 +130,12 @@ public static partial class DialogSwitch
         bool several = paths.Count > 1 && paths.All(p => string.Equals(Path.GetDirectoryName(p), dir, StringComparison.OrdinalIgnoreCase));
         if (several) Press(string.Join(" ", paths.Select(p => "\"" + p + "\"")));
         else Press(paths[0]);   // files from different folders can't be picked together in these dialogs: the first one
+        if (folder) After(350, () => { if (IsWindow(dlg)) Press(""); });   // a folder picker opens a typed folder instead of choosing it: pressed again with an empty name, it chooses the folder it is in
         // still there a moment later = it had something to say (replace this file? bad name?): show it again so the app's answer is visible
-        After(several ? 1500 : 1000, () =>
+        if (follow) After(several ? 1500 : 1000, () =>
         {
             if (IsWindow(dlg)) { Reveal(dlg); SetForegroundWindow(dlg); }
-            else if (owner != IntPtr.Zero && IsWindow(owner)) SetForegroundWindow(owner);   // the app gets the focus back
+            else BringBack(owner);   // the app gets the focus back
         });
     }
 
@@ -154,7 +170,7 @@ public static partial class DialogSwitch
     {
         if (_picker != null || Taken.Contains(h) || Faded.Contains(h) || ClassOf(h) != "#32770") return;
         GetWindowThreadProcessId(h, out uint pid); if (pid == Environment.ProcessId) return;
-        GetWindowRect(h, out var r); if (r.Right - r.Left < 480 || r.Bottom - r.Top < 320) return;   // message boxes and the like are small: leave them alone
+        GetWindowRect(h, out var r); if (r.Right - r.Left < 400 || r.Bottom - r.Top < 250) return;   // message boxes and the like are small: leave them alone
         if ((GetWindowLong(h, -20) & 0x80000) != 0) return;   // already layered by its own app: not ours to touch
         SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000); SetLayeredWindowAttributes(h, 0, 0, 2); Faded.Add(h);
         Poll(h, 0);
@@ -168,11 +184,39 @@ public static partial class DialogSwitch
           {
             if (!IsWindow(h)) { Faded.Remove(h); return; }
             if (Taken.Contains(h)) return;   // the foreground event got there first: it is hidden, and stays see-through until revealed
-            if (IsFileDialog(h)) { _dialog = h; if (TryTakeOver(h)) { Hide(); return; } Unfade(h); return; }   // not taken over (a folder picker, or another DeskDrawer has it): back to normal
-            if (n >= 30) Unfade(h); else Poll(h, n + 1);   // 30 x 40 ms: not a file dialog after all
+            if (IsFileDialog(h)) { _dialog = h; if (TryTakeOver(h)) { Hide(); return; } Miss(h, "not taken over (folder picker, picker already open, or another DeskDrawer has it)"); Unfade(h); return; }   // not taken over (a folder picker, or another DeskDrawer has it): back to normal
+            if (n >= 2 && HasView(h) && FindNameBox(h) == IntPtr.Zero) { Unfade(h); return; }   // built, but no file-name box: some other dialog, give it back at once
+            if (n >= 3 && !LooksLikeFileDialog(h)) { Unfade(h); return; }   // built without any of a file dialog's parts (a settings window, a wizard): back at once
+            if (n == 38) Unfade(h);   // never invisible longer than 1.5 s: a slow dialog shows normally and is still taken over if it turns into a file dialog
+            if (n >= 100) { if (Faded.Contains(h)) Unfade(h); Miss(h, "not a file dialog (or never finished building) after 4 s"); } else Poll(h, n + 1);
           }
           catch { Unfade(h); }   // whatever goes wrong, the dialog must never stay invisible
         });
+    }
+
+    /// A file dialog that is still being built already has one of these; any other dialog never does.
+    private static bool LooksLikeFileDialog(IntPtr h) { int kids = 0; bool part = false; EnumChildWindows(h, (c, _) => { kids++; if (ClassOf(c) is "DUIViewWndClassName" or "SHELLDLL_DefView" or "ComboBoxEx32" or "CtrlNotifySink" or "DirectUIHWND") part = true; return !part; }, IntPtr.Zero); return part || kids == 0; }
+    private static void FadeOut(IntPtr h)
+    {
+        if (Faded.Contains(h) || (GetWindowLong(h, -20) & 0x80000) != 0) return;
+        SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000); SetLayeredWindowAttributes(h, 0, 0, 2); Faded.Add(h);
+    }
+    private static bool HasView(IntPtr h) { bool v = false; EnumChildWindows(h, (c, _) => { if (ClassOf(c) is "DUIViewWndClassName" or "SHELLDLL_DefView") v = true; return !v; }, IntPtr.Zero); return v; }
+    private static void Note(IntPtr h, string what) => Miss(h, what);
+
+    /// takeover.log (next to settings.json): every dialog that looked like one but was left alone, with what it contained, so a miss can be understood instead of guessed.
+    private static void Miss(IntPtr h, string why)
+    {
+        try
+        {
+            GetWindowThreadProcessId(h, out uint pid); string proc = "?"; try { proc = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { }
+            var kids = new List<string>(); EnumChildWindows(h, (c, _) => { var k = ClassOf(c) + "#" + GetDlgCtrlID(c); if (!kids.Contains(k) && kids.Count < 40) kids.Add(k); return true; }, IntPtr.Zero);
+            GetWindowRect(h, out var r);
+            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskDrawer", "takeover.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 200_000) File.Delete(path);
+            File.AppendAllText(path, $"{DateTime.Now:MM-dd HH:mm:ss} {proc} {r.Right - r.Left}x{r.Bottom - r.Top} \"{TextOf(h)}\": {why}; nameBox={(FindNameBox(h) != IntPtr.Zero)}; children: {string.Join(" ", kids)}{Environment.NewLine}");
+        }
+        catch { }
     }
 
     private static void Unfade(IntPtr h)
@@ -189,13 +233,21 @@ public static partial class DialogSwitch
 
     internal static bool PickerOpen => _picker != null;
     internal static void TestAnswer(string path) => _picker?.TestAnswer(path);
+    internal static void TestCancel() => _picker?.Close();
 
-    private static void Cancel(IntPtr dlg)
+    /// The app that asked for the dialog comes to the front again, restored if it ended up minimised.
+    private static void BringBack(IntPtr owner)
     {
-        IntPtr owner = GetWindow(dlg, 4), cancel = IntPtr.Zero;
+        if (owner == IntPtr.Zero || !IsWindow(owner)) return;
+        if (IsIconic(owner)) ShowWindow(owner, 9 /*SW_RESTORE*/);
+        SetForegroundWindow(owner);
+    }
+
+    private static void PressCancel(IntPtr dlg)
+    {
+        IntPtr cancel = IntPtr.Zero;
         EnumChildWindows(dlg, (c, _) => { if (ClassOf(c) == "Button" && GetDlgCtrlID(c) == 2) { cancel = c; return false; } return true; }, IntPtr.Zero);
         if (cancel != IntPtr.Zero) PostMessage(cancel, 0x00F5, IntPtr.Zero, IntPtr.Zero); else PostMessage(dlg, 0x0111, (IntPtr)2, IntPtr.Zero);
-        After(400, () => { if (IsWindow(dlg)) Reveal(dlg); else if (owner != IntPtr.Zero && IsWindow(owner)) SetForegroundWindow(owner); });
     }
 
     private static void After(int ms, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) }; t.Tick += (_, _) => { t.Stop(); a(); }; t.Start(); }

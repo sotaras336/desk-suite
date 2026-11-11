@@ -113,8 +113,15 @@ void AudioDevices(std::function<void(std::vector<AudioDev>)> cb) {
 }
 void AudioSetDefault(const ws& id, std::function<void()> done) {
     AudioPost([id, done] {
-        ComPtr<IPolicyConfigX> cfg;
-        if (SUCCEEDED(CoCreateInstance(CLSID_PolicyConfigX, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&cfg)))) for (int r = 0; r < 3; r++) cfg->SetDefaultEndpoint(id.c_str(), (ERole)r);
+        // Checked, retried and logged: a headset that shows up twice (USB and Bluetooth, like the JBL) sometimes ignored the switch and nothing said so.
+        auto now = [] { ComPtr<IMMDevice> d; return g_en && SUCCEEDED(g_en->GetDefaultAudioEndpoint(eRender, eConsole, &d)) ? IdOf(d.Get()) : ws(); };
+        for (int attempt = 0; attempt < 3; attempt++) {
+            ComPtr<IPolicyConfigX> cfg; HRESULT hc = CoCreateInstance(CLSID_PolicyConfigX, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&cfg)), hr[3] = {E_FAIL, E_FAIL, E_FAIL};
+            if (SUCCEEDED(hc)) for (int r = 0; r < 3; r++) hr[r] = cfg->SetDefaultEndpoint(id.c_str(), (ERole)r);
+            Sleep(attempt ? 400 : 150); bool ok = now() == id;
+            Log(L"audio: set default %s try %d: create 0x%08x, roles 0x%08x 0x%08x 0x%08x, default is %s", id.c_str(), attempt + 1, (unsigned)hc, (unsigned)hr[0], (unsigned)hr[1], (unsigned)hr[2], ok ? L"the one asked for" : L"STILL ANOTHER DEVICE");
+            if (ok) break;
+        }
         Poll(); if (done) UiPost(done);
     });
 }

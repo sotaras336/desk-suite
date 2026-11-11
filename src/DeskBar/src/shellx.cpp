@@ -92,7 +92,26 @@ bool IsFullscreenOn(const RECT& mb, ws* who, bool barHidden) {
 }
 
 // ---------- launching ----------
+// File Explorer is what the user replaced: while DeskDrawer is their folder handler (it registers itself in HKCU when "Open folders with DeskDrawer" is on), everything of ours that
+// used to start explorer.exe (the Start button's File Explorer, a pinned File Explorer, "Open file location") opens DeskDrawer instead. Before, those opened Windows' own Explorer,
+// whose This PC then opened a DeskDrawer window of its own for every drive you double-clicked.
+ws DeskDrawerExe() {
+    auto get = [](const wchar_t* key) -> ws { wchar_t b[1024]; DWORD n = sizeof b; return RegGetValueW(HKEY_CURRENT_USER, key, nullptr, RRF_RT_REG_SZ, nullptr, b, &n) == ERROR_SUCCESS ? ws(b) : ws(); };
+    if (get(L"Software\\Classes\\Directory\\shell") != L"deskdrawer") return {};
+    ws cmd = get(L"Software\\Classes\\Directory\\shell\\deskdrawer\\command");   // "C:\...\DeskDrawer.exe" "%1"
+    if (cmd.size() > 2 && cmd[0] == L'"') { size_t e = cmd.find(L'"', 1); if (e != ws::npos) { ws exe = cmd.substr(1, e - 1); if (FileExists(exe)) return exe; } }
+    return {};
+}
+// Only the plain requests are taken over: no arguments (open Explorer) and /select,"file" (open its folder with the file selected; DeskDrawer takes the file path itself).
+// A folder path or a shell: place other than the ones DeskDrawer has pages for stays with Explorer.
+bool ExplorerAsDeskDrawer(const ws& target, const ws& args, ws& arg) {
+    if (!(Lower(FileNameOf(target)) == L"explorer.exe" || EqI(target, L"shell:AppsFolder\\Microsoft.Windows.Explorer"))) return false;
+    if (args.empty()) { arg = L"shell:Home"; return true; }
+    if (StartsI(args, L"/select,")) { arg = args.substr(8); arg.erase(std::remove(arg.begin(), arg.end(), L'"'), arg.end()); return !arg.empty(); }
+    return false;
+}
 void Launch(const ws& target, const ws& args, bool admin, const ws& dir) {
+    if (!admin) { ws arg; if (ExplorerAsDeskDrawer(target, args, arg)) { ws dd = DeskDrawerExe(); if (!dd.empty()) { Launch(dd, L"\"" + arg + L"\""); return; } } }
     std::thread([=] {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         SHELLEXECUTEINFOW e{sizeof e}; e.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC; e.lpFile = target.c_str();

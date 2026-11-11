@@ -92,13 +92,13 @@ public sealed class MainWindow : Window
             newer.MouseLeftButtonUp += async (_, _) => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); };   // the setup that just started replaces this copy and opens the new one
             var opts = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
             TextBlock Link(Action click) { var t = new TextBlock { FontSize = 11.5, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 14, 0) }; t.SetResourceReference(TextBlock.ForegroundProperty, "FgFaint"); t.MouseLeftButtonUp += (_, _) => click(); opts.Children.Add(t); return t; }
-            var check = Link(() => _ = Updater.CheckAsync()); var auto = Link(() => Updater.Enabled = !Updater.Enabled);
+            var check = Link(OpenSettings); var auto = Link(OpenSettings);   // both lead to Settings, where updates and the safety net live now
             void Show()
             {
                 newer.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
                 newer.Text = Updater.Busy ? Updater.Status : "A new version of DeskTune is available · Update now";
-                check.Text = Updater.Newer || Updater.Status.Length == 0 ? "Check for updates" : Updater.Status;
-                auto.Text = Updater.Enabled ? "Daily check: on" : "Daily check: off";
+                check.Text = "  Settings"; check.FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Variable Text, Segoe UI");
+                auto.Visibility = Visibility.Collapsed;
             }
             Updater.Changed += () => Dispatcher.BeginInvoke(Show); Show();
             left.Children.Add(newer); left.Children.Add(opts);
@@ -111,6 +111,7 @@ public sealed class MainWindow : Window
         UpdateBar();
         SizeChanged += (_, _) => { bool c = ActualHeight < 760; if (c == _compact) return; _compact = c; Summarise(); };   // a short window (a 1080p screen at 150% is ~670 high) gets one summary line instead of three cards
         Loaded += (_, _) => Scan();
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Control) { OpenSettings(); e.Handled = true; } };
     }
 
     // ---------------------------------------------------------------- scan and draw
@@ -268,7 +269,10 @@ public sealed class MainWindow : Window
         });
     }
 
-    private void UndoAll()
+    internal SettingsWindow? Settings;
+    internal void OpenSettings() { if (Settings != null) { Settings.Activate(); return; } Settings = new SettingsWindow(this); Settings.Closed += (_, _) => Settings = null; Settings.Show(); }
+
+    internal void UndoAll()
     {
         if (_busy || Log.Count == 0) return;
         if (MessageBox.Show(this, $"Put back all {Log.Count} changes DeskTune made?", "DeskTune", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -333,5 +337,5 @@ public sealed class MainWindow : Window
 
     [StructLayout(LayoutKind.Sequential)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }
     [DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX m);
-    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
+    [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
 }
