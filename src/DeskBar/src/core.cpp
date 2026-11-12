@@ -350,8 +350,9 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     if (t.hue >= 0) {
         float h, s, l; ToHsl(r, g, b, h, s, l);
         if (h >= 185 && h <= 280 && s > 0.2f) {   // only the blues move: greens, ambers and greys stay
-            h = t.hue + (h - 225) * 0.25f; if (h < 0) h += 360; if (h >= 360) h -= 360;
-            if (t.soft) { s = std::min(s * 0.5f, 0.5f); l = l < 0.5f ? 0.52f + l * 0.22f : std::min(0.9f, l + 0.14f); }
+            if (t.soft && l >= 0.5f) { h = 302 + (h - 201) * 0.25f; s = std::min(s * 0.85f, 0.85f); l = std::min(0.9f, l + 0.09f); }   // the pink text and accents: the accent 0x4CC2FF lands exactly on the user's orchid pink #F584F1
+            else { h = t.hue + (h - 225) * 0.25f; if (t.soft) { s = std::min(s * 0.5f, 0.5f); l = l < 0.5f ? 0.52f + l * 0.22f : std::min(0.9f, l + 0.14f); } }
+            if (h < 0) h += 360; if (h >= 360) h -= 360;
             float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, hh = h / 360;
             r = Hue2(p, q, hh + 1.f / 3); g = Hue2(p, q, hh); b = Hue2(p, q, hh - 1.f / 3);
         }

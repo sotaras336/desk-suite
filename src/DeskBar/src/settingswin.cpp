@@ -41,7 +41,7 @@ View* RowBase(View* card, wchar_t glyph, ImgP img, const ws& title, const ws& de
 // a switch row: a tap anywhere on the row flips it
 Toggle* Row(View* card, wchar_t glyph, const ws& title, const ws& desc, bool v, std::function<void(bool)> f, ImgP img = nullptr) {
     auto* r = RowBase(card, glyph, img, title, desc); r->hit = true; r->bgHover = Fill(0x08);
-    auto* t = r->Add(new Toggle()); t->rawOn = kBlue; t->va = Al::Center; t->Set(v);
+    auto* t = r->Add(new Toggle()); t->va = Al::Center; t->Set(v);
     auto fn = [f](bool on) { f(on); SaveSettingsSoon(); };
     t->onChange = fn; r->onClick = [t, fn] { t->Set(!t->on); fn(t->on); };
     return t;

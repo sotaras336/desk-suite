@@ -431,8 +431,8 @@ View* MakeThemePage(QuickPanel* q) { return new ThemePage(q); }
 // ======================================================= Screens and power (what DeskMode did, now here, in DeskMode's own look)
 // DeskMode's panel, piece by piece: the big readout of each screen, the two preset cards, the power-mode strip, and one card per screen with its refresh rates.
 namespace dm {
-// DeskMode's own colours, the same whatever colour the bar wears (raw colours, not passed through DeskBar's theme)
-D2D1_COLOR_F Raw(uint32_t rgb, int a) { return D2D1::ColorF(rgb, a / 255.f); }
+// DeskMode's colours: written as DeskMode's blues, then passed through the bar's theme (see Raw)
+D2D1_COLOR_F Raw(uint32_t rgb, int a) { return CurrentTheme().kind == 0 ? Col(rgb, a) : D2D1::ColorF(rgb, a / 255.f); }   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
 Brush Glow() { return LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
@@ -505,7 +505,7 @@ struct DisplayPage : PageBase {
         { int es = EnergySaverIsOn(); if (es >= 0) {
             auto* r = MkBox(pc, Lay::H); r->margin = Thick(2, 12, 0, 0); auto* g = MkGlyph(r, 0xEBB4, 14, Col(K::White, 0xC0)); g->va = Al::Center; g->margin = Thick(0, 0, 10, 0);
             auto* l = MkLabel(r, L"Energy saver", FText(13.5f)); l->star = 1; l->va = Al::Center;
-            auto* t = r->Add(new Toggle()); t->rawOn = 0x4CC2FF; t->va = Al::Center; t->Set(es == 1); t->onChange = [](bool on) { std::thread([on] { EnergySaverSet(on); }).detach(); }; } }
+            auto* t = r->Add(new Toggle()); t->va = Al::Center; t->Set(es == 1); t->onChange = [](bool on) { std::thread([on] { EnergySaverSet(on); }).detach(); }; } }
         // the screens: each one's refresh rates and brightness, in one card (kept compact so the panel needs no scrolling)
         dm::Title(col, L"Screens");
         auto* bcard = dm::Card(col);
@@ -608,7 +608,7 @@ struct DeskModeSettings : PageBase {
             dm::Strip(c, {L"Recommended", L"Better", L"Best"}, *val, 3, [this, val](int i) { *val = i; SaveSettingsSoon(); Reload(); }); };
         auto sw = [&](View* c, const ws& text, bool* val) {
             auto* r = MkBox(c, Lay::H); r->margin = Thick(2, 10, 0, 0); auto* l = MkLabel(r, text, FText(13)); l->star = 1; l->wrap = true; l->va = Al::Center;
-            auto* tg = r->Add(new Toggle()); tg->rawOn = 0x4CC2FF; tg->va = Al::Center; tg->Set(*val); tg->onChange = [val](bool on) { *val = on; SaveSettingsSoon(); }; };
+            auto* tg = r->Add(new Toggle()); tg->va = Al::Center; tg->Set(*val); tg->onChange = [val](bool on) { *val = on; SaveSettingsSoon(); }; };
         dm::Title(this, L"\u201CGo max\u201D"); auto* c1 = dm::Card(this);
         auto* d1 = MkLabel(c1, L"What the Go max button (and Ctrl+Alt+M) sets. \u201CMax\u201D uses the best refresh rate each screen offers.", FText(12), Col(K::White, 0xB0)); d1->wrap = true;
         rateStrip(c1, L"Built-in screen", lap, &S.dmMaxLaptopHz, true); rateStrip(c1, L"Monitor", mon, &S.dmMaxMonitorHz, true); modeStrip(c1, &S.dmMaxMode); sw(c1, L"Turn Energy saver off", &S.dmMaxSaverOff);

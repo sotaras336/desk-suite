@@ -58,8 +58,9 @@ public static class Theme
         }
         else if (t.Hue >= 0 && blue)
         {
-            h = t.Hue + (h - 225) * 0.25; if (h < 0) h += 360; if (h >= 360) h -= 360;
-            if (t.Soft) { s = Math.Min(s * 0.5, 0.5); l = l < 0.5 ? 0.52 + l * 0.22 : Math.Min(0.9, l + 0.14); }
+            if (t.Soft && l >= 0.5) { h = 302 + (h - 201) * 0.25; s = Math.Min(s * 0.85, 0.85); l = Math.Min(0.9, l + 0.09); }   // the pink text and accents: DeskBar's accent 0x4CC2FF lands exactly on the orchid pink #F584F1
+            else { h = t.Hue + (h - 225) * 0.25; if (t.Soft) { s = Math.Min(s * 0.5, 0.5); l = l < 0.5 ? 0.52 + l * 0.22 : Math.Min(0.9, l + 0.14); } }
+            if (h < 0) h += 360; if (h >= 360) h -= 360;
             FromHsl(h, s, l, out r, out g, out b);
         }
         return Color.FromArgb((byte)Math.Round(al * 255), (byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));

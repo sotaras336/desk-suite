@@ -154,7 +154,7 @@ struct Slider : View {
     void From(float x, bool fin);
 };
 struct Toggle : View {
-    bool on = false; std::function<void(bool)> onChange; float knob = 0; uint32_t rawOn = 0;   // rawOn: an exact colour when on (DeskMode's blue), not the theme's accent
+    bool on = false; std::function<void(bool)> onChange; float knob = 0;
     Toggle();
     void Set(bool v);
     Sz MeasureContent(Sz) override { return {42, 22}; } void PaintContent(Gfx& g) override;
