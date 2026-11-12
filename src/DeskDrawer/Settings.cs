@@ -14,6 +14,7 @@ public sealed class Settings
     public string Theme { get; set; } = "black";
     public bool ShowHidden { get; set; }
     public bool KeepReady { get; set; } = true;   // closing hides the window and the process stays, started at sign-in: folders open in ~0.5 s instead of ~2.5 s
+    public double ScrollSpeed { get; set; } = 1;   // Settings > Speed > Scrolling: times the wheel or touchpad movement
     public bool Gpu { get; set; }   // graphics-card rendering: smoother on huge screens, but the driver adds ~85 MB; off = software rendering
     public string ViewMode { get; set; } = "Details";   // Details, List, Tiles, Icons
     public int IconSize { get; set; } = 96;

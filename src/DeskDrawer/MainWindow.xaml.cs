@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     {
         _pick = pick;
         InitializeComponent();
+        Wheel.Speed = _settings.ScrollSpeed; Wheel.Attach(HomePane); Tree.Loaded += (_, _) => { if (FindScroll(Tree) is { } ts) Wheel.Attach(ts); };   // scroll by the wheel's own movement (a touchpad flew)
         HomePane.PreviewMouseLeftButtonUp += (_, _) => _cardClickAt = Environment.TickCount64;   // a click on a card of Home / This PC / Quick access / Recent: see SwallowCardContinuation
         BuildCommandBar(); Activated += (_, _) => UpdateCommands();   // the clipboard may have changed while we were in the background
         _grid = (GridView)List.View; _rowsPanel = List.ItemsPanel;
@@ -549,7 +550,8 @@ public partial class MainWindow : Window
     private void List_Wheel(object s, MouseWheelEventArgs e)
     {
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) { Zoom(e.Delta > 0 ? 1 : -1); e.Handled = true; }
-        else if (_viewMode == "List" && FindScroll(List) is { } sv) { sv.ScrollToHorizontalOffset(sv.HorizontalOffset - e.Delta); e.Handled = true; }   // the list view scrolls sideways, like File Explorer's
+        else if (_viewMode == "List" && FindScroll(List) is { } sv) { sv.ScrollToHorizontalOffset(sv.HorizontalOffset - e.Delta * Wheel.Speed); e.Handled = true; }   // the list view scrolls sideways, like File Explorer's
+        else if (FindScroll(List) is { } vs && vs.ScrollableHeight > 0) { Wheel.Scroll(vs, e.Delta); e.Handled = true; }   // by the wheel's own movement, not a whole notch per touchpad message
     }
 
     private static ScrollViewer? FindScroll(DependencyObject d)

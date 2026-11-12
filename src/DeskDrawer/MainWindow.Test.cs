@@ -32,6 +32,21 @@ public partial class MainWindow
             var va = Find(a); Check("folder listed", va != null && Find(b) != null);
             Check("WPF refuses WindowInteropHelper.Handle off the UI thread (why Hwnd is cached)", await Task.Run(() => { try { _ = new System.Windows.Interop.WindowInteropHelper(this).Handle; return false; } catch (InvalidOperationException) { return true; } }));
             Check("owner window can be read from a worker thread (the Delete bug)", await Task.Run(() => { try { return Hwnd != IntPtr.Zero; } catch { return false; } }));
+            if (Want("wheel"))   // a touchpad sends many small wheel messages: the folder must move by their total, not a whole notch each
+            {
+                var many = Path.Combine(root, "many"); Directory.CreateDirectory(many); for (int i = 0; i < 300; i++) File.WriteAllText(Path.Combine(many, $"f{i:000}.txt"), "");
+                Navigate(many); await Task.Delay(2000);
+                if (FindScroll(List) is { } sv)
+                {
+                    double Swipe(int msgs, int delta) { sv.ScrollToTop(); UpdateLayout(); for (int i = 0; i < msgs; i++) List.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -delta) { RoutedEvent = UIElement.PreviewMouseWheelEvent }); UpdateLayout(); return sv.VerticalOffset; }
+                    double notch = Wheel.Px(120), touch = Swipe(12, 10);   // 12 messages of 10 = one notch in total
+                    Check("12 small touchpad messages scroll one notch, not twelve", Math.Abs(touch - notch) < 2, $"(moved {touch:0} px, a notch is {notch:0} px)");
+                    double keep = Wheel.Speed; Wheel.Speed = 0.4; double slow = Swipe(1, 120); Wheel.Speed = keep;
+                    Check("the Slower setting moves less", Math.Abs(slow - notch * 0.4) < 2, $"({slow:0} px)");
+                }
+                else Check("the list's scroll viewer found", false);
+                Navigate(root); await Task.Delay(800);
+            }
             if (Want("address"))   // the path bar: a click on its blank end opens the text box,, and Enter goes to the typed folder
             {
                 foreach (var n in new[] { "alpha", "alps", "beta" }) Directory.CreateDirectory(Path.Combine(root, n)); await Task.Delay(1800);   // the folder watcher refreshes the list after this: let it finish before clicking

@@ -107,10 +107,25 @@ public partial class MainWindow
         }
         void PageSpeed()
         {
-            Head("", "Speed", "How quickly DeskDrawer opens, and what that costs.");
+            Head("", "Speed", "How quickly DeskDrawer opens and scrolls.");
             var b = Card("Opening");
             Switch(b, "", "Keep ready in the background", "Closing the window keeps DeskDrawer out of sight, so the next folder opens in about half a second. Uses some memory.", _settings.KeepReady,
                 v => { _settings.KeepReady = v; _settings.Save(); Setup.StartAtSignIn(v); });
+            var sc = Card("Scrolling");
+            RowBase(sc, "", "Scrolling speed", "How far a turn of the wheel or a touchpad swipe moves the folder.", null);
+            double[] speeds = { 0.4, 0.7, 1, 1.5 }; string[] names = { "Slower", "Slow", "Normal", "Fast" };
+            var strip = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1, Margin = new Thickness(58, 0, 12, 12) };
+            var segs = new List<Border>();
+            void Mark() { for (int k = 0; k < segs.Count; k++) { bool on = Math.Abs(speeds[k] - _settings.ScrollSpeed) < 0.01; segs[k].Background = on ? Glow() : Brushes.Transparent; ((TextBlock)segs[k].Child).FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal; } }
+            for (int k = 0; k < speeds.Length; k++)
+            {
+                int n = k; var seg = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 8, 6, 8), Margin = new Thickness(1), Cursor = Cursors.Hand, Child = new TextBlock { Text = names[k], FontSize = 13, Foreground = DmText, HorizontalAlignment = HorizontalAlignment.Center } };
+                seg.MouseLeftButtonUp += (_, _) => { _settings.ScrollSpeed = speeds[n]; Wheel.Speed = speeds[n]; _settings.Save(); Mark(); };
+                segs.Add(seg); strip.Children.Add(seg);
+            }
+            Mark();
+            sc.Children.Add(new Border { Background = Rgb(0xFFFFFF, 0x0A), CornerRadius = new CornerRadius(10), Padding = new Thickness(3), Margin = new Thickness(58, 0, 12, 12), Child = strip });
+            strip.Margin = new Thickness(0);
             var g = Card("Drawing");
             Switch(g, "", "Use the graphics card", "Smoother on very large screens, about 85 MB more memory. From the next start.", _settings.Gpu, v => { _settings.Gpu = v; _settings.Save(); });
         }
