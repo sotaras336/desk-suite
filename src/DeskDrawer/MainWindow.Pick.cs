@@ -61,6 +61,7 @@ public partial class MainWindow
     private void PickUse(PickRequest req)
     {
         _pick = req; var p = req; Result = null; _pickAnswered = false; _pickAll = false; OnAnswer = null;
+        RefreshPins();   // the picker is built ahead of time and reused: read the pins again, or folders pinned since then are missing
         if (_tabs.Count > 0) { foreach (var t in _tabs.Skip(1).ToList()) _tabs.Remove(t); Activate(_tabs[0]); Search.Text = ""; _tab.Filter = ""; NavigateTab(_tab, p.Folder, push: false); }
         _pickType = p.TypeIndex; _pickSave = p.Button.Contains("Save", StringComparison.OrdinalIgnoreCase);
         _pickPatterns = _pickType >= 0 && _pickType < p.Types.Length ? DialogSwitch.PatternsOf(p.Types[_pickType]) : Array.Empty<string>();

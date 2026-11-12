@@ -12,6 +12,11 @@ public static partial class SelfTest
         void Check(string name, bool ok, string extra = "") { sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (extra.Length > 0 ? "  " + extra : "")); if (!ok) fail++; }
         {   // the update check: reading the checksum list, and (only when a test points DESK_UPDATE_BASE at a local release folder) the whole check and a verified download that is not run
             string sums = new string('a', 64) + " *" + Updater.Asset + "\r\n" + new string('b', 64) + " *Other-Setup.exe\n";
+            {   // OneDrive must show in the sidebar even where its environment variables are missing (other PCs, or a DeskDrawer started before OneDrive)
+                bool signedIn; using (var acc = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\OneDrive\Accounts")) signedIn = acc?.GetSubKeyNames().Any(n => acc.OpenSubKey(n)?.GetValue("UserFolder") is string f && Directory.Exists(f)) == true;
+                var roots = MainWindow.CloudRoots(envToo: false);
+                Check("OneDrive found from its own registry entries, without environment variables", !signedIn || roots.Count > 0, string.Join("; ", roots.Select(r => r.Path)));
+            }
             Check("update: reads the checksum for this app's file", Updater.HashFor(sums, Updater.Asset) == new string('a', 64) && Updater.HashFor(sums, "Nope.exe") == null);
             if (Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null)
             {

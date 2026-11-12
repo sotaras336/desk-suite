@@ -1,11 +1,11 @@
-## Desk 2.9.1
+## Desk 2.9.2
 
-DeskDrawer scrolls at a normal speed on touchpads, and gets a scrolling speed setting.
+Two DeskDrawer fixes.
 
 **DeskDrawer**
 
-- On a precision touchpad a short swipe used to fly across the folder: every tiny scroll message moved a whole mouse-wheel notch. The file list, the folder tree and Home now move by how far you actually scrolled. A mouse wheel feels the same as before.
-- New in Settings (Ctrl+,) > Speed: **Scrolling speed**, Slower / Slow / Normal / Fast. It applies straight away.
+- OneDrive shows in the sidebar on every PC. It used to depend on two Windows variables that some PCs don't set, and that a DeskDrawer already running in the background never sees when OneDrive is set up later. DeskDrawer now reads where OneDrive keeps your folders from OneDrive itself.
+- The Open and Save window for other apps shows the folders you pinned, including ones pinned after DeskDrawer started. It is prepared ahead of time so it opens fast, and it used to keep the pins from that moment.
 
 DeskBar and DeskTune are the same as in 2.9.
 

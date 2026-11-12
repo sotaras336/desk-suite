@@ -1302,13 +1302,33 @@ public partial class MainWindow : Window
         });
     }
 
+    /// The OneDrive folders signed in on this PC. OneDrive's own registry entries first: the OneDriveConsumer / OneDriveCommercial variables are missing on some PCs,
+    /// and a DeskDrawer that was already running in the background when OneDrive was set up never sees them.
+    internal static List<(string Path, string Name)> CloudRoots(bool envToo = true)
+    {
+        var found = new List<(string Path, string Name)>();
+        void Add(string? p, string name) { p = p?.TrimEnd('\\'); if (!string.IsNullOrEmpty(p) && Directory.Exists(p) && !found.Any(f => string.Equals(f.Path, p, StringComparison.OrdinalIgnoreCase))) found.Add((p, name)); }
+        try
+        {
+            using var acc = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\OneDrive\Accounts");
+            foreach (var n in acc?.GetSubKeyNames().OrderBy(n => n == "Personal" ? 0 : 1) ?? Enumerable.Empty<string>())
+            { using var k = acc!.OpenSubKey(n); Add(k?.GetValue("UserFolder") as string, n == "Personal" ? "OneDrive - Personal" : "OneDrive - Work"); }
+        }
+        catch { }
+        if (envToo)
+            foreach (var (v, name) in new[] { ("OneDriveConsumer", "OneDrive - Personal"), ("OneDriveCommercial", "OneDrive - Work"), ("OneDrive", "OneDrive") })
+            {
+                Add(Environment.GetEnvironmentVariable(v), name);
+                try { using var env = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Environment"); Add(env?.GetValue(v) as string, name); } catch { }
+            }
+        return found;
+    }
+
     private void BuildTree()
     {
         var home = Node("Home", HomeTag, "", false); Tree.Items.Add(home);
         Tree.Items.Add(Node("Recent", RecentTag, "\uE81C", false));
-        var clouds = new[] { ("OneDriveConsumer", "OneDrive - Personal"), ("OneDriveCommercial", "OneDrive - Work") }
-            .Select(v => (Path: Environment.GetEnvironmentVariable(v.Item1) ?? "", Name: v.Item2)).Where(v => v.Path.Length > 0 && Directory.Exists(v.Path))
-            .DistinctBy(v => v.Path.ToLowerInvariant()).ToList();
+        var clouds = CloudRoots();
         var cloudNodes = new Dictionary<string, TreeViewItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, name) in clouds) { var n = Node(Path.GetFileName(path) is { Length: > 0 } f && f != "OneDrive" ? f : name, path, "", lazy: true); Tree.Items.Add(n); cloudNodes[path] = n;
             var cloud = new TextBlock { Text = "", FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(0x4C, 0xB0, 0xF5)), VerticalAlignment = VerticalAlignment.Center };
