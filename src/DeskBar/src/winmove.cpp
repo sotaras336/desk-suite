@@ -160,7 +160,8 @@ void ClampForeground() {
     MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) return;
     RECT r = VisibleRect(h);
     if (r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return;   // a full-screen app
-    if (r.bottom <= mi.rcWork.bottom || r.bottom > mi.rcMonitor.bottom || r.top >= mi.rcWork.bottom - 40) return;
+    if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 4 || r.bottom > mi.rcMonitor.bottom || r.top >= mi.rcWork.bottom - 40) return;   // a window's own invisible border hanging a few px over is not "in the bar" (pulling it back fought apps that draw their own frame)
+    typedef BOOL(WINAPI * Arr)(HWND); static Arr arranged = (Arr)GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"); if (arranged && arranged(h)) return;   // snapped by Windows: it fits it to the work area itself
     Log(L"window overlapped the bar by %d px, pulled back: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());
     RECT c = r; c.bottom = mi.rcWork.bottom; SetVisibleRect(h, c);
 }
@@ -172,7 +173,15 @@ void FixMaximizedOverBar() {
         if (!IsAppWindow(h) || !IsZoomed(h) || IsIconic(h)) continue;
         HMONITOR m = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(m, &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) continue;
         Bar* b = BarOnMonitor(m); if (!b || b->hiddenFs || !IsWindowVisible(b->hwnd) || b->hmon != m) continue;   // bar hidden for a full-screen app: nothing to protect
-        RECT r = VisibleRect(h); if (r.bottom <= mi.rcWork.bottom + 4 || r.top >= mi.rcWork.bottom - 40) continue;
+        RECT r = VisibleRect(h); if (r.top >= mi.rcWork.bottom - 40) continue;
+        // Every maximized window hangs a little past the work area: its invisible resize border (8 to 16 px by scale, more for apps that draw their own frame,
+        // like DeskDrawer and Chrome). Pulling THAT up made Windows put it straight back, so a maximized window was resized every 3 s, forever (thousands of
+        // times a day: Chrome drew half its page, drags glitched, Windows' taskbar popped up). Only a window that really covers the bar (the stale full-screen
+        // height after a rotation runs under it by the whole bar) is pulled up, and never the same window twice within a minute.
+        if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 2) continue;
+        static std::map<HWND, uint64_t> pulled; uint64_t now = Now(); auto it = pulled.find(h);
+        if (it != pulled.end() && now - it->second < 60000) continue;   // pulled up a moment ago and back again: Windows wants it there, leave it
+        pulled[h] = now;
         Log(L"maximized window ran %d px under the bar, pulled up: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());
         RECT c = r; c.bottom = mi.rcWork.bottom; SetVisibleRect(h, c);
     }

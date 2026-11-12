@@ -1207,7 +1207,11 @@ public partial class MainWindow : Window
         if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
         if (!List.SelectedItems.Contains(_dragItem)) { List.SelectedItems.Clear(); List.SelectedItems.Add(_dragItem); }
         var paths = Sel().Select(x => x.FullPath).ToArray(); _dragItem = null; _pendingSingle = null;
-        DragDrop.DoDragDrop(List, new DataObject(DataFormats.FileDrop, paths), DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link);
+        List.ReleaseMouseCapture(); Mouse.Capture(null);   // the list held the mouse for its own selection: hand it to the drag, or it keeps "pressing" after the drop
+        const uint okEffects = 1 | 2 | 4;   // copy, move, link
+        if (!ShellMenu.Drag(paths, Hwnd, okEffects, out _))
+            DragDrop.DoDragDrop(List, new DataObject(DataFormats.FileDrop, paths), DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link);
+        _mqArmed = false; e.Handled = true;   // the button was let go inside the drag loop (often over another app): nothing here is still being pressed
     }
 
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)

@@ -47,6 +47,32 @@ public static class ShellMenu
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SHParseDisplayName(string name, IntPtr bc, out IntPtr pidl, uint sfgaoIn, out uint sfgaoOut);
     [DllImport("shell32.dll")] private static extern int SHBindToParent(IntPtr pidl, ref Guid riid, out IntPtr ppv, out IntPtr pidlLast);
     [DllImport("ole32.dll")] private static extern void CoTaskMemFree(IntPtr p);
+    [DllImport("shell32.dll")] private static extern int SHDoDragDrop(IntPtr hwnd, IntPtr dataObject, IntPtr dropSource, uint okEffects, out uint effect);
+    private static readonly Guid IID_IDataObject = new("0000010E-0000-0000-C000-000000000046");
+
+    /// Drags files the way File Explorer does: the shell's own data object for them (every format other apps look for, not just a file list) and Windows' own
+    /// drag loop and drag image. False when the shell can't make one (items from several folders, as in search results): the caller falls back to WPF's drag.
+    public static bool Drag(IReadOnlyList<string> paths, IntPtr owner, uint okEffects, out uint effect)
+    {
+        effect = 0; var pidls = new List<IntPtr>(); var children = new List<IntPtr>(); IShellFolder? folder = null; string? parent = null;
+        try
+        {
+            foreach (var p in paths)
+            {
+                string dir = System.IO.Path.GetDirectoryName(p.TrimEnd('\\')) ?? p; parent ??= dir;
+                if (!string.Equals(parent, dir, StringComparison.OrdinalIgnoreCase)) return false;   // one data object = one folder
+                if (SHParseDisplayName(p, IntPtr.Zero, out var pidl, 0, out _) != 0) return false; pidls.Add(pidl);
+                var iid = IID_IShellFolder; if (SHBindToParent(pidl, ref iid, out var ppv, out var last) != 0) return false;
+                folder ??= (IShellFolder)Marshal.GetObjectForIUnknown(ppv); Marshal.Release(ppv); children.Add(last);
+            }
+            if (folder == null || children.Count == 0) return false;
+            var iidData = IID_IDataObject;
+            if (folder.GetUIObjectOf(owner, (uint)children.Count, children.ToArray(), ref iidData, IntPtr.Zero, out var data) != 0 || data == IntPtr.Zero) return false;
+            try { return SHDoDragDrop(owner, data, IntPtr.Zero, okEffects, out effect) >= 0; } finally { Marshal.Release(data); }
+        }
+        catch { return false; }
+        finally { foreach (var p in pidls) CoTaskMemFree(p); }
+    }
     [DllImport("user32.dll")] private static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr h);
     [DllImport("user32.dll")] private static extern int GetMenuItemCount(IntPtr h);
