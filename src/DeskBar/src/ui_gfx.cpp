@@ -36,7 +36,10 @@ float EaseF(Ease e, float t) {
 }
 
 Brush SolidB(uint32_t rgb, int a) {
-    if (DuoTone(rgb)) return LinearB(0, 0, 1, 1, {{0, D2D1::ColorF(0xFFCCF9, a / 255.f)}, {1, D2D1::ColorF(0xF61693, a / 255.f)}});
+    if (DuoTone(rgb)) {   // light to deep, top-left to bottom-right
+        bool pink = CurrentTheme().soft;
+        return LinearB(0, 0, 1, 1, {{0, pink ? D2D1::ColorF(0xFFCCF9, a / 255.f) : Col(0xCCEEFF, a)}, {1, pink ? D2D1::ColorF(0xF61693, a / 255.f) : Col(0x1690F6, a)}});
+    }
     Brush b; b.k = Brush::Solid; b.c = Col(rgb, a); return b;
 }
 Brush SolidC(D2D1_COLOR_F c) { Brush b; b.k = Brush::Solid; b.c = c; return b; }

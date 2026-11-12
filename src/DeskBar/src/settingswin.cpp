@@ -9,7 +9,7 @@
 // Everything applies the moment it changes; there is no OK button.
 namespace {
 using dm::Raw; using dm::Fill;
-const uint32_t kBlue = 0x4CC2FF, kSoft = 0x7FD3FF;
+const uint32_t kSoft = 0x7FD3FF;
 
 struct SettingsWnd : Wnd { SettingsWnd() { noActivate = false; } };
 std::unique_ptr<SettingsWnd> g_sw;
@@ -174,7 +174,7 @@ void OpenSettingsWindow() {
     auto* rail = MkBox(main, Lay::V); rail->fw = 232; rail->pad = Thick(16, 20, 14, 18); rail->gap = 4;
     {
         auto* id = MkBox(rail, Lay::H); id->gap = 12; id->margin = Thick(6, 0, 0, 22);
-        auto* tile = MkBox(id, Lay::Overlay); tile->fw = tile->fh = 38; tile->radius = 10; tile->bg = SolidC(Raw(kBlue)); tile->va = Al::Center;
+        auto* tile = MkBox(id, Lay::Overlay); tile->fw = tile->fh = 38; tile->radius = 10; tile->bg = SolidB(K::Accent); tile->va = Al::Center;
         { auto* p = MkPic(tile, IconRes(1, 32), 22); p->ha = Al::Center; }
         auto* tx = MkBox(id, Lay::V); tx->va = Al::Center; MkLabel(tx, L"DeskBar", FText(16, 600)); Dim(tx, L"Settings", 12);
     }

@@ -363,8 +363,7 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     return D2D1_COLOR_F{r, g, b, a / 255.f};
 }
 D2D1_COLOR_F Col(uint32_t rgb, int a) { return ColFor(*g_theme, rgb, a); }
-bool DuoTone(uint32_t rgb) {   // the Pink theme paints its accents in two tones (#FFCCF9 to #F61693) instead of one colour
-    if (!g_theme->soft) return false;
+bool DuoTone(uint32_t rgb) {   // every theme fills its light accents in two tones (SolidB): Pink #FFCCF9 to #F61693, the others a light and a deep shade of their accent
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f, h, s, l; ToHsl(r, g, b, h, s, l);
     return h >= 185 && h <= 280 && s > 0.2f && l >= 0.5f;
 }

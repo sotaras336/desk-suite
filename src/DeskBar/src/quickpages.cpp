@@ -458,7 +458,7 @@ struct DisplayPage : PageBase {
         bool ext0 = std::any_of(scr.begin(), scr.end(), [](const ScreenMode& m) { return !m.internal; }); ws extName; for (auto& m : scr) if (!m.internal) extName = m.name;
         {   // DeskMode's header: the app tile (back to Quick Settings), the name, the status pills, the gear
             auto* h = MkBox(col, Lay::H); h->gap = 12; h->margin = Thick(0, 0, 0, 14);
-            auto* tile = MkBox(h); tile->fw = tile->fh = 34; tile->radius = 8; tile->bg = SolidC(dm::Raw(0x4CC2FF)); tile->hit = true; tile->va = Al::Start; tile->tip = L"Back to Quick Settings"; tile->onClick = [p] { p->Back(); };
+            auto* tile = MkBox(h); tile->fw = tile->fh = 34; tile->radius = 8; tile->bg = SolidB(K::Accent); tile->hit = true; tile->va = Al::Start; tile->tip = L"Back to Quick Settings"; tile->onClick = [p] { p->Back(); };
             auto* tg = MkGlyph(tile, 0xE7F4, 17, dm::Raw(0x000000)); tg->ha = tg->va = Al::Center;
             auto* tx = MkBox(h, Lay::V); tx->star = 1;
             MkLabel(tx, L"DeskMode", FText(15, 600));

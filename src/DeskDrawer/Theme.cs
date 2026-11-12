@@ -45,8 +45,12 @@ public static class Theme
     /// The settings window's colours (DeskMode's look): they wear the colour themes; Blue, Black, White and Glass keep DeskMode's own blue.
     public static Color Ui(uint rgb, int a = 255) => Current.Kind == 0 ? Col(rgb, a) : Color.FromArgb((byte)a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 
-    /// The Pink theme's accent in two tones, #FFCCF9 to #F61693.
-    public static Brush Duo() { var g = new LinearGradientBrush(Color.FromRgb(0xFF, 0xCC, 0xF9), Color.FromRgb(0xF6, 0x16, 0x93), 45); g.Freeze(); return g; }
+    /// The accent in two tones, light to deep: Pink #FFCCF9 to #F61693, every other theme a light and a deep shade of its own accent.
+    public static Brush Duo()
+    {
+        var g = Current.Soft ? new LinearGradientBrush(Color.FromRgb(0xFF, 0xCC, 0xF9), Color.FromRgb(0xF6, 0x16, 0x93), 45) : new LinearGradientBrush(Col(0xCCEEFF), Col(0x1690F6), 45);
+        g.Freeze(); return g;
+    }
 
     public static Color ColFor(ThemeDef t, uint rgb, int a = 255)
     {
@@ -110,7 +114,7 @@ public static class Theme
         r["StripBg"] = Solid(0x002A6A, 0xFF);   // title bar + tab strip: a step darker, so the active tab (BarBg) reads as part of the toolbar below
         r["PaneBg"] = Solid(0x001030, 0x30);
         r["Fg"] = Solid(0xFFFFFF); r["FgDim"] = Solid(0xFFFFFF, 0xB8); r["FgFaint"] = Solid(0xFFFFFF, 0x80);
-        r["Accent"] = Current.Soft ? Duo() : Solid(0x4CC2FF); r["OnAccent"] = Solid(0x000000);
+        r["Accent"] = Duo(); r["OnAccent"] = Solid(0x000000);
         r["Card"] = Solid(0xFFFFFF, 0x16); r["CardHover"] = Solid(0xFFFFFF, 0x26); r["CardLine"] = Solid(0xFFFFFF, 0x20);
         r["Select"] = Solid(0x4CC2FF, 0x40); r["SelectLine"] = Solid(0x4CC2FF, 0x90);
         r["Thumb"] = Solid(0xFFFFFF, 0x60); r["ThumbHover"] = Solid(0xFFFFFF, 0xA0);

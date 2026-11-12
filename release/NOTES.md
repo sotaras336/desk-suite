@@ -1,14 +1,10 @@
-## Desk 2.8
+## Desk 2.9
 
-Two-tone pink, and settings windows in each app's colour.
+Two tones for every colour theme.
 
-**The Pink theme in two tones (DeskBar, DeskDrawer, DeskTune)**
+**Two-tone accents in every theme (DeskBar, DeskDrawer, DeskTune)**
 
-- The Pink theme's accents are now a two-tone blend from light pink #FFCCF9 to deep pink #F61693: Quick Settings tiles, sliders, switches, selected buttons, DeskMode's tiles and DeskDrawer's accent.
-- Pink text and small accents use one shade from the same range, lighter or deeper by how strong they are. The Pink theme's backgrounds are unchanged.
-
-**Settings windows match the app's colour**
-
-- DeskBar's, DeskDrawer's and DeskTune's settings windows now wear the colour theme picked in that app: pink with Pink, teal with Teal, and so on. With Blue, Black, White and Glass they keep DeskMode's own blue.
+- What 2.8 did for Pink, every theme does now: Quick Settings tiles, sliders, switches, selected buttons, the icon tiles in the settings windows and DeskDrawer's accent blend from a light shade of the theme's colour to a deep one. Blue goes from sky blue to deep blue, Teal from mint to deep teal, and so on; Black, White and Glass use the blue pair. Pink stays #FFCCF9 to #F61693.
+- Text and thin icons keep one colour, so they stay sharp and easy to read.
 
 **What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. With 2.2 or later installed, each app offers this update itself. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.

@@ -16,7 +16,7 @@ public partial class MainWindow
 
     static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Theme.Ui(rgb, a)); b.Freeze(); return b; }   // DeskMode's colours, worn in the app's theme
     static Brush Glow() { if (Theme.Current.Soft) return Theme.Duo(); var g = new LinearGradientBrush(Theme.Ui(0x1167C4), Theme.Ui(0x1FA7B9), 45); g.Freeze(); return g; }
-    static Brush DmBg => Rgb(0x202226); static Brush DmCard => Rgb(0xFFFFFF, 0x0C); static Brush DmLine => Rgb(0xFFFFFF, 0x14); static Brush DmHover => Rgb(0xFFFFFF, 0x08); static Brush DmText => Rgb(0xFFFFFF); static Brush DmDim => Rgb(0xFFFFFF, 0x9C); static Brush DmSoft => Rgb(0x7FD3FF); static Brush DmBlue => Theme.Current.Soft ? Theme.Duo() : Rgb(0x4CC2FF);   // properties, not fields: the theme can change while the app runs
+    static Brush DmBg => Rgb(0x202226); static Brush DmCard => Rgb(0xFFFFFF, 0x0C); static Brush DmLine => Rgb(0xFFFFFF, 0x14); static Brush DmHover => Rgb(0xFFFFFF, 0x08); static Brush DmText => Rgb(0xFFFFFF); static Brush DmDim => Rgb(0xFFFFFF, 0x9C); static Brush DmSoft => Rgb(0x7FD3FF); static Brush DmBlue => Theme.Duo();   // properties, not fields: the theme can change while the app runs
 
     TextBlock T(string s, double size, Brush fg, FontWeight? w = null, Thickness? m = null) =>
         new() { Text = s, FontSize = size, Foreground = fg, FontWeight = w ?? FontWeights.Normal, Margin = m ?? new Thickness(0), TextWrapping = TextWrapping.Wrap };

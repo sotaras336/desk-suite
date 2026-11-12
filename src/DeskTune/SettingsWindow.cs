@@ -15,7 +15,7 @@ public sealed class SettingsWindow : Window
 {
     static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Theme.Ui(rgb, a)); b.Freeze(); return b; }   // DeskMode's colours, worn in the app's theme
     static Brush Glow() { if (Theme.Current.Soft) return Theme.Duo(); var g = new LinearGradientBrush(Theme.Ui(0x1167C4), Theme.Ui(0x1FA7B9), 45); g.Freeze(); return g; }
-    static Brush Bg => Rgb(0x202226); static Brush CardBg => Rgb(0xFFFFFF, 0x0C); static Brush Line => Rgb(0xFFFFFF, 0x14); static Brush Hover => Rgb(0xFFFFFF, 0x08); static Brush Fg => Rgb(0xFFFFFF); static Brush Dim => Rgb(0xFFFFFF, 0x9C); static Brush Soft => Rgb(0x7FD3FF); static Brush Blue => Theme.Current.Soft ? Theme.Duo() : Rgb(0x4CC2FF);   // properties, not fields: the theme can change while the app runs
+    static Brush Bg => Rgb(0x202226); static Brush CardBg => Rgb(0xFFFFFF, 0x0C); static Brush Line => Rgb(0xFFFFFF, 0x14); static Brush Hover => Rgb(0xFFFFFF, 0x08); static Brush Fg => Rgb(0xFFFFFF); static Brush Dim => Rgb(0xFFFFFF, 0x9C); static Brush Soft => Rgb(0x7FD3FF); static Brush Blue => Theme.Duo();   // properties, not fields: the theme can change while the app runs
 
     readonly MainWindow _main;
     readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };

@@ -94,7 +94,7 @@ inline bool ThemeIsGlass(const ThemeDef& t) { return t.kind == 3; }
 void SetTheme(const ws& id);                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a = 255);   // for swatches that show a theme other than the current one
 D2D1_COLOR_F Col(uint32_t rgb, int a = 255);   // 0xRRGGBB, alpha 0..255; mapped through the current theme
-bool DuoTone(uint32_t rgb);                     // true: in this theme the colour is filled as the two-tone pink gradient (SolidB does it)
+bool DuoTone(uint32_t rgb);                     // true: the colour is a light accent, filled as a two-tone gradient (SolidB does it)
 namespace K {
     constexpr uint32_t Bar = 0x003D91, Accent = 0x4CC2FF, Green = 0x6CE08A, Amber = 0xFFC83D, Charge = 0x6CCB5F, Flash = 0xE8A33A;
     constexpr uint32_t White = 0xFFFFFF, Black = 0x000000;
