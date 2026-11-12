@@ -35,7 +35,10 @@ float EaseF(Ease e, float t) {
     return t;
 }
 
-Brush SolidB(uint32_t rgb, int a) { Brush b; b.k = Brush::Solid; b.c = Col(rgb, a); return b; }
+Brush SolidB(uint32_t rgb, int a) {
+    if (DuoTone(rgb)) return LinearB(0, 0, 1, 1, {{0, D2D1::ColorF(0xFFCCF9, a / 255.f)}, {1, D2D1::ColorF(0xF61693, a / 255.f)}});
+    Brush b; b.k = Brush::Solid; b.c = Col(rgb, a); return b;
+}
 Brush SolidC(D2D1_COLOR_F c) { Brush b; b.k = Brush::Solid; b.c = c; return b; }
 Brush LinearB(float x0, float y0, float x1, float y1, std::initializer_list<Stop> s) {
     Brush b; b.k = Brush::Linear; b.x0 = x0; b.y0 = y0; b.x1 = x1; b.y1 = y1; for (auto& e : s) if (b.ns < 3) b.st[b.ns++] = e; return b;

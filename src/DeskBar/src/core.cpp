@@ -350,7 +350,10 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     if (t.hue >= 0) {
         float h, s, l; ToHsl(r, g, b, h, s, l);
         if (h >= 185 && h <= 280 && s > 0.2f) {   // only the blues move: greens, ambers and greys stay
-            if (t.soft && l >= 0.5f) { h = 302 + (h - 201) * 0.25f; s = std::min(s * 0.85f, 0.85f); l = std::min(0.9f, l + 0.09f); }   // the pink text and accents: the accent 0x4CC2FF lands exactly on the user's orchid pink #F584F1
+            if (t.soft && l >= 0.5f) {   // the pink text and accents: on the line between the two pinks, the lighter blues near #FFCCF9, the deeper ones near #F61693
+                float k = std::clamp((0.73f - l) / 0.15f, 0.f, 1.f);
+                return D2D1_COLOR_F{(0xFF + (0xF6 - 0xFF) * k) / 255.f, (0xCC + (0x16 - 0xCC) * k) / 255.f, (0xF9 + (0x93 - 0xF9) * k) / 255.f, a / 255.f};
+            }   // the pink text and accents: the accent 0x4CC2FF lands exactly on the user's orchid pink #F584F1
             else { h = t.hue + (h - 225) * 0.25f; if (t.soft) { s = std::min(s * 0.5f, 0.5f); l = l < 0.5f ? 0.52f + l * 0.22f : std::min(0.9f, l + 0.14f); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
             float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, hh = h / 360;
@@ -360,3 +363,8 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     return D2D1_COLOR_F{r, g, b, a / 255.f};
 }
 D2D1_COLOR_F Col(uint32_t rgb, int a) { return ColFor(*g_theme, rgb, a); }
+bool DuoTone(uint32_t rgb) {   // the Pink theme paints its accents in two tones (#FFCCF9 to #F61693) instead of one colour
+    if (!g_theme->soft) return false;
+    float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f, h, s, l; ToHsl(r, g, b, h, s, l);
+    return h >= 185 && h <= 280 && s > 0.2f && l >= 0.5f;
+}

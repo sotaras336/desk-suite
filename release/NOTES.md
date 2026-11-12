@@ -1,14 +1,14 @@
-## Desk 2.7
+## Desk 2.8
 
-A brighter pink, and DeskMode in DeskBar's colours.
+Two-tone pink, and settings windows in each app's colour.
 
-**A new pink in the Pink theme (DeskBar, DeskDrawer, DeskTune)**
+**The Pink theme in two tones (DeskBar, DeskDrawer, DeskTune)**
 
-- The pink text and accents of the Pink theme are now a bright orchid pink (#F584F1): switches, sliders, selected tiles, links and highlighted numbers. The Pink theme's backgrounds stay as they were.
+- The Pink theme's accents are now a two-tone blend from light pink #FFCCF9 to deep pink #F61693: Quick Settings tiles, sliders, switches, selected buttons, DeskMode's tiles and DeskDrawer's accent.
+- Pink text and small accents use one shade from the same range, lighter or deeper by how strong they are. The Pink theme's backgrounds are unchanged.
 
-**DeskMode follows DeskBar's colour**
+**Settings windows match the app's colour**
 
-- DeskMode's panel and DeskBar's settings window now take on the theme DeskBar wears: pink with Pink, teal with Teal, and so on. Change it with the palette button in Quick Settings; DeskMode follows at once.
-- With Blue, and with the colourless Black, White and Glass themes, DeskMode keeps its own original blue.
+- DeskBar's, DeskDrawer's and DeskTune's settings windows now wear the colour theme picked in that app: pink with Pink, teal with Teal, and so on. With Blue, Black, White and Glass they keep DeskMode's own blue.
 
 **What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. With 2.2 or later installed, each app offers this update itself. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.

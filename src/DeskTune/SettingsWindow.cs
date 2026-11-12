@@ -13,9 +13,9 @@ namespace DeskTune;
 /// a rail of pages on the left, cards of switches on the right, always dark with DeskMode's two soft glows. Changes apply at once.
 public sealed class SettingsWindow : Window
 {
-    static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)); b.Freeze(); return b; }
-    static Brush Glow() { var g = new LinearGradientBrush(Color.FromRgb(0x11, 0x67, 0xC4), Color.FromRgb(0x1F, 0xA7, 0xB9), 45); g.Freeze(); return g; }
-    static readonly Brush Bg = Rgb(0x202226), CardBg = Rgb(0xFFFFFF, 0x0C), Line = Rgb(0xFFFFFF, 0x14), Hover = Rgb(0xFFFFFF, 0x08), Fg = Rgb(0xFFFFFF), Dim = Rgb(0xFFFFFF, 0x9C), Soft = Rgb(0x7FD3FF), Blue = Rgb(0x4CC2FF);
+    static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Theme.Ui(rgb, a)); b.Freeze(); return b; }   // DeskMode's colours, worn in the app's theme
+    static Brush Glow() { if (Theme.Current.Soft) return Theme.Duo(); var g = new LinearGradientBrush(Theme.Ui(0x1167C4), Theme.Ui(0x1FA7B9), 45); g.Freeze(); return g; }
+    static Brush Bg => Rgb(0x202226); static Brush CardBg => Rgb(0xFFFFFF, 0x0C); static Brush Line => Rgb(0xFFFFFF, 0x14); static Brush Hover => Rgb(0xFFFFFF, 0x08); static Brush Fg => Rgb(0xFFFFFF); static Brush Dim => Rgb(0xFFFFFF, 0x9C); static Brush Soft => Rgb(0x7FD3FF); static Brush Blue => Theme.Current.Soft ? Theme.Duo() : Rgb(0x4CC2FF);   // properties, not fields: the theme can change while the app runs
 
     readonly MainWindow _main;
     readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -103,7 +103,7 @@ public sealed class SettingsWindow : Window
     TextBlock G(string glyph, double size, Brush fg) => new() { Text = glyph, FontFamily = (FontFamily)FindResource("IconFont"), FontSize = size, Foreground = fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     static RadialGradientBrush SoftGlow(uint rgb, byte a, double x, double y, double rx, double ry)
     {
-        Color c(byte al) => Color.FromArgb(al, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        Color c(byte al) => Theme.Ui(rgb, al);
         var r = new RadialGradientBrush(c(a), c(0)) { Center = new Point(x, y), GradientOrigin = new Point(x, y), RadiusX = rx, RadiusY = ry }; r.Freeze(); return r;
     }
     void Head(string glyph, string title, string sub)

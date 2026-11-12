@@ -42,6 +42,12 @@ public static class Theme
 
     public static Color Col(uint rgb, int a = 255) => ColFor(Current, rgb, a);
 
+    /// The settings window's colours (DeskMode's look): they wear the colour themes; Blue, Black, White and Glass keep DeskMode's own blue.
+    public static Color Ui(uint rgb, int a = 255) => Current.Kind == 0 ? Col(rgb, a) : Color.FromArgb((byte)a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+
+    /// The Pink theme's accent in two tones, #FFCCF9 to #F61693.
+    public static Brush Duo() { var g = new LinearGradientBrush(Color.FromRgb(0xFF, 0xCC, 0xF9), Color.FromRgb(0xF6, 0x16, 0x93), 45); g.Freeze(); return g; }
+
     public static Color ColFor(ThemeDef t, uint rgb, int a = 255)
     {
         double r = ((rgb >> 16) & 255) / 255.0, g = ((rgb >> 8) & 255) / 255.0, b = (rgb & 255) / 255.0, al = a / 255.0;
@@ -58,7 +64,11 @@ public static class Theme
         }
         else if (t.Hue >= 0 && blue)
         {
-            if (t.Soft && l >= 0.5) { h = 302 + (h - 201) * 0.25; s = Math.Min(s * 0.85, 0.85); l = Math.Min(0.9, l + 0.09); }   // the pink text and accents: DeskBar's accent 0x4CC2FF lands exactly on the orchid pink #F584F1
+            if (t.Soft && l >= 0.5)
+            {   // the pink text and accents: on the line between the two pinks, the lighter blues near #FFCCF9, the deeper ones near #F61693
+                double k = Math.Clamp((0.73 - l) / 0.15, 0, 1);
+                return Color.FromArgb((byte)Math.Round(al * 255), (byte)Math.Round(0xFF + (0xF6 - 0xFF) * k), (byte)Math.Round(0xCC + (0x16 - 0xCC) * k), (byte)Math.Round(0xF9 + (0x93 - 0xF9) * k));
+            }
             else { h = t.Hue + (h - 225) * 0.25; if (t.Soft) { s = Math.Min(s * 0.5, 0.5); l = l < 0.5 ? 0.52 + l * 0.22 : Math.Min(0.9, l + 0.14); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
             FromHsl(h, s, l, out r, out g, out b);
@@ -100,7 +110,7 @@ public static class Theme
         r["StripBg"] = Solid(0x002A6A, 0xFF);   // title bar + tab strip: a step darker, so the active tab (BarBg) reads as part of the toolbar below
         r["PaneBg"] = Solid(0x001030, 0x30);
         r["Fg"] = Solid(0xFFFFFF); r["FgDim"] = Solid(0xFFFFFF, 0xB8); r["FgFaint"] = Solid(0xFFFFFF, 0x80);
-        r["Accent"] = Solid(0x4CC2FF); r["OnAccent"] = Solid(0x000000);
+        r["Accent"] = Current.Soft ? Duo() : Solid(0x4CC2FF); r["OnAccent"] = Solid(0x000000);
         r["Card"] = Solid(0xFFFFFF, 0x16); r["CardHover"] = Solid(0xFFFFFF, 0x26); r["CardLine"] = Solid(0xFFFFFF, 0x20);
         r["Select"] = Solid(0x4CC2FF, 0x40); r["SelectLine"] = Solid(0x4CC2FF, 0x90);
         r["Thumb"] = Solid(0xFFFFFF, 0x60); r["ThumbHover"] = Solid(0xFFFFFF, 0xA0);

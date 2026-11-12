@@ -174,7 +174,7 @@ void Slider::PaintContent(Gfx& g) {
     float a = rc.l + 10, b = rc.r - 10, cy = rc.cy(), x = a + (b - a) * std::clamp(value, 0.f, 100.f) / 100;
     float op = enabled ? 1 : 0.5f; float oa = g.alpha; g.alpha *= op;
     g.FillC({a, cy - 2, b, cy + 2}, Col(K::White, 0x5C), 2);
-    if (x > a) g.FillC({a, cy - 2, x, cy + 2}, Col(K::Accent), 2);
+    if (x > a) g.Fill({a, cy - 2, x, cy + 2}, SolidB(K::Accent), 2);
     g.Circle(x, cy, 10, Col(K::White, 0xE6));
     g.Circle(x, cy, pressed ? 5.f : hovered ? 7.f : 6.f, Col(K::Accent));
     g.alpha = oa;
@@ -190,7 +190,7 @@ void Toggle::PaintContent(Gfx& g) {
     Rf r = rc; float op = enabled ? 1 : 0.5f; float oa = g.alpha; g.alpha *= op;
     D2D1_COLOR_F acc = Col(K::Accent), off = Col(K::White, 0xB0);
     auto mix = [&](float t) { return D2D1_COLOR_F{off.r + (acc.r - off.r) * t, off.g + (acc.g - off.g) * t, off.b + (acc.b - off.b) * t, 1.f}; };
-    if (knob > 0.01f) g.FillC(r, mix(knob), 11);
+    if (knob > 0.99f) g.Fill(r, SolidB(K::Accent), 11); else if (knob > 0.01f) g.FillC(r, mix(knob), 11);   // fully on: the accent brush (two tones in Pink)
     g.Stroke(r, mix(knob), 11, 1);
     float kx = r.l + 11 + (r.w() - 22) * knob; D2D1_COLOR_F kc = knob > 0.5f ? Col(K::Black) : Col(K::White);
     g.Circle(kx, r.cy(), pressed ? 7.f : 6.f, kc);

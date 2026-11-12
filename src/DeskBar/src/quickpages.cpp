@@ -433,7 +433,7 @@ View* MakeThemePage(QuickPanel* q) { return new ThemePage(q); }
 namespace dm {
 // DeskMode's colours: written as DeskMode's blues, then passed through the bar's theme (see Raw)
 D2D1_COLOR_F Raw(uint32_t rgb, int a) { return CurrentTheme().kind == 0 ? Col(rgb, a) : D2D1::ColorF(rgb, a / 255.f); }   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
-Brush Glow() { return LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
+Brush Glow() { return CurrentTheme().soft ? SolidB(K::Accent) : LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
 View* Title(View* parent, const ws& t) { auto* l = MkLabel(parent, t, FText(13.5f), Col(K::White, 0xD8)); l->margin = Thick(4, 6, 0, 8); return l; }

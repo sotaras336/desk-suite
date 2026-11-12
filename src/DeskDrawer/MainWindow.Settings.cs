@@ -14,9 +14,9 @@ public partial class MainWindow
 {
     internal Window? _settingsWin;
 
-    static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)); b.Freeze(); return b; }
-    static Brush Glow() { var g = new LinearGradientBrush(Color.FromRgb(0x11, 0x67, 0xC4), Color.FromRgb(0x1F, 0xA7, 0xB9), 45); g.Freeze(); return g; }
-    static readonly Brush DmBg = Rgb(0x202226), DmCard = Rgb(0xFFFFFF, 0x0C), DmLine = Rgb(0xFFFFFF, 0x14), DmHover = Rgb(0xFFFFFF, 0x08), DmText = Rgb(0xFFFFFF), DmDim = Rgb(0xFFFFFF, 0x9C), DmSoft = Rgb(0x7FD3FF), DmBlue = Rgb(0x4CC2FF);
+    static SolidColorBrush Rgb(uint rgb, byte a = 255) { var b = new SolidColorBrush(Theme.Ui(rgb, a)); b.Freeze(); return b; }   // DeskMode's colours, worn in the app's theme
+    static Brush Glow() { if (Theme.Current.Soft) return Theme.Duo(); var g = new LinearGradientBrush(Theme.Ui(0x1167C4), Theme.Ui(0x1FA7B9), 45); g.Freeze(); return g; }
+    static Brush DmBg => Rgb(0x202226); static Brush DmCard => Rgb(0xFFFFFF, 0x0C); static Brush DmLine => Rgb(0xFFFFFF, 0x14); static Brush DmHover => Rgb(0xFFFFFF, 0x08); static Brush DmText => Rgb(0xFFFFFF); static Brush DmDim => Rgb(0xFFFFFF, 0x9C); static Brush DmSoft => Rgb(0x7FD3FF); static Brush DmBlue => Theme.Current.Soft ? Theme.Duo() : Rgb(0x4CC2FF);   // properties, not fields: the theme can change while the app runs
 
     TextBlock T(string s, double size, Brush fg, FontWeight? w = null, Thickness? m = null) =>
         new() { Text = s, FontSize = size, Foreground = fg, FontWeight = w ?? FontWeights.Normal, Margin = m ?? new Thickness(0), TextWrapping = TextWrapping.Wrap };
@@ -163,7 +163,7 @@ public partial class MainWindow
         var line = new Border { Width = 1, Background = Rgb(0xFFFFFF, 0x0E) }; DockPanel.SetDock(line, Dock.Left); main.Children.Add(line);
         main.Children.Add(scroll);
         var root = new Grid { Background = DmBg };
-        RadialGradientBrush Soft(uint rgb, byte a, double x, double y, double rx, double ry) { var r = new RadialGradientBrush(Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb), Color.FromArgb(0, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)) { Center = new Point(x, y), GradientOrigin = new Point(x, y), RadiusX = rx, RadiusY = ry }; r.Freeze(); return r; }
+        RadialGradientBrush Soft(uint rgb, byte a, double x, double y, double rx, double ry) { var r = new RadialGradientBrush(Theme.Ui(rgb, a), Theme.Ui(rgb, 0)) { Center = new Point(x, y), GradientOrigin = new Point(x, y), RadiusX = rx, RadiusY = ry }; r.Freeze(); return r; }
         root.Children.Add(new Border { Background = Soft(0x1167C4, 0x60, 0, 0, 0.55, 0.45), IsHitTestVisible = false });   // DeskMode's two soft glows
         root.Children.Add(new Border { Background = Soft(0x1FA7B9, 0x40, 1, 1, 0.6, 0.5), IsHitTestVisible = false });
         root.Children.Add(main);
