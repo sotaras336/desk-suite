@@ -143,6 +143,7 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers><DataTrigger Binding="{Binding IsCut}" Value="True"><Setter Property="Opacity" Value="0.45"/></DataTrigger></Style.Triggers>
         </Style>
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
@@ -187,6 +188,7 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers><DataTrigger Binding="{Binding IsCut}" Value="True"><Setter Property="Opacity" Value="0.45"/></DataTrigger></Style.Triggers>
         </Style>
 
         <!-- Window buttons (minimise / maximise / close) in the tab strip. Tag="hover" = the pointer is on maximise as Windows sees it (snap layouts) -->

@@ -27,6 +27,8 @@ public sealed class FileEntry : INotifyPropertyChanged
 
     private ImageSource? _icon; private string _type; private bool _renaming; private string _editName = "";
     /// Inline rename: the name cell swaps its label for a text box while this is true.
+    private bool _cut;
+    public bool IsCut { get => _cut; set { if (_cut != value) { _cut = value; Raise(nameof(IsCut)); } } }   // cut to the clipboard, not pasted yet: drawn dimmed
     public bool IsRenaming { get => _renaming; set { _renaming = value; Raise(nameof(IsRenaming)); } }
     public string EditName { get => _editName; set { _editName = value; Raise(nameof(EditName)); } }
     public ImageSource? Icon { get => _icon; set { _icon = value; Raise(nameof(Icon)); Raise(nameof(Big)); } }

@@ -138,9 +138,9 @@ public partial class MainWindow
             var st = T(Updater.Status.Length > 0 ? Updater.Status : "Not checked yet.", 13, DmDim); st.VerticalAlignment = VerticalAlignment.Center;
             var btns = new StackPanel { Orientation = Orientation.Horizontal };
             btns.Children.Add(Btn("Check now", "", false, () => { _userCheck = true; _ = Updater.CheckAsync(); }));
-            if (Updater.Newer) btns.Children.Add(Btn("Update", "", true, UpdateNow));
+            var upd = Btn("Update now", "", true, UpdateNow); upd.Visibility = Updater.Newer ? Visibility.Visible : Visibility.Collapsed; btns.Children.Add(upd);
             var row = new DockPanel { Margin = new Thickness(12, 10, 4, 10) }; DockPanel.SetDock(btns, Dock.Right); row.Children.Add(btns); row.Children.Add(st); d.Children.Add(row);
-            Action changed = () => Dispatcher.BeginInvoke(() => st.Text = Updater.Status.Length > 0 ? Updater.Status : "Not checked yet.");
+            Action changed = () => Dispatcher.BeginInvoke(() => { st.Text = Updater.Status.Length > 0 ? Updater.Status : "Not checked yet."; upd.Visibility = Updater.Newer ? Visibility.Visible : Visibility.Collapsed; });
             Updater.Changed += changed; st.Unloaded += (_, _) => Updater.Changed -= changed;
         }
         var pages = new (string Glyph, string Name, Action Build)[] { ("", "Folders and files", PageFiles), ("", "Speed", PageSpeed), ("", "Updates", PageUpdates) };
@@ -173,6 +173,11 @@ public partial class MainWindow
                 DockPanel.SetDock(item, Dock.Top); rail.Children.Add(item); nav.Add((item, bar));
             }
             var foot = T("Changes apply right away.", 12, DmDim, m: new Thickness(8, 0, 0, 0)); DockPanel.SetDock(foot, Dock.Bottom); rail.Children.Add(foot);
+            // an update that is out shows on every page, not only on Updates (nobody looks at the window's status bar from in here)
+            var railUpd = Btn("Update now", "", true, UpdateNow); railUpd.HorizontalAlignment = HorizontalAlignment.Stretch; railUpd.Margin = new Thickness(0, 0, 0, 12);
+            DockPanel.SetDock(railUpd, Dock.Bottom); rail.Children.Add(railUpd);
+            void ShowRailUpd() => railUpd.Visibility = Updater.Newer && !Updater.Busy ? Visibility.Visible : Visibility.Collapsed;
+            ShowRailUpd(); Action railChanged = () => Dispatcher.BeginInvoke(ShowRailUpd); Updater.Changed += railChanged; win.Closed += (_, _) => Updater.Changed -= railChanged;
         }
         var main = new DockPanel(); DockPanel.SetDock(rail, Dock.Left); main.Children.Add(rail);
         var line = new Border { Width = 1, Background = Rgb(0xFFFFFF, 0x0E) }; DockPanel.SetDock(line, Dock.Left); main.Children.Add(line);

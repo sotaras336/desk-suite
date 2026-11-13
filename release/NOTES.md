@@ -1,16 +1,16 @@
-## Desk 2.9.3
+## Desk 2.9.4
 
-An important DeskBar fix: it no longer resizes maximised windows every few seconds. Smoother drags out of DeskDrawer.
-
-**DeskBar**
-
-- DeskBar checks every few seconds that no maximised window has slid under the bar (that can happen after the screen rotates). It counted the invisible resize border that every maximised window hangs past the screen edge as "under the bar", resized the window, and Windows put it straight back. So maximised windows that draw their own title bar (DeskDrawer, Chrome, depending on the display scale) were resized every 3 seconds, all day. That made Chrome draw only part of its page, made drag and drop glitchy and brought Windows' own taskbar up. Now only a window that really covers the bar is moved, and never the same window twice within a minute.
-- The same care for windows that aren't maximised: a few pixels of border over the bar no longer counts, and windows Windows snapped are left alone.
+DeskDrawer fixes, and update notices you can trust.
 
 **DeskDrawer**
 
-- Dragging files to other apps works the way File Explorer does: Windows' own file data, so apps get every format they look for, and the mouse is fully let go after the drop.
+- A shortcut to a folder (like the ones on the Desktop) opens inside DeskDrawer, from the list, from Home and in the Open/Save window. It used to open in File Explorer.
+- Cut items are drawn dimmed until they are pasted, like in File Explorer (also when the clipboard changes in another app).
+- Many open tabs share the tab bar like a browser's: they get narrower instead of running under the new-tab and window buttons.
 
-DeskTune is the same as in 2.9.
+**All three apps**
+
+- No more "a new version is available" right after updating. An app remembered what its last check found, and if that check came just before a release (or failed), it announced an update it already had. Now a mismatch only makes it look again, and a failed look is retried after 10 minutes instead of 6 hours.
+- An **Update now** button shows at the bottom of the settings window's page list whenever an update is out, so you see it on every page, and the button on the Updates page appears as soon as a check finds one.
 
 **What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. With 2.2 or later installed, each app offers this update itself. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.

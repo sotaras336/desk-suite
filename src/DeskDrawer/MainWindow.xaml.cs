@@ -38,7 +38,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         Wheel.Speed = _settings.ScrollSpeed; Wheel.Attach(HomePane); Tree.Loaded += (_, _) => { if (FindScroll(Tree) is { } ts) Wheel.Attach(ts); };   // scroll by the wheel's own movement (a touchpad flew)
         HomePane.PreviewMouseLeftButtonUp += (_, _) => _cardClickAt = Environment.TickCount64;   // a click on a card of Home / This PC / Quick access / Recent: see SwallowCardContinuation
-        BuildCommandBar(); Activated += (_, _) => UpdateCommands();   // the clipboard may have changed while we were in the background
+        BuildCommandBar(); Activated += (_, _) => { UpdateCommands(); SyncCut(); };   // the clipboard may have changed while we were in the background
         _grid = (GridView)List.View; _rowsPanel = List.ItemsPanel;
         _iconSize = _settings.IconSize; _zoom = 1; _groupBy = _settings.GroupBy;   // zoom now steps through the views instead of scaling
         SetViewMode(App.ForcedView ?? _settings.ViewMode); ApplyZoom(); 
@@ -769,6 +769,7 @@ public partial class MainWindow : Window
         {
             if (cts.IsCancellationRequested) return;
             tab.Loading = false; tab.Error = error; tab.Entries = list; tab.IconsRequested = false;
+            if (_cutPaths.Count > 0) foreach (var en in list) en.IsCut = _cutPaths.Contains(en.FullPath);
             var v = new ListCollectionView(list); tab.View = v; ApplyGrouping(tab); ApplyFilter(tab);
             if (tab == _tab) BindTab();
             if (!IsVirtual(path))   // Home holds whole drives and OneDrive, search results come from everywhere: too much to add up
@@ -948,23 +949,42 @@ public partial class MainWindow : Window
     {
         var sel = Sel(); if (sel.Count == 0) return;
         if (sel[0].IsDir) { Navigate(sel[0].FullPath); return; }
+        if (sel.Count == 1 && FolderBehind(sel[0].FullPath) is { } linked) { Navigate(linked); return; }   // a shortcut to a folder opens here, in the picker too
         if (_pick != null) { PickDone(sel.Where(x => !x.IsDir).Select(x => x.FullPath).ToList()); return; }   // picker mode: the files are the answer
         foreach (var f in sel.Where(x => !x.IsDir)) OpenFile(f.FullPath);
     }
 
+    /// The folder a shortcut (.lnk) points to, or null. Handed to Windows, a folder shortcut opened in File Explorer.
+    internal static string? FolderBehind(string path)
+    {
+        if (Directory.Exists(path)) return path;
+        if (!path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)) return null;
+        try { dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!; string t = sh.CreateShortcut(path).TargetPath; return !string.IsNullOrEmpty(t) && Directory.Exists(t) ? t : null; }
+        catch { return null; }
+    }
+
     private void OpenFile(string path)
     {
+        if (FolderBehind(path) is { } dir) { Navigate(dir); return; }
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
     // ---------- file operations ----------
 
+    /// What is cut on the clipboard right now (from here, another DeskDrawer window or File Explorer) is drawn dimmed, like File Explorer does.
+    private HashSet<string> _cutPaths = new(StringComparer.OrdinalIgnoreCase);
+    private void SyncCut()
+    {
+        var c = ShellOps.ReadClipboard(); _cutPaths = new(c is { Cut: true } ? c.Value.Paths : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var t in _tabs) foreach (var en in t.Entries ?? new()) en.IsCut = _cutPaths.Contains(en.FullPath);
+    }
+
     private void CopySelection(bool cut)
     {
         var p = Sel().Select(x => x.FullPath).ToList(); if (p.Count == 0) return;
         try { ShellOps.SetClipboard(p, cut); } catch (Exception) { Flash("Another program is using the clipboard. Try again"); return; }   // WPF already retried for a second
-        UpdateCommands(); Flash(p.Count == 1 ? (cut ? "1 item cut" : "1 item copied") : $"{p.Count} items {(cut ? "cut" : "copied")}");
+        UpdateCommands(); SyncCut(); Flash(p.Count == 1 ? (cut ? "1 item cut" : "1 item copied") : $"{p.Count} items {(cut ? "cut" : "copied")}");
     }
 
     /// The full path of what is selected (or of the open folder) onto the clipboard, quoted like File Explorer's "Copy as path".
@@ -982,7 +1002,7 @@ public partial class MainWindow : Window
         var (paths, cut) = clip; bool sameFolder = paths.All(p => string.Equals(Path.GetDirectoryName(p), destDir, StringComparison.OrdinalIgnoreCase));
         if (cut && sameFolder) return;
         Transfer(paths, destDir, cut, sameFolder);
-        if (cut) try { Clipboard.Clear(); } catch { }
+        if (cut) { try { Clipboard.Clear(); } catch { } SyncCut(); }
     }
 
     private void DeleteSelection(bool permanent)

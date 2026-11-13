@@ -14,6 +14,7 @@ const uint32_t kSoft = 0x7FD3FF;
 struct SettingsWnd : Wnd { SettingsWnd() { noActivate = false; } };
 std::unique_ptr<SettingsWnd> g_sw;
 Scroll* g_scroll = nullptr; std::vector<View*> g_nav; int g_cur = 0;
+View *g_railUpd = nullptr, *g_pageUpd = nullptr; Label* g_updStatus = nullptr;   // the Update now buttons (rail: every page) and the Updates page's status line
 
 ImgP IconRes(int id, int px) {   // the exe's own icons: 1 DeskBar, 2 DeskMode
     static std::map<int, ImgP> c; auto& m = c[id * 1000 + px];
@@ -135,8 +136,8 @@ void PageStartup(View* col) {
     auto* st = MkBox(c, Lay::H); st->pad = Thick(12, 10); st->gap = 10;
     auto* us = Dim(st, UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus(), 13); us->star = 1; us->va = Al::Center;
     Btn(st, L"Check now", 0xE72C, false, [] { UpdateCheck(); })->va = Al::Center;
-    if (UpdateNewer()) Btn(st, L"Update", 0xE896, true, [] { UpdateNow(); })->va = Al::Center;
-    UpdateListen([us] { if (g_sw && g_sw->hwnd && g_cur == 3) us->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus()); });
+    g_pageUpd = Btn(st, L"Update now", 0xE896, true, [] { UpdateNow(); }); g_pageUpd->va = Al::Center; g_pageUpd->visible = UpdateNewer();
+    g_updStatus = us;
     c = Card(col, L"DeskBar itself");
     auto* b = MkBox(c, Lay::H); b->pad = Thick(10); b->gap = 8;
     Btn(b, L"Restart DeskBar", 0xE777, false, [] { AppQuit(true); });
@@ -149,7 +150,7 @@ const struct { wchar_t glyph; int icon; const wchar_t* name; void (*build)(View*
 
 void Show(int page) {
     if (!g_sw || !g_sw->hwnd) return;
-    g_cur = page;
+    g_cur = page; g_pageUpd = nullptr; g_updStatus = nullptr;   // the old page's views go away below
     for (int i = 0; i < (int)g_nav.size(); i++) { bool on = i == page; g_nav[i]->bg = on ? Fill(0x14) : Brush{}; g_nav[i]->kids[0]->visible = on; g_nav[i]->kids[0]->bg = on ? dm::Glow() : Brush{}; }
     if (g_scroll->content) g_scroll->Remove(g_scroll->content);
     auto* col = MkBox(nullptr, Lay::V); col->margin = Thick(32, 28, 32, 28); kPages[page].build(col);
@@ -187,6 +188,14 @@ void OpenSettingsWindow() {
         n->onClick = [i] { Show(i); }; g_nav.push_back(n);
     }
     { auto* sp = MkBox(rail); sp->star = 1; }
+    // an update that is out shows on every page, not only on Start-up and updates
+    g_railUpd = Btn(rail, L"Update now", 0xE896, true, [] { UpdateNow(); }); g_railUpd->margin = Thick(0, 0, 0, 12); g_railUpd->visible = UpdateNewer() && !UpdateBusy();
+    UpdateListen([] {
+        if (!g_sw || !g_sw->hwnd) return;
+        if (g_railUpd) g_railUpd->Show(UpdateNewer() && !UpdateBusy());
+        if (g_pageUpd) g_pageUpd->Show(UpdateNewer());
+        if (g_updStatus) g_updStatus->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus());
+    });
     auto* foot = Dim(rail, L"Changes apply right away.", 12); foot->margin = Thick(8, 0, 0, 0);
     { auto* d = MkBox(main); d->fw = 1; d->bg = Fill(0x0E); }
     g_scroll = main->Add(new Scroll()); g_scroll->star = 1;

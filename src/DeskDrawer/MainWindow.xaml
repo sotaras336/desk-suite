@@ -81,17 +81,18 @@
         <!-- Tab strip -->
         <Border Background="{DynamicResource StripBg}" Padding="8,6,0,0">
             <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,-6,0,0" WindowChrome.IsHitTestVisibleInChrome="True">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,-6,0,0" WindowChrome.IsHitTestVisibleInChrome="True">
                     <Button Style="{StaticResource Caption}" Content="&#xE921;" ToolTip="Minimise" Click="Min_Click"/>
                     <Button x:Name="MaxBtn" Style="{StaticResource Caption}" Content="&#xE922;" ToolTip="Maximise" Click="Max_Click"/>
                     <Button Style="{StaticResource CaptionClose}" Content="&#xE8BB;" ToolTip="Close" Click="Close_Click"/>
                 </StackPanel>
-                <ItemsControl x:Name="TabStrip" Focusable="False" VerticalAlignment="Bottom" WindowChrome.IsHitTestVisibleInChrome="True">
-                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <DockPanel LastChildFill="False">
+                <ItemsControl x:Name="TabStrip" DockPanel.Dock="Left" Focusable="False" VerticalAlignment="Bottom" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:TabRow/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border x:Name="T" Height="36" MinWidth="210" MaxWidth="280" Margin="0,0,2,0" CornerRadius="8,8,0,0" Background="Transparent"
+                            <Border x:Name="T" Height="36" MinWidth="44" Margin="0,0,2,0" CornerRadius="8,8,0,0" Background="Transparent"
                                     MouseLeftButtonDown="Tab_Down" MouseDown="Tab_MiddleDown" MouseRightButtonUp="Tab_RightUp" MouseMove="Tab_Move" ToolTip="{Binding Current}"
                                     AllowDrop="True" DragEnter="Tab_DragEnter" DragOver="Tab_DragOver" Drop="Tab_Drop">
                                 <Grid Margin="12,0,4,0">
@@ -114,7 +115,8 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <Button Grid.Column="1" Style="{StaticResource Tool}" Width="30" Height="30" Content="&#xE710;" HorizontalAlignment="Left" Margin="4,0,0,3" ToolTip="New tab (Ctrl+T)" Click="NewTab_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
+                <Button DockPanel.Dock="Left" VerticalAlignment="Bottom" Style="{StaticResource Tool}" Width="30" Height="30" Content="&#xE710;" HorizontalAlignment="Left" Margin="4,0,0,3" ToolTip="New tab (Ctrl+T)" Click="NewTab_Click" WindowChrome.IsHitTestVisibleInChrome="True"/>
+                </DockPanel>
             </Grid>
         </Border>
 

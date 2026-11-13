@@ -50,6 +50,11 @@ public sealed class SettingsWindow : Window
             DockPanel.SetDock(item, Dock.Top); rail.Children.Add(item); _nav.Add((item, bar));
         }
         var foot = T("Changes apply right away.", 12, Dim, m: new Thickness(8, 0, 0, 0)); DockPanel.SetDock(foot, Dock.Bottom); rail.Children.Add(foot);
+        // an update that is out shows on every page, not only on Updates
+        var railUpd = Btn("Update now", "", true, async () => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); });
+        railUpd.HorizontalAlignment = HorizontalAlignment.Stretch; railUpd.Margin = new Thickness(0, 0, 0, 12); DockPanel.SetDock(railUpd, Dock.Bottom); rail.Children.Add(railUpd);
+        void ShowRailUpd() => railUpd.Visibility = Updater.Newer && !Updater.Busy ? Visibility.Visible : Visibility.Collapsed;
+        ShowRailUpd(); Action railChanged = () => Dispatcher.BeginInvoke(ShowRailUpd); Updater.Changed += railChanged; Closed += (_, _) => Updater.Changed -= railChanged;
 
         var mainPanel = new DockPanel(); DockPanel.SetDock(rail, Dock.Left); mainPanel.Children.Add(rail);
         var line = new Border { Width = 1, Background = Rgb(0xFFFFFF, 0x0E) }; DockPanel.SetDock(line, Dock.Left); mainPanel.Children.Add(line);
@@ -90,7 +95,7 @@ public sealed class SettingsWindow : Window
         var st = T(Updater.Status.Length > 0 ? Updater.Status : "Not checked yet.", 13, Dim); st.VerticalAlignment = VerticalAlignment.Center;
         var btns = new StackPanel { Orientation = Orientation.Horizontal };
         btns.Children.Add(Btn("Check now", "", false, () => _ = Updater.CheckAsync()));
-        var upd = Btn("Update", "", true, async () => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); });
+        var upd = Btn("Update now", "", true, async () => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); });
         upd.Visibility = Updater.Newer ? Visibility.Visible : Visibility.Collapsed; btns.Children.Add(upd);
         var row = new DockPanel { Margin = new Thickness(12, 10, 4, 10) }; DockPanel.SetDock(btns, Dock.Right); row.Children.Add(btns); row.Children.Add(st); d.Children.Add(row);
         Action changed = () => Dispatcher.BeginInvoke(() => { st.Text = Updater.Status.Length > 0 ? Updater.Status : "Not checked yet."; upd.Visibility = Updater.Newer ? Visibility.Visible : Visibility.Collapsed; });

@@ -12,6 +12,13 @@ public static partial class SelfTest
         void Check(string name, bool ok, string extra = "") { sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (extra.Length > 0 ? "  " + extra : "")); if (!ok) fail++; }
         {   // the update check: reading the checksum list, and (only when a test points DESK_UPDATE_BASE at a local release folder) the whole check and a verified download that is not run
             string sums = new string('a', 64) + " *" + Updater.Asset + "\r\n" + new string('b', 64) + " *Other-Setup.exe\n";
+            {   // a shortcut to a folder opens inside DeskDrawer (handed to Windows, it opened in File Explorer)
+                string dir = Path.Combine(Path.GetTempPath(), "dd-lnk-" + Guid.NewGuid().ToString("N")[..6]), target = Path.Combine(dir, "target"), lnk = Path.Combine(dir, "to target.lnk");
+                Directory.CreateDirectory(target);
+                try { dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!; dynamic l = sh.CreateShortcut(lnk); l.TargetPath = target; l.Save(); } catch { }
+                Check("a shortcut to a folder is followed, not handed to File Explorer", string.Equals(MainWindow.FolderBehind(lnk), target, StringComparison.OrdinalIgnoreCase) && MainWindow.FolderBehind(Path.Combine(dir, "nope.txt")) == null);
+                try { Directory.Delete(dir, true); } catch { }
+            }
             {   // OneDrive must show in the sidebar even where its environment variables are missing (other PCs, or a DeskDrawer started before OneDrive)
                 bool signedIn; using (var acc = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\OneDrive\Accounts")) signedIn = acc?.GetSubKeyNames().Any(n => acc.OpenSubKey(n)?.GetValue("UserFolder") is string f && Directory.Exists(f)) == true;
                 var roots = MainWindow.CloudRoots(envToo: false);

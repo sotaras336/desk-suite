@@ -17,7 +17,7 @@ ws Base() {   // tests point DESK_UPDATE_BASE at a local server; anything but lo
 }
 bool Testing() { return Base() != kLatest; }
 
-std::mutex g_mu; bool g_newer = false; ws g_status, g_known; std::atomic<bool> g_busy{false}; std::function<void()> g_listener;
+std::mutex g_mu; bool g_newer = false; ws g_status, g_known; std::atomic<bool> g_busy{false}, g_recheck{false}; std::function<void()> g_listener;   // g_recheck: look again soon (the remembered build differs from this one, or the last look failed)
 void SetStatus(const ws& s, int newer = -1) { std::lock_guard<std::mutex> l(g_mu); g_status = s; if (newer >= 0) g_newer = newer != 0; }
 void Changed() { UiPost([] { if (g_listener) g_listener(); }); }
 
@@ -69,8 +69,8 @@ void StartSetup(const ws& path) {   // detached and outside any job: the setup s
 void Persist(const ws& known) { UiPost([known] { S.updateKnown = known; S.updateLast = (double)(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()); SaveSettingsSoon(); }); }
 void Tick() {
     double now = (double)std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    if (S.updateCheck && (Testing() || UpdateNewer() || now - S.updateLast >= 20 * 3600)) UpdateCheck();   // UpdateNewer() here is only what the last session remembered: look again now
-    if (!Testing()) UiOnce(6u * 3600 * 1000, Tick);
+    if (S.updateCheck && (Testing() || g_recheck || now - S.updateLast >= 20 * 3600)) UpdateCheck();
+    if (!Testing()) UiOnce(10u * 60 * 1000, Tick);   // every 10 minutes: a failed look is retried soon, a good one waits its 20 hours
 }
 }
 
@@ -103,7 +103,7 @@ void UpdateCheck() {
     std::thread([] {
         ws status; bool newer = DoCheck(status); bool ok = !ContainsI(status, L"Couldn't");
         if (ok) { ws k; { std::lock_guard<std::mutex> l(g_mu); k = g_known; } Persist(k); }
-        SetStatus(status, ok ? newer : -1); g_busy = false; Changed();
+        SetStatus(status, ok ? newer : -1); g_recheck = !ok; g_busy = false; Changed();
     }).detach();
 }
 void UpdateNow() {
@@ -118,7 +118,9 @@ void UpdateNow() {
 }
 void UpdateStart() {   // UI thread, from the deferred startup block: remember what the last check found, then check quietly about once a day
     ws known = S.updateKnown;
-    if (!known.empty()) { { std::lock_guard<std::mutex> l(g_mu); g_known = known; } std::thread([known] { ws me = SelfHash(); if (!me.empty() && me != known) { SetStatus(L"A new version is available.", 1); Changed(); } }).detach(); }
+    // The last check saw a different build than this one: a newer release, or this IS the newer build (installed since that check). Only a fresh look can tell,
+    // so look again soon instead of saying "a new version is available" (it said so wrongly right after every update).
+    if (!known.empty()) { { std::lock_guard<std::mutex> l(g_mu); g_known = known; } std::thread([known] { ws me = SelfHash(); if (!me.empty() && me != known) g_recheck = true; }).detach(); }
     UiOnce(Testing() ? 500 : 30000, Tick);
 }
 // --updatetest <report>: check (and download + verify, never run) against DESK_UPDATE_BASE, and write what happened

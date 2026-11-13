@@ -54,9 +54,9 @@ public static class Updater
     }
 
     /// Reads the release list and sets Newer. Never throws; offline just says so.
-    public static async Task CheckAsync()
+    public static async Task<bool> CheckAsync()   // true: the release list was read
     {
-        if (Busy) return;
+        if (Busy) return false;
         Busy = true; Status = "Checking…"; Changed?.Invoke();
         try
         {
@@ -64,24 +64,27 @@ public static class Updater
             var s = Load(); s.Last = DateTime.UtcNow; s.Known = want; Save(s);
             Newer = want != null && want != SelfHash();
             Status = want == null ? "Couldn't read the release list." : Newer ? "A new version is available." : "You have the latest version.";
+            return want != null;
         }
-        catch { Status = "Couldn't reach GitHub. Try again later."; }
+        catch { Status = "Couldn't reach GitHub. Try again later."; return false; }
         finally { Busy = false; Changed?.Invoke(); }
     }
 
     /// Start once the app is up: remembers what the last check found, then checks quietly about once a day (every 6 hours it looks at the clock; resident apps stay up for days).
     public static void Start()
     {
-        var known = Load().Known; if (known != null && known != SelfHash()) { Newer = true; Status = "A new version is available."; }
+        // The last check saw a different build than this one: a newer release, or this IS the newer build (installed since that check). Only a fresh look can tell,
+        // so look again soon instead of saying "a new version is available" (it said so wrongly right after every update).
+        bool recheck = Load().Known is { } known && known != SelfHash();
         _ = Task.Run(async () =>
         {
             await Task.Delay(Testing ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(20));
             while (true)
             {
                 var s = Load();
-                if (s.Check && (Testing || Newer || DateTime.UtcNow - s.Last >= TimeSpan.FromHours(20))) await CheckAsync();   // Newer here is only what the last session remembered: look again now
+                if (s.Check && (Testing || recheck || DateTime.UtcNow - s.Last >= TimeSpan.FromHours(20))) recheck = !await CheckAsync();   // a failed look is retried soon
                 if (Testing) return;
-                await Task.Delay(TimeSpan.FromHours(6));
+                await Task.Delay(TimeSpan.FromMinutes(10));
             }
         });
     }
