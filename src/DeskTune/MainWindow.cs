@@ -97,7 +97,7 @@ public sealed class MainWindow : Window
             {
                 newer.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
                 newer.Text = Updater.Busy ? Updater.Status : "A new version of DeskTune is available · Update now";
-                check.Text = "  Settings"; check.FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Variable Text, Segoe UI");
+                check.Inlines.Clear(); check.Inlines.Add(new System.Windows.Documents.Run("") { FontFamily = (FontFamily)FindResource("IconFont") }); check.Inlines.Add(new System.Windows.Documents.Run("  Settings"));   // only the gear in the icon font: it has no letters (they showed as boxes)
                 auto.Visibility = Visibility.Collapsed;
             }
             Updater.Changed += () => Dispatcher.BeginInvoke(Show); Show();
