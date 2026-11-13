@@ -63,7 +63,8 @@ struct Settings {
     std::vector<ws> taskbarPins; bool pinsImported = false;
     bool winKeyOpensStart = true, mouseBridge = true; int edgeResistance = 2;
     bool snapOnRelease = true, keepSizeRatio = true, rescueWindows = true, popupsFollowOwner = true;
-    bool dmAutoMax = true, dmRestore = true, dmGameLock = true, dmButton = true;   // DeskMode, now inside DeskBar
+    bool dmAutoMax = true, dmRestore = true, dmGameLock = true, dmButton = true;
+    bool bugReports = false;   // "Report a bug" notepad (bugreport.cpp): only turned on by DeskBar-Setup-Bugs.exe   // DeskMode, now inside DeskBar
     int dmMaxLaptopHz = 0, dmMaxMonitorHz = 0, dmMaxMode = 2, dmEasyHz = 60, dmEasyMode = 0;   // 0 Hz = the highest the screen offers; modes 0 recommended, 1 better, 2 best
     bool dmMaxSaverOff = true, dmEasySaverOn = true;
     bool showMedia = true, showBatteryPercent = true;

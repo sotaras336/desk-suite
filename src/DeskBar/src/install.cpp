@@ -91,6 +91,9 @@ int RunInstall() {
     IL(L"install start: self=%s target=%s elevated-user=%s", self, exe.c_str(), KnownFolder(FOLDERID_LocalAppData).c_str());
     KillOthersAt(dir); Sleep(500); SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
     if (!EqI(self, exe) && !CopyFileW(self, exe.c_str(), FALSE)) { IL(L"copy failed %lu", GetLastError()); Explorer::Restore(); if (!yes) MessageBoxW(nullptr, L"Couldn't copy DeskBar into place (is it still running?).", L"DeskBar", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND); return 1; }   // Restore: the old bar was just stopped, never leave the user without a taskbar
+    if (ContainsI(FileNameOf(self), L"bugs")) {   // DeskBar-Setup-Bugs.exe: the tester's copy, with "Report a bug to Claude" switched on (kept across updates: it is a setting)
+        LoadSettings(); S.bugReports = true; SaveSettingsNow(); IL(L"bug reports switched on");
+    }
     DWORD rc = RegisterSignInTask(exe);
     if (rc != 0) { Log(L"install: Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); IL(L"Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); if (!yes) MessageBoxW(nullptr, (L"Couldn't create the sign-in task (DeskBar will still start through the Run key):\n\n" + g_runOut).c_str(), L"DeskBar", MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND); }
     if (rc != 0) {   // no scheduled-task rights: fall back to the HKCU Run key (sign-in start is delayed by Windows, but it works)

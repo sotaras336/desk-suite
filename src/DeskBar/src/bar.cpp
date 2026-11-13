@@ -196,6 +196,7 @@ bool Bar::Init() {
     r->onRight = [this] {
         std::vector<MenuItem> m;
         if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});
+        if (BugReportsOn()) m.push_back({L"Report a bug to Claude", 0xEBE8, [] { OpenBugReport(); }});
         m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"DeskBar settings", 0xE713, [] { OpenSettingsWindow(); }});
         m.push_back({L"Windows taskbar settings", 0xE713, [] { Launch(L"ms-settings:taskbar"); }});
         MenuShow(std::move(m), [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale);

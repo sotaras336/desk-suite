@@ -26,6 +26,7 @@ extern HINSTANCE g_inst;
 struct Mon { HMONITOR h; RECT bounds, work; float scale; ws device; bool primary; };
 std::vector<Mon> Monitors();             // ordered left to right
 ws MonSignature();
+bool BugReportsOn(); void OpenBugReport(); int BugSendTest(const ws& text);   // bugreport.cpp
 bool IsFullscreenOn(const RECT& monBounds, ws* who = nullptr, bool barHidden = false);   // who: class, title and exe of the window that covers the screen
 HWND MainTray();                         // Windows' own Shell_TrayWnd (never ours)
 namespace Explorer { void Hide(); void KeepHidden(); void Restore(); }
