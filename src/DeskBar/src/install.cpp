@@ -55,6 +55,18 @@ void KillOthersAt(const ws& dir) {   // by install path, never by image name: th
     }
     CloseHandle(s);
 }
+// Only one DeskBar may run (DB3.Instance), so an older copy started from anywhere else (an old install folder, a stale Run key, a copy run from Downloads)
+// keeps the bar and the freshly installed one quits at once: the tester saw "an older version" after installing. Stop every DeskBar.exe but this process.
+// Dev copies are named DeskBar_*_BUILD.exe and are left alone.
+int KillStrayCopies() {
+    int n = 0; HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); if (s == INVALID_HANDLE_VALUE) return 0; PROCESSENTRY32W pe{sizeof pe};
+    for (BOOL ok = Process32FirstW(s, &pe); ok; ok = Process32NextW(s, &pe)) {
+        if (pe.th32ProcessID == GetCurrentProcessId() || !EqI(pe.szExeFile, L"DeskBar.exe")) continue;
+        IL(L"stopping running DeskBar: pid %lu %s", pe.th32ProcessID, ExePathOfPid(pe.th32ProcessID).c_str());
+        HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID); if (h) { if (TerminateProcess(h, 0)) n++; else IL(L"  could not stop it (%lu)", GetLastError()); WaitForSingleObject(h, 2000); CloseHandle(h); }
+    }
+    CloseHandle(s); return n;
+}
 }
 
 // The sign-in task: at sign-in, normal rights, above-normal priority (the default "below normal" made sign-in much slower), restart 3x/1 min, no time limit.
@@ -89,8 +101,10 @@ int RunInstall() {
     }
 #endif
     IL(L"install start: self=%s target=%s elevated-user=%s", self, exe.c_str(), KnownFolder(FOLDERID_LocalAppData).c_str());
-    KillOthersAt(dir); Sleep(500); SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
-    if (!EqI(self, exe) && !CopyFileW(self, exe.c_str(), FALSE)) { IL(L"copy failed %lu", GetLastError()); Explorer::Restore(); if (!yes) MessageBoxW(nullptr, L"Couldn't copy DeskBar into place (is it still running?).", L"DeskBar", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND); return 1; }   // Restore: the old bar was just stopped, never leave the user without a taskbar
+    KillStrayCopies(); Sleep(500); SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
+    bool copied = EqI(self, exe);
+    for (int i = 0; !copied && i < 6; i++) { copied = CopyFileW(self, exe.c_str(), FALSE) != 0; if (!copied) { IL(L"copy try %d failed %lu", i + 1, GetLastError()); KillStrayCopies(); Sleep(700); } }   // a copy restarted in the meantime still holds the file
+    if (!copied) { IL(L"copy failed %lu", GetLastError()); Explorer::Restore(); if (!yes) MessageBoxW(nullptr, L"Couldn't copy DeskBar into place (is it still running?).", L"DeskBar", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND); return 1; }   // Restore: the old bar was just stopped, never leave the user without a taskbar
     if (ContainsI(FileNameOf(self), L"bugs")) {   // DeskBar-Setup-Bugs.exe: the tester's copy, with "Report a bug to Claude" switched on (kept across updates: it is a setting)
         LoadSettings(); S.bugReports = true; SaveSettingsNow(); IL(L"bug reports switched on");
     }
@@ -98,6 +112,9 @@ int RunInstall() {
     if (rc != 0) { Log(L"install: Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); IL(L"Register-ScheduledTask failed (%lu): %s", rc, g_runOut.c_str()); if (!yes) MessageBoxW(nullptr, (L"Couldn't create the sign-in task (DeskBar will still start through the Run key):\n\n" + g_runOut).c_str(), L"DeskBar", MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND); }
     if (rc != 0) {   // no scheduled-task rights: fall back to the HKCU Run key (sign-in start is delayed by Windows, but it works)
         HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0, KEY_WRITE, nullptr, &k, nullptr) == 0) { ws v = L"\"" + exe + L"\" --supervise"; RegSetValueExW(k, L"DeskBar", 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)(v.size() + 1) * 2); RegCloseKey(k); }
+    }
+    if (rc == 0) {   // the task starts DeskBar: a Run value left by an older install (maybe pointing at an old copy) would only race it
+        HKEY k; if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) == 0) { if (RegDeleteValueW(k, L"DeskBar") == 0) IL(L"removed old Run value"); RegCloseKey(k); }
     }
     SHCreateDirectoryExW(nullptr, StartMenuDir().c_str(), nullptr);
     MakeShortcut(StartMenuDir() + L"\\DeskBar.lnk", exe, L"--supervise", L"Start DeskBar"); MakeShortcut(StartMenuDir() + L"\\Uninstall DeskBar.lnk", exe, L"--uninstall", L"Remove DeskBar");

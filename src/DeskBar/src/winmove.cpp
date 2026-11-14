@@ -28,7 +28,7 @@ RECT Proportional(const RECT& r, const RECT& fw, const RECT& tw) {   // same pla
 // ---- snapper: when you let go of a dragged window ----
 //  - hanging across two screens: it moves fully onto the screen with most of it; moved to a different screen: it keeps the same size
 //  - RELATIVE to that screen. Hold Alt while releasing to leave it exactly where it is. Snapped / maximised windows are left alone.
-struct Start { RECT rect; HMONITOR mon; RECT work; }; std::map<HWND, Start> g_starts;
+struct Start { RECT rect; HMONITOR mon; RECT work; }; std::map<HWND, Start> g_starts; std::map<HWND, WINDOWPLACEMENT> g_keepMax;
 void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so the window visibly slides into place
     const int steps = 7;
     for (int i = 1; i <= steps; i++) {
@@ -50,8 +50,21 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
         }
+        if (IsZoomed(h)) {   // a maximized window is not resized from its left, right or bottom edge (dragging the title bar off still works): cancel that resize
+            RECT r = VisibleRect(h); UINT dpi = GetDpiForWindow(h); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) + MulDiv(6, (int)dpi, 96);
+            if (p.x <= r.left + band || p.x >= r.right - band || p.y >= r.bottom - band) {
+                // apps that draw their own frame (Chrome, WPF) un-maximize themselves as the resize starts, so Esc alone leaves a restored window
+                // that only looks maximized: keep the placement and put it back when the cancelled drag ends
+                WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp;
+                SendKeys({VK_ESCAPE}); Log(L"resize of maximized %s cancelled", ClassOf(h).c_str()); return; }
+        }
         HMONITOR m = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(m, &mi); g_starts[h] = {VisibleRect(h), m, mi.rcWork}; return; }
     if (ev != EVENT_SYSTEM_MOVESIZEEND) return;
+    if (auto k = g_keepMax.find(h); k != g_keepMax.end()) {
+        WINDOWPLACEMENT wp = k->second; g_keepMax.erase(k);
+        std::thread([h, wp] { for (int i = 0; i < 4; i++) { if (!IsWindow(h)) return; if (!IsZoomed(h)) { SetWindowPlacement(h, &wp); Log(L"re-maximized after cancelled resize"); } Sleep(100); } }).detach();   // some apps restore again just after the drag ends
+        return;
+    }
     auto it = g_starts.find(h); if (it == g_starts.end()) return; Start st = it->second; g_starts.erase(it);
     if (!S.snapOnRelease && !S.keepSizeRatio) return; if (GetAsyncKeyState(VK_MENU) & 0x8000) return;
     if (!IsAppWindow(h) || IsZoomed(h) || IsIconic(h)) return;
