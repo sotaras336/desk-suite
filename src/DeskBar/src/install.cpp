@@ -69,6 +69,30 @@ int KillStrayCopies() {
 }
 }
 
+// At sign-in an older DeskBar can start first (the pink edition's own task "DeskBar3Pink", a copy in another folder, a leftover start-up entry) and,
+// since only one DeskBar may run, the installed one then quit: after every restart the PC was back on the old version. The installed copy now wins:
+// it stops every DeskBar.exe that runs from another folder and switches the old editions' sign-in tasks off (disabled, not deleted). True = it stopped one.
+bool EvictOlderCopies() {
+    wchar_t self[MAX_PATH]; GetModuleFileNameW(nullptr, self, MAX_PATH); ws dir = InstallDir();
+    if (!EqI(self, dir + L"\\DeskBar.exe") || GetEnvironmentVariableW(L"DB3_DATA", nullptr, 0)) return false;   // only the installed copy does this, never a dev or test run
+    LogInit(false); int n = 0; HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); if (s == INVALID_HANDLE_VALUE) return false; PROCESSENTRY32W pe{sizeof pe};
+    for (BOOL ok = Process32FirstW(s, &pe); ok; ok = Process32NextW(s, &pe)) {
+        if (pe.th32ProcessID == GetCurrentProcessId() || !EqI(pe.szExeFile, L"DeskBar.exe")) continue;
+        ws p = ExePathOfPid(pe.th32ProcessID); if (p.empty() || StartsI(p, dir + L"\\")) continue;
+        HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID); bool done = false;
+        if (h) { done = TerminateProcess(h, 0) != 0; WaitForSingleObject(h, 2000); CloseHandle(h); }
+        Log(L"an older DeskBar was running from %s: %s", p.c_str(), done ? L"stopped, this version takes over" : L"could not stop it"); if (done) n++;
+    }
+    CloseHandle(s);
+    if (n) {
+#ifndef PINK
+        Run(L"schtasks.exe /Change /TN DeskBar3Pink /DISABLE");
+#endif
+        Run(L"schtasks.exe /Change /TN DeskBar2 /DISABLE");
+    }
+    return n > 0;
+}
+
 // The sign-in task: at sign-in, normal rights, above-normal priority (the default "below normal" made sign-in much slower), restart 3x/1 min, no time limit.
 DWORD RegisterSignInTask(const ws& exe) {
     ws user = []() { wchar_t u[256], d[256]; DWORD un = 256, dn = 256; GetUserNameW(u, &un); GetEnvironmentVariableW(L"USERDOMAIN", d, dn); return ws(d) + L"\\" + u; }();

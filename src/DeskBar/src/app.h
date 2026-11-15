@@ -155,7 +155,7 @@ void TypeAheadEnd();
 // ---------- app lifecycle ----------
 void AppQuit(bool restart);                       // false: quit and give Windows its taskbar back
 int RunInstall(); int RunUninstall();
-void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
+bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);

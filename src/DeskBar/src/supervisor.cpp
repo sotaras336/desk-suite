@@ -86,7 +86,12 @@ bool Answers(DWORD pid) {   // does any window of that process answer within 1.5
 }
 
 int RunSupervisor() {
-    HANDLE mtx = CreateMutexW(nullptr, TRUE, L"DB3.Supervisor"); if (GetLastError() == ERROR_ALREADY_EXISTS) return 0; (void)mtx;
+    HANDLE mtx = CreateMutexW(nullptr, TRUE, L"DB3.Supervisor");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {   // a DeskBar is already up: fine if it is this one, but an older copy from elsewhere is stopped and replaced
+        if (!EvictOlderCopies()) return 0;
+        if (mtx) CloseHandle(mtx); Sleep(500); mtx = CreateMutexW(nullptr, TRUE, L"DB3.Supervisor"); if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    }
+    (void)mtx;
     LogInit(false); Boot(L"supervisor main"); OleInitialize(nullptr); LoadSettings();
     wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); ws dir = DirOf(exe);
     std::vector<uint64_t> crashes; int tick = 0;

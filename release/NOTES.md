@@ -1,9 +1,8 @@
-## Desk 3.0.1
+## Desk 3.0.2
 
 **DeskBar**
 
-- The White colour is readable again in DeskBar's settings and in DeskMode: they now use light panels with dark text. Before, they kept a dark panel while the text turned dark too.
-- The DeskMode icon on the bar and in settings is drawn in the theme's text colour, so it no longer disappears on a white bar.
+- Fixed: after a restart, some PCs went back to a much older DeskBar. An older copy (an old install folder, the old pink edition, a leftover start-up entry) could start first, and the new one then quietly stepped aside. Now the installed DeskBar stops any older copy at start and switches the old editions' start-up off (disabled, not deleted), so the version you installed is the one that runs.
 
 DeskDrawer and DeskTune are the same as in 3.0.
 
