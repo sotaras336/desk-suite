@@ -112,6 +112,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (has(L"--supervise")) return RunSupervisor();
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
+    if (has(L"--btsearch")) { LogInit(false); UiInit(); BtFindNew([](std::vector<BtDev> v) { for (auto& d : v) Log(L"bt search found: %s", d.name.c_str()); PostQuitMessage(0); }); MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m); Sleep(500); return 0; }   // dev: what Add device finds (in the log)
     if (has(L"--wallcolor")) { LogInit(false); CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); return WallpaperThemeId().empty() ? 1 : 0; }   // dev: which theme the wallpaper picks (in the log)
     if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
     if (!val(L"--bugsend").empty()) { LogInit(false); return BugSendTest(val(L"--bugsend")); }   // dev: send one report through the real form code; exit 0 = Google took it

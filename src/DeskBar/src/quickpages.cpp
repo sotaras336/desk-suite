@@ -107,7 +107,7 @@ struct WifiPage : PageBase {
             WifiScan(false, [this, w_](bool, std::vector<WifiNet> v) { IFALIVE if (nets.empty() && !v.empty()) { nets = v; Render(); } });
             Skeleton(list, 4);
         } else Render();
-        if (forceFresh && netsLabel) netsLabel->Set(L"Searching 26");   // the press shows at once: the list often comes back the same, which looked like nothing happened
+        if (forceFresh && netsLabel) netsLabel->Set(L"Searching…");   // the press shows at once: the list often comes back the same, which looked like nothing happened
         WifiScan(true, [this, w_](bool access, std::vector<WifiNet> v) {
             IFALIVE if (netsLabel) netsLabel->Set(L"Available networks");
             if (!access) {
@@ -254,7 +254,7 @@ wchar_t BtGlyph(const ws& name) {
     return 0xE702;
 }
 struct BtPage : PageBase {
-    View* content; std::vector<BtDev> devs; ws selected; std::map<ws, ws> status; Toggle* tg = nullptr; int step = 0; bool dots = false;
+    View* content; std::vector<BtDev> devs, found; bool searching = false, searched = false; ws selected; std::map<ws, ws> status; Toggle* tg = nullptr; int step = 0; bool dots = false;
     ws Show(const ws& s) { return !s.empty() && s.back() == L'…' ? Dots(s.substr(0, s.size() - 1).c_str(), step) : s; }   // "Connecting…" animates its dots
     void EnsureDots() {   // while anything is connecting, redraw the status text every 400 ms
         if (dots) return; dots = true; GUARD auto id = std::make_shared<UINT_PTR>(0);
@@ -264,14 +264,14 @@ struct BtPage : PageBase {
         PageHeader(this, L"Bluetooth", [p] { p->Back(); }, &tg); tg->Set(NetSnap().btOn);
         GUARD tg->onChange = [this, w_](bool on) { NetSetBt(on); UiOnce(on ? 1200 : 200, [this, w_] { IFALIVE Load(); }); };
         content = MkBox(this, Lay::V);
-        auto* f = Footer(this); MiniPill(f, L"Add device", 0xE710, true, [] { CloseAnd(L"ms-settings-connectabledevices:devicediscovery"); }); MiniPill(f, L"Bluetooth settings", 0xE713, false, [] { CloseAnd(L"ms-settings:bluetooth"); });
+        auto* f = Footer(this); MiniPill(f, L"Add device", 0xE710, true, [this] { Search(); }); MiniPill(f, L"Bluetooth settings", 0xE713, false, [] { CloseAnd(L"ms-settings:bluetooth"); });
         MiniPill(f, L"Refresh", 0xE72C, false, [this] { Load(true); });
         Load();
     }
     void Load(bool asked = false) {
         content->Clear(); if (!NetSnap().btOn) { Empty(content, 0xE702, L"Bluetooth is off", L"Turn it on to use your pen, earbuds and other devices."); q->Relayout(); return; }
         auto cached = BtCached(); GUARD
-        if (!cached.empty() && !asked) Render(cached); else { SectionLabel(content, asked ? L"Searching 26" : L"Connected"); Skeleton(content, 2); }   // Refresh: the placeholder rows show that the press was taken
+        if (!cached.empty() && !asked) Render(cached); else { SectionLabel(content, asked ? L"Searching…" : L"Connected"); Skeleton(content, 2); }   // Refresh: the placeholder rows show that the press was taken
         BtDevices([this, w_](std::vector<BtDev> v) { IFALIVE Render(v); });
         q->Relayout();
     }
@@ -302,8 +302,35 @@ struct BtPage : PageBase {
             Poll(id, false, 10);
         });
     }
+    // Add device: the search runs right here (it used to hand off to Windows' "Add a device" window, which did not always come up)
+    void Search() {
+        if (searching || !NetSnap().btOn) return; searching = true; searched = true; found.clear(); Render(devs); GUARD
+        BtFindNew([this, w_](std::vector<BtDev> v) { IFALIVE searching = false; found = v; Render(devs); });
+    }
+    void Pair(const BtDev& d) {
+        if (status.count(d.id)) return; ws id = d.id; status[id] = L"Pairing…"; Render(devs); EnsureDots(); GUARD
+        BtPair(id, [this, w_, id](int r) {
+            IFALIVE status.erase(id);
+            if (r == 0) { std::erase_if(found, [&](const BtDev& x) { return x.id == id; }); Load(); NetRefresh(); return; }
+            status[id] = r == 1 ? L"Pairing was cancelled" : L"Couldn't pair · put it in pairing mode and try again"; Render(devs);
+            UiOnce(4000, [this, w_, id] { IFALIVE status.erase(id); Render(devs); });
+        });
+    }
+    void RenderFound() {
+        if (!searching && !searched) return;
+        SectionLabel(content, searching ? L"Searching for new devices…" : L"New devices");
+        if (searching && found.empty()) { Skeleton(content, 2); return; }
+        if (found.empty()) { auto* l = MkLabel(content, L"Nothing found. Put the device in pairing mode and press Add device again.", FText(12), Col(K::White, K::Dim)); l->wrap = true; l->margin = Thick(4, 0, 0, 12); return; }
+        for (auto& d : found) {
+            BtDev dev = d; auto it = status.find(d.id); bool busy = it != status.end();
+            auto* c = ClickCard(content, [this, dev] { Pair(dev); }); auto* row = MkBox(c, Lay::H); row->gap = 12;
+            Bubble(row, BtGlyph(d.name), SolidB(K::White, K::CardHover), Col(K::White), 32);
+            auto* nm = MkBox(row, Lay::V); nm->star = 1; nm->va = Al::Center; MkLabel(nm, d.name, FText(13)); MkLabel(nm, busy ? Show(it->second) : ws(L"Not paired"), FText(11.5f), Col(busy ? K::Accent : K::White, busy ? 255 : K::Dim));
+            if (!busy) { auto* b = MiniPill(row, L"Pair", 0xE710, true, [this, dev] { Pair(dev); }); b->va = Al::Center; b->ha = Al::End; }
+        }
+    }
     void Render(const std::vector<BtDev>& v) {
-        devs = v; content->Clear();
+        devs = v; content->Clear(); RenderFound();
         SectionLabel(content, L"Connected");
         std::vector<BtDev> conn, paired; for (auto& d : v) (d.connected ? conn : paired).push_back(d);
         if (conn.empty()) { auto* l = MkLabel(content, L"Nothing connected right now", FText(12), Col(K::White, K::Dim)); l->margin = Thick(4, 0, 0, 12); }
@@ -341,6 +368,19 @@ struct ThemePage : PageBase {
     ThemePage(QuickPanel* p) : PageBase(p) {
         PageHeader(this, L"Color", [p] { p->Back(); });
         auto* sub = MkLabel(this, L"Pick the color of the bar and the panels. DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 14);
+        {   // any colour: a hue slider, a live swatch, and a button to use it
+            auto* cap = MkLabel(this, L"Your own color: slide, then press Use.", FText(12.5f), Col(K::White, K::Dim)); cap->margin = Thick(4, 0, 0, 6);
+            auto* row = MkBox(this, Lay::H); row->gap = 10; row->margin = Thick(0, 0, 0, 12); row->va = Al::Center;
+            float h0 = EqI(CurrentTheme().id, L"custom") ? CurrentTheme().hue : 300.f;
+            auto* sw = MkBox(row); sw->fw = sw->fh = 32; sw->radius = 16; sw->va = Al::Center;
+            auto paint = [sw](float h) { ThemeDef t{L"custom", L"Custom", h, false, 0}; sw->bg = LinearB(0, 0, 1, 1, {{0, ColFor(t, K::Bar)}, {1, ColFor(t, K::Accent)}}); sw->Invalidate(); };
+            paint(h0);
+            auto* sl = row->Add(new Slider()); sl->star = 1; sl->va = Al::Center; sl->Set(h0 / 360.f);
+            auto hue = std::make_shared<float>(h0);
+            sl->onChange = [paint, hue](float v, bool) { *hue = v * 359.f; paint(*hue); };
+            auto* use = ClickCard(row, [hue] { S.theme = Fmt(L"custom:%d", (int)*hue); SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }, EqI(CurrentTheme().id, L"custom"));
+            use->pad = Thick(12, 8); use->margin = Thick(0); use->va = Al::Center; MkLabel(use, L"Use", FText(13));
+        }
         auto* grid = MkBox(this, Lay::Uniform); grid->cols = 4; grid->gap = 6;
         for (int i = 0; i < kThemeCount; i++) {
             const ThemeDef& t = kThemes[i]; bool cur = &t == &CurrentTheme(); ws id = t.id;

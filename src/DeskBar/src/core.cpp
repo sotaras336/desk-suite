@@ -332,6 +332,8 @@ void SetTheme(const ws& id) {
     const ThemeDef* d = &kThemes[1];
 #endif
     for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, id)) d = &kThemes[i];
+    static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>": any colour; DeskDrawer and DeskTune read the same id
+    if (id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7)) { float h = (float)_wtof(id.c_str() + 7); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
     g_theme = d;
 }
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {

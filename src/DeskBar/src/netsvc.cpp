@@ -284,3 +284,46 @@ int WifiTest(const ws& ssid, bool keep) {
 void WifiDisconnect() { Post([] { try { if (g_adapter) g_adapter.Disconnect(); } catch (...) {} RefreshNow(); }); }
 std::vector<BtDev> BtCached() { std::lock_guard<std::mutex> l(g_mu); return g_btLast; }
 void BtDevices(std::function<void(std::vector<BtDev>)> cb) { Post([cb] { BtRefreshList(); std::vector<BtDev> v; { std::lock_guard<std::mutex> l(g_mu); v = g_btLast; } UiPost([cb, v] { cb(v); }); }); }
+
+// Bluetooth devices nearby that are NOT paired yet: Windows' own discovery (classic and LE) for about ten seconds. The watchers keep their state in a
+// shared block: an event that arrives just after Stop must not touch a finished call's locals.
+void BtFindNew(std::function<void(std::vector<BtDev>)> cb) {
+    std::thread([cb] {
+        winrt::init_apartment();
+        struct St { std::mutex m; std::vector<BtDev> found; int seen = 0; }; auto st = std::make_shared<St>();
+        using namespace winrt::Windows::Devices::Enumeration;
+        std::vector<DeviceWatcher> watchers;
+        try {
+            hstring sels[2] = {winrt::Windows::Devices::Bluetooth::BluetoothDevice::GetDeviceSelectorFromPairingState(false), winrt::Windows::Devices::Bluetooth::BluetoothLEDevice::GetDeviceSelectorFromPairingState(false)};
+            for (auto& sel : sels) {
+                auto w = DeviceInformation::CreateWatcher(sel, nullptr, DeviceInformationKind::AssociationEndpoint);
+                w.Added([st](auto&&, DeviceInformation const& i) {
+                    { std::lock_guard<std::mutex> l(st->m); st->seen++; }
+                    ws n = i.Name().c_str(); if (Trim(n).empty()) return;   // nameless LE beacons: nothing a person could pick
+                    std::lock_guard<std::mutex> l(st->m); if (std::none_of(st->found.begin(), st->found.end(), [&](const BtDev& d) { return d.name == n; })) st->found.push_back({n, i.Id().c_str(), false});
+                });
+                w.Updated([](auto&&, auto&&) {});   // an association-endpoint watcher stalls unless Updated has a handler
+                w.Start(); watchers.push_back(w);
+            }
+            Sleep(10000);
+            for (auto& w : watchers) try { w.Stop(); } catch (...) {}
+        } catch (hresult_error const& e) { Log(L"bt search: %s", e.message().c_str()); }
+        std::vector<BtDev> v; { std::lock_guard<std::mutex> l(st->m); v = st->found; }
+        std::sort(v.begin(), v.end(), [](const BtDev& a, const BtDev& b) { return a.name < b.name; });
+        Log(L"bt search: %d new device(s) with a name, %d seen in all", (int)v.size(), st->seen); UiPost([cb, v] { cb(v); });
+    }).detach();
+}
+// Pairs one of them. Windows shows its own confirmation or PIN prompt when the device asks for one. 0 = paired, 1 = cancelled or refused, 2 = failed.
+void BtPair(const ws& id, std::function<void(int)> cb) {
+    std::thread([id, cb] {
+        winrt::init_apartment(); int r = 2;
+        try {
+            using namespace winrt::Windows::Devices::Enumeration;
+            auto di = DeviceInformation::CreateFromIdAsync(id).get();
+            auto res = di.Pairing().PairAsync().get(); auto s = res.Status();
+            r = s == DevicePairingResultStatus::Paired || s == DevicePairingResultStatus::AlreadyPaired ? 0 : s == DevicePairingResultStatus::PairingCanceled || s == DevicePairingResultStatus::RejectedByHandler ? 1 : 2;
+            Log(L"bt pair: status %d", (int)s);
+        } catch (hresult_error const& e) { Log(L"bt pair: %s", e.message().c_str()); }
+        UiPost([cb, r] { cb(r); });
+    }).detach();
+}

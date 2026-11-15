@@ -129,6 +129,13 @@ int RunInstall() {
     bool copied = EqI(self, exe);
     for (int i = 0; !copied && i < 6; i++) { copied = CopyFileW(self, exe.c_str(), FALSE) != 0; if (!copied) { IL(L"copy try %d failed %lu", i + 1, GetLastError()); KillStrayCopies(); Sleep(700); } }   // a copy restarted in the meantime still holds the file
     if (!copied) { IL(L"copy failed %lu", GetLastError()); Explorer::Restore(); if (!yes) MessageBoxW(nullptr, L"Couldn't copy DeskBar into place (is it still running?).", L"DeskBar", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND); return 1; }   // Restore: the old bar was just stopped, never leave the user without a taskbar
+    if (ContainsI(FileNameOf(self), L"bugs")) {   // the tester's setup works with ANY build: it switches reports on, then installs the newest DeskBar from GitHub if that is newer than itself
+        LoadSettings(); S.bugReports = true; SaveSettingsNow();
+        ws newest; if (UpdateFetchLatest(newest)) {
+            DWORD rc = Run(L"\"" + newest + L"\" --yes"); IL(L"bugs setup: installed the newest release instead of this older build, rc=%lu", rc);
+            if (rc == 0) { if (!yes) MessageBoxW(nullptr, L"The newest DeskBar is installed and starting, with \"Report a bug\" switched on.", L"DeskBar", MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND); return 0; }
+        }   // offline, or this already is the newest: install this one
+    }
     if (ContainsI(FileNameOf(self), L"bugs")) {   // DeskBar-Setup-Bugs.exe: the tester's copy, with "Report a bug to Claude" switched on (kept across updates: it is a setting)
         LoadSettings(); S.bugReports = true; SaveSettingsNow(); IL(L"bug reports switched on");
     }

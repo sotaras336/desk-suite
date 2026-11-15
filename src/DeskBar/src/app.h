@@ -77,6 +77,7 @@ void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, s
 void WifiDisconnect();
 void BtDevices(std::function<void(std::vector<BtDev>)> cb);
 std::vector<BtDev> BtCached();
+void BtFindNew(std::function<void(std::vector<BtDev>)> cb); void BtPair(const ws& id, std::function<void(int)> cb);   // unpaired devices nearby (~10 s); pair one: 0 ok, 1 cancelled, 2 failed
 void BtConnectAudio(const ws& deviceId, bool connect, std::function<void(int)> cb);   // result 0 done, 1 not an audio device, 2 failed
 void MediaStart();
 void MediaOpenSource();
@@ -155,7 +156,7 @@ void TypeAheadEnd();
 // ---------- app lifecycle ----------
 void AppQuit(bool restart);                       // false: quit and give Windows its taskbar back
 int RunInstall(); int RunUninstall();
-bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
+bool UpdateFetchLatest(ws& path); bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);

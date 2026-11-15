@@ -1,8 +1,11 @@
-## Desk 3.0.2
+## Desk 3.1
 
 **DeskBar**
 
-- Fixed: after a restart, some PCs went back to a much older DeskBar. An older copy (an old install folder, the old pink edition, a leftover start-up entry) could start first, and the new one then quietly stepped aside. Now the installed DeskBar stops any older copy at start and switches the old editions' start-up off (disabled, not deleted), so the version you installed is the one that runs.
+- **Any colour you like:** Quick Settings > Color now has a slider. Slide it, watch the preview, press Use. DeskDrawer and DeskTune follow the same colour.
+- **Add a Bluetooth device right in the panel:** Bluetooth > Add device now searches for nearby devices itself (about ten seconds) and lists them with a Pair button. Before, it handed off to Windows' "Add a device" window, which did not always come up. Put the device in pairing mode first; Windows shows its own prompt when a device asks for a PIN or a confirmation.
+- Fixed "Searching 26" appearing where "Searching…" was meant.
+- The tester's bug-report setup now works whatever version it is: it switches Report a bug on, then installs the newest DeskBar from GitHub if that is newer than itself.
 
 DeskDrawer and DeskTune are the same as in 3.0.
 
