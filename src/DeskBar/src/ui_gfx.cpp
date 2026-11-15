@@ -185,6 +185,12 @@ ImgP ImgFromHBitmap(HBITMAP hbm) {
     }
     return im;
 }
+ImgP ImgForTheme(ImgP src) {   // a one-colour white icon (DeskMode's) on a light theme: drawn in the theme's text colour, like every glyph next to it
+    if (!src || CurrentTheme().kind != 2) return src;
+    auto im = ImgMake(src->w, src->h); D2D1_COLOR_F c = Col(0xFFFFFF);
+    for (size_t i = 0; i < src->px.size(); i++) { uint32_t a = src->px[i] >> 24; im->px[i] = (a << 24) | ((uint32_t)(c.r * a) << 16) | ((uint32_t)(c.g * a) << 8) | (uint32_t)(c.b * a); }
+    return im;
+}
 ImgP ImgFromHIcon(HICON ic, int px) {   // draw on black and on white: the difference is the alpha, the black pass is the premultiplied colour (right for any icon, with or without an alpha channel)
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof bi.bmiHeader; bi.bmiHeader.biWidth = px; bi.bmiHeader.biHeight = -px; bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
     void* bits = nullptr; HDC dc = CreateCompatibleDC(nullptr); HBITMAP dib = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);

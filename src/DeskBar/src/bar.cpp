@@ -233,7 +233,7 @@ bool Bar::Init() {
     kbBtn->onClick = [] { ToggleTouchKeyboard(); };
     dmBtn = BarBtn(right); dmBtn->pad = Thick(9, 0); dmBtn->tip = L"DeskMode"; dmBtn->visible = S.dmButton; dmBtn->onClick = [this] { OpenDeskModePanel(this); };
     {   // DeskMode's own icon, from the exe (resource 2)
-        static ImgP dmIcon; if (!dmIcon) if (HICON h = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(2), IMAGE_ICON, 32, 32, 0)) { dmIcon = ImgFromHIcon(h, 32); DestroyIcon(h); }
+        static ImgP dmIcon; if (!dmIcon) if (HICON h = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(2), IMAGE_ICON, 32, 32, 0)) { dmIcon = ImgForTheme(ImgFromHIcon(h, 32)); DestroyIcon(h); }
         auto* p = dmBtn->Add(new Pic()); p->fw = p->fh = 16; p->va = Al::Center; p->img = dmIcon;
     }
     langBtn = BarBtn(right); langBtn->pad = Thick(12, 0, 12, 0); langBtn->visible = false; langBtn->onClick = [] { SendKeys({VK_LWIN, VK_SPACE}); };

@@ -18,7 +18,7 @@ View *g_railUpd = nullptr, *g_pageUpd = nullptr; Label* g_updStatus = nullptr;  
 
 ImgP IconRes(int id, int px) {   // the exe's own icons: 1 DeskBar, 2 DeskMode
     static std::map<int, ImgP> c; auto& m = c[id * 1000 + px];
-    if (!m) if (HICON h = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(id), IMAGE_ICON, px, px, 0)) { m = ImgFromHIcon(h, px); DestroyIcon(h); }
+    if (!m) if (HICON h = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(id), IMAGE_ICON, px, px, 0)) { m = ImgFromHIcon(h, px); if (id == 2) m = ImgForTheme(m); DestroyIcon(h); }
     return m;
 }
 Pic* MkPic(View* parent, ImgP img, float sz) { auto* p = parent->Add(new Pic()); p->fw = p->fh = sz; p->img = img; p->va = Al::Center; return p; }

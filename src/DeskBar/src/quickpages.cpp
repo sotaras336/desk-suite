@@ -440,7 +440,15 @@ View* MakeThemePage(QuickPanel* q) { return new ThemePage(q); }
 // DeskMode's panel, piece by piece: the big readout of each screen, the two preset cards, the power-mode strip, and one card per screen with its refresh rates.
 namespace dm {
 // DeskMode's colours: written as DeskMode's blues, then passed through the bar's theme (see Raw)
-D2D1_COLOR_F Raw(uint32_t rgb, int a) { return CurrentTheme().kind == 0 ? Col(rgb, a) : D2D1::ColorF(rgb, a / 255.f); }   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
+D2D1_COLOR_F Raw(uint32_t rgb, int a) {
+    // One rule for every theme: surfaces, overlays and text all go through the bar's theme together, so a light theme gets light panels WITH dark text
+    // (White used to keep DeskMode's dark panel while its text turned dark: unreadable). Black and Glass are dark themes with white text, where DeskMode's own
+    // dark blues already fit. Only the deep accent (the gradient's two blues) stays as it is on White: it is the colour, not a surface.
+    int k = CurrentTheme().kind; if (k == 0) return Col(rgb, a); if (k != 2) return D2D1::ColorF(rgb, a / 255.f);
+    float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f, mx = std::max({r, g, b}), mn = std::min({r, g, b}), l = (mx + mn) / 2;
+    float s = mx == mn ? 0 : l > 0.5f ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn);
+    return s > 0.5f && l < 0.5f ? D2D1::ColorF(rgb, a / 255.f) : Col(rgb, a);
+}   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
 Brush Glow() { return CurrentTheme().soft ? SolidB(K::Accent) : LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }

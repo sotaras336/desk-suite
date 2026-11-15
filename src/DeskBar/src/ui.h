@@ -53,6 +53,7 @@ typedef std::shared_ptr<Img> ImgP;
 ImgP ImgFromHBitmap(HBITMAP hbm);
 ImgP ImgFromFile(const ws& path);
 ImgP ImgFromHIcon(HICON ic, int px);
+ImgP ImgForTheme(ImgP src);
 bool ImgSavePng(const Img& img, const ws& path);
 ImgP ImgMake(int w, int h);
 
