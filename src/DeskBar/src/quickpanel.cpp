@@ -97,6 +97,8 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     auto* set = IconBtn(foot, 0xE713, 36, 14, [] { ClosePanels(); Launch(L"ms-settings:"); }); set->bg = Brush{}; set->va = Al::Center; set->ha = Al::End; set->tip = L"All settings";
 }
 
+void ThemePreviewEnd(QuickPanel* qp);
+void QuickPanel::OnClose() { Back(); ThemePreviewEnd(this); }   // a colour being tried on the Color page is put back
 void QuickPanel::ShowDetail(View* p, bool ownHeight) {
     Back(); page = p; detail->content = detail->Add(p); detail->visible = true; main->visible = false; detail->ScrollTo(0, false);
     if (foot) foot->visible = !ownHeight;   // DeskMode's pages have no Quick Settings footer (it was a blue strip under the dark panel)

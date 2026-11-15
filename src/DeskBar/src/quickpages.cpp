@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "dmstyle.h"
 #include "quick.h"
+#include "bar.h"
 
 // Quick Settings detail pages: Wi-Fi, Bluetooth, Sound (output devices, "also play", per-app volume and routing).
 ws g_wifiPreview;   // --wifipreview <mode>: see quick.h
@@ -364,6 +365,14 @@ struct BtPage : PageBase {
 };
 
 static bool WinAccentAvailable() { DWORD v = 0, n = sizeof v; return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &v, &n) == 0; }
+// Paints the bars and the panel's background in a theme without rebuilding anything (a rebuild mid-drag would end the drag). Text and cards follow on release.
+void ThemeRepaintLive(QuickPanel* qp, const ws& id) {
+    SetTheme(id); if (qp) qp->root->bg = PanelBrush();
+    for (auto* b : AllBars()) b->root->bg = SolidB(K::Bar);
+    InvalidateAllWnds();
+}
+// The panel closed without Use: everything goes back to the colour that is saved.
+} void ThemePreviewEnd(QuickPanel* qp) { ws cur = CurrentTheme().id; SetTheme(S.theme); if (CurrentTheme().id != cur || EqI(cur, L"custom")) ThemeRepaintLive(qp, S.theme); } namespace {
 // a bar of every colour a custom theme can take (each spot drawn in the accent that hue gives), with a thumb wearing the picked one
 struct HueBar : View {
     float value = 300; bool drag = false; std::function<void(float)> onChange; std::function<void()> onRelease;
@@ -398,7 +407,7 @@ struct ThemePage : PageBase {
             MkLabel(card, L"The panel changes as you slide. The bar follows when you press Use.", FText(11.5f), Col(K::White, K::Dim))->wrap = true;
             auto* bar = card->Add(new HueBar()); bar->value = h0;
             QuickPanel* qp = q;
-            bar->onChange = [hue](float h) { *hue = h; };
+            bar->onChange = [hue, qp](float h) { *hue = h; ThemeRepaintLive(qp, Fmt(L"custom:%d", (int)lroundf(h))); };   // while dragging: the bar and the panel take the colour at once
             bar->onRelease = [hue, qp] { SetTheme(Fmt(L"custom:%d", (int)lroundf(*hue))); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); };
             auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End;
             auto pill = [&](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };

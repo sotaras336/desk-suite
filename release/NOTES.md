@@ -1,9 +1,8 @@
-## Desk 3.1.1
+## Desk 3.1.2
 
 **DeskBar**
 
-- The custom colour picker is redone, the same way as DeskDrawer's: a bar showing every colour, and the panel recolours itself as you slide so you see the result before you commit. **Use this colour** keeps it, **Cancel** puts yours back. The 3.1 slider jumped wildly with the smallest drag; that is fixed.
-- New: **Windows accent colour** on the Color page makes DeskBar (and DeskDrawer and DeskTune) follow the colour you picked in Windows Settings.
+- The custom colour picker now shows the colour while you drag: the taskbar and the panel change with every move. The rest of the panel catches up when you let go. Close the panel without pressing **Use this colour** and your saved colour comes back.
 
 DeskDrawer and DeskTune are the same as in 3.0.
 

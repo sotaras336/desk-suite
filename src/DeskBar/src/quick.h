@@ -8,7 +8,7 @@ struct QuickPanel : Flyout {
     void ShowDetail(View* p, bool ownHeight = false);
     void Back();
     bool OnEsc() override { if (page) { Back(); return true; } return false; }
-    void OnClose() override { Back(); }
+    void OnClose() override;
     void OnSysChange() override;
     void OnOpen() override;
     // main page
