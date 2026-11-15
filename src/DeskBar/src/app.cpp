@@ -37,6 +37,7 @@ static void AppTick() {
     BarsRebuildIfMonitorsChanged();
     if (!g_dev) Explorer::KeepHidden();
     BarsTick(); CheckReady();
+    if (!g_dev && n == 120) TrimMemoryIfIdle();   // once, 30 s after start: the pages only start-up touched. Not again: under memory pressure a trimmed page comes back from disk, and the next Start would stutter
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
         if (Panel p = OpenPanel(); p != Panel::None) Panel_(p)->Snapshot(DataPath(L"live_panel.png")); } }
@@ -111,6 +112,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (has(L"--supervise")) return RunSupervisor();
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
+    if (has(L"--wallcolor")) { LogInit(false); CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); return WallpaperThemeId().empty() ? 1 : 0; }   // dev: which theme the wallpaper picks (in the log)
     if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
     if (!val(L"--bugsend").empty()) { LogInit(false); return BugSendTest(val(L"--bugsend")); }   // dev: send one report through the real form code; exit 0 = Google took it
     if (!val(L"--updatetest").empty()) { LogInit(false); return UpdateTest(val(L"--updatetest")); }   // dev: check + download + verify against DESK_UPDATE_BASE, never installs

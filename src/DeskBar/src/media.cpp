@@ -18,13 +18,13 @@ std::mutex g_mu; MediaState g_media; std::atomic<bool> g_dirty{true}; std::condi
 Mgr g_mgr{nullptr}; Sess g_session{nullptr};
 std::vector<std::pair<Sess, std::pair<event_token, event_token>>> g_hooked;
 
-bool Playing(Sess const& s) { try { return s.GetPlaybackInfo().PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing; } catch (...) { return false; } }
+bool Playing(Sess const& s) { try { auto i = s.GetPlaybackInfo(); return i && i.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing; } catch (...) { return false; } }
 void Dirty() { g_dirty = true; g_cv.notify_one(); }
 
 void Hook() {
     for (auto& h : g_hooked) { try { h.first.PlaybackInfoChanged(h.second.first); h.first.MediaPropertiesChanged(h.second.second); } catch (...) {} }
     g_hooked.clear();
-    std::vector<Sess> all; for (auto s : g_mgr.GetSessions()) all.push_back(s);
+    std::vector<Sess> all; if (auto list = g_mgr.GetSessions()) for (auto s : list) if (s) all.push_back(s);
     for (auto& s : all) { try { g_hooked.push_back({s, {s.PlaybackInfoChanged([](auto&&, auto&&) { Dirty(); }), s.MediaPropertiesChanged([](auto&&, auto&&) { Dirty(); })}}); } catch (...) {} }
     // show the one that's actually playing (Windows' "current" can be a paused one)
     Sess pick{nullptr}; for (auto& s : all) if (Playing(s)) { pick = s; break; }
@@ -43,9 +43,10 @@ void Update() {
     try {
         Hook(); auto s = g_session;
         if (s) {
-            auto info = s.GetPlaybackInfo(); auto st = info.PlaybackStatus();
+            auto info = s.GetPlaybackInfo(); auto props = info ? s.TryGetMediaPropertiesAsync().get() : nullptr;
+            if (!info || !props) throw hresult_error(E_FAIL, L"session closing");   // a session that is closing hands back empty objects: using one is an access violation, which no catch stops (the 2026-11-12 crash)
+            auto st = info.PlaybackStatus();
             m.playing = st == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing; m.source = s.SourceAppUserModelId().c_str();
-            auto props = s.TryGetMediaPropertiesAsync().get();
             m.title = props.Title().c_str(); m.artist = props.Artist().c_str();
             m.active = !m.title.empty() && st != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed;
             static ws lastKey; static ImgP lastArt; ws key = m.source + L"|" + m.title + L"|" + m.artist;   // the same track keeps its decoded art (the bar re-lays-out when the image changes)

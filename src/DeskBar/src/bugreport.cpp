@@ -58,7 +58,9 @@ void Send() {
     ws text(n + 1, L'\0'); GetWindowTextW(g_edit, text.data(), n + 1); text.resize(n);
     EnableWindow(g_send, FALSE); SetWindowTextW(g_status, L"Sending…");
     ws info = Fmt(L"\r\n\r\n---\r\nDeskBar build: %s\r\nWindows: %s\r\nScreens: %s\r\nTheme: %s\r\n--- recent log ---\r\n", [] { wchar_t m[MAX_PATH]; GetModuleFileNameW(nullptr, m, MAX_PATH); std::string d; return ReadAll(m, d) ? Sha256HexOf(d).substr(0, 12) : ws(L"?"); }().c_str(), WindowsVersion().c_str(), MonSignature().c_str(), CurrentTheme().id);
-    std::string body = std::string(kFormEntry) + "=" + UrlEncode(Narrow(text + info) + LogTail(12000));
+    std::string crashes;   // what DeskDrawer and DeskTune wrote down when something went wrong (their crash.log), newest part
+    for (const wchar_t* app : {L"DeskDrawer", L"DeskTune"}) { std::string d; if (ReadAll(KnownFolder(FOLDERID_LocalAppData) + L"\\" + app + L"\\crash.log", d) && !d.empty()) crashes += "\r\n--- " + Narrow(app) + " crash.log ---\r\n" + (d.size() > 4000 ? d.substr(d.size() - 4000) : d); }
+    std::string body = std::string(kFormEntry) + "=" + UrlEncode(Narrow(text + info) + LogTail(12000) + crashes);
     HWND w = g_wnd;
     std::thread([body, w] { bool ok = Post(body); Log(L"bug report: %s", ok ? L"sent" : L"FAILED"); PostMessageW(w, WM_SENT, ok, 0); }).detach();
 }

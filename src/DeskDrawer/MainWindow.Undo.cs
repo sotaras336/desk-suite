@@ -77,10 +77,10 @@ public partial class MainWindow
     }
 
     /// Ctrl+N: another DeskDrawer window on the same folder.
-    private void OpenNewWindow(string? at = null)
+    private void OpenNewWindow(string? at = null, string extra = "")
     {
         string here = at ?? _tab.Current ?? ""; if (here.EndsWith('\\')) here += ".";   // "C:\" would escape the closing quote
-        try { if (Environment.ProcessPath is { } exe) Process.Start(new ProcessStartInfo(exe, "--new-window \"" + here + "\"") { UseShellExecute = false }); }
+        try { if (Environment.ProcessPath is { } exe) Process.Start(new ProcessStartInfo(exe, "--new-window \"" + here + "\" " + extra) { UseShellExecute = false }); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 }

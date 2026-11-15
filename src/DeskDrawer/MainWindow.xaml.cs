@@ -178,7 +178,7 @@ public partial class MainWindow : Window
     // ---------- kept ready in the background ----------
 
     /// Closing the window keeps DeskDrawer running out of sight, like File Explorer, so the next folder opens in about half a second instead of
-    /// a ~2.5 s cold start. The tabs and their lists are dropped and the memory handed back while it waits.
+    /// a ~2.5 s cold start. The tabs and their lists are dropped while it waits.
     private void GoToBackground()
     {
         Hide();
@@ -187,7 +187,9 @@ public partial class MainWindow : Window
         _tabs.Clear(); _tab = new TabState();
         List.ItemsSource = null; HomeContent.Children.Clear();
         _watch?.Dispose(); _watch = null; _reload.Stop(); _previewTimer.Stop();
-        Dispatcher.BeginInvoke(() => { GC.Collect(2, GCCollectionMode.Aggressive, true, true); SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, -1, -1); }, DispatcherPriority.ApplicationIdle);
+        // The lists are freed, but the working set is NOT emptied any more: that pushed every page of WPF and of our own code out too, and when Windows had since
+        // reused that memory the next open read it all back from disk (the "sometimes takes a few seconds"). Windows trims a hidden app by itself if it needs the room.
+        Dispatcher.BeginInvoke(() => GC.Collect(2, GCCollectionMode.Aggressive, true, true), DispatcherPriority.ApplicationIdle);
     }
 
     /// Sign-in start: the window draws once while cloaked (so WPF and our code are loaded and compiled), lets the file list draw too, then waits hidden.
@@ -215,7 +217,6 @@ public partial class MainWindow : Window
 
     private void Cloak(bool on) { int v = on ? 1 : 0; DwmSetWindowAttribute(Hwnd, 13 /*DWMWA_CLOAK*/, ref v, 4); }
 
-    [DllImport("kernel32.dll")] private static extern bool SetProcessWorkingSetSize(IntPtr process, nint min, nint max);
 
     private void SaveSession()
     {
@@ -405,6 +406,7 @@ public partial class MainWindow : Window
         else if (ctrl && key == Key.H) ToggleHidden();
         else if (ctrl && key == Key.OemComma) ShowSettings();
         else if (ctrl && key == Key.N && !shift) OpenNewWindow();
+        else if (ctrl && shift && key == Key.D2) SideBySide();
         else if (ctrl && key == Key.Z && Keyboard.FocusedElement is not TextBox) Undo();
         else if (ctrl && key is Key.OemPlus or Key.Add) Zoom(1);
         else if (ctrl && key is Key.OemMinus or Key.Subtract) Zoom(-1);
@@ -1072,12 +1074,28 @@ public partial class MainWindow : Window
 
     // ---------- inline rename ----------
 
-    private void RenameSelection() { var s = Sel(); if (s.Count == 1) BeginRename(s[0]); }
+    /// F2 with several files selected: type one name and they all get it, numbered, each keeping its own extension (like File Explorer).
+    private List<FileEntry>? _renameGroup;
+    private void RenameSelection() { var s = Sel(); if (s.Count == 0) return; var first = List.SelectedItem as FileEntry ?? s[0]; BeginRename(first); if (s.Count > 1) _renameGroup = new[] { first }.Concat(s.Where(x => x != first)).ToList(); }
+
+    /// The new paths for a group rename: "Trip.jpg" over three files gives Trip (1).jpg, Trip (2).png, Trip (3).jpg; a number that is taken is skipped.
+    internal static List<(string From, string To)> BatchPlan(IReadOnlyList<(string Path, bool IsDir)> items, string typed, Func<string, bool> exists)
+    {
+        string stem = Path.GetFileNameWithoutExtension(typed); if (items.Count > 0 && items[0].IsDir) stem = typed;
+        var plan = new List<(string, string)>(); var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase); int n = 1;
+        foreach (var (path, isDir) in items)
+        {
+            string dir = Path.GetDirectoryName(path)!, ext = isDir ? "" : Path.GetExtension(path), to;
+            do to = Path.Combine(dir, $"{stem} ({n++}){ext}"); while (taken.Contains(to) || (exists(to) && !items.Any(i => string.Equals(i.Path, to, StringComparison.OrdinalIgnoreCase))));
+            taken.Add(to); plan.Add((path, to));
+        }
+        return plan;
+    }
 
     private void BeginRename(FileEntry e)
     {
         foreach (var x in _tab.Entries ?? new()) x.IsRenaming = false;
-        e.EditName = e.Name; e.IsRenaming = true;
+        _renameGroup = null; e.EditName = e.Name; e.IsRenaming = true;
     }
 
     private void RenameBox_Visible(object s, DependencyPropertyChangedEventArgs e)
@@ -1094,15 +1112,32 @@ public partial class MainWindow : Window
     {
         if (s is not TextBox { DataContext: FileEntry en }) return;
         if (e.Key == Key.Enter) { CommitRename(en); List.Focus(); e.Handled = true; }
-        else if (e.Key == Key.Escape) { en.IsRenaming = false; List.Focus(); e.Handled = true; }
+        else if (e.Key == Key.Escape) { en.IsRenaming = false; _renameGroup = null; List.Focus(); e.Handled = true; }
     }
 
     private void RenameBox_Lost(object s, KeyboardFocusChangedEventArgs e) { if (s is TextBox { DataContext: FileEntry { IsRenaming: true } en }) CommitRename(en); }
 
     private void CommitRename(FileEntry en)
     {
-        string name = en.EditName.Trim(); en.IsRenaming = false;
-        if (name.Length == 0 || name == en.Name) return;
+        string name = en.EditName.Trim(); en.IsRenaming = false; var group = _renameGroup; _renameGroup = null;
+        if (name.Length == 0 || (name == en.Name && group == null)) return;
+        if (group != null && group.Count > 1 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
+        {
+            var plan = BatchPlan(group.Select(g => (g.FullPath, g.IsDir)).ToList(), name, p => File.Exists(p) || Directory.Exists(p)); var done = new List<string>();
+            // two steps, through temporary names: a file may be given a name that another file of the group still has
+            var mid = plan.Select((p, i) => (p.From, Tmp: Path.Combine(Path.GetDirectoryName(p.From)!, $".deskdrawer-rename-{i}-{Guid.NewGuid():N}"), p.To)).ToList();
+            try
+            {
+                foreach (var m in mid) { if (Directory.Exists(m.From)) Directory.Move(m.From, m.Tmp); else File.Move(m.From, m.Tmp); }
+                foreach (var m in mid) { if (Directory.Exists(m.Tmp)) Directory.Move(m.Tmp, m.To); else File.Move(m.Tmp, m.To); done.Add(m.To); UndoRename(m.From, m.To); }
+            }
+            catch (Exception ex)
+            {
+                foreach (var m in mid) try { if (Directory.Exists(m.Tmp)) Directory.Move(m.Tmp, m.From); else if (File.Exists(m.Tmp)) File.Move(m.Tmp, m.From); } catch { }   // whatever is still on its temporary name goes back
+                MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            _tab.SelectAfterLoad = new HashSet<string>(done, StringComparer.OrdinalIgnoreCase); LoadTab(_tab); return;
+        }
         if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) { MessageBox.Show(this, "A name can't contain any of these characters:\n\\ / : * ? \" < > |", "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         string dir = Path.GetDirectoryName(en.FullPath)!, target = Path.Combine(dir, name);
         if (!string.Equals(target, en.FullPath, StringComparison.OrdinalIgnoreCase) && (File.Exists(target) || Directory.Exists(target)))
@@ -1137,7 +1172,7 @@ public partial class MainWindow : Window
             items.Add(MI("Copy", "", () => CopySelection(false), "Ctrl+C"));
             if (sel.Count == 1 && sel[0].IsDir) items.Add(MI("Paste into folder", "", () => Paste(sel[0].FullPath), "Ctrl+V", enabled: ShellOps.ReadClipboard() != null));
             items.Add(new Separator());
-            items.Add(MI("Rename", "", RenameSelection, "F2", enabled: sel.Count == 1));
+            items.Add(MI(sel.Count > 1 ? $"Rename all {sel.Count}" : "Rename", "", RenameSelection, "F2", enabled: sel.Count >= 1));
             items.Add(MI("Delete", "", () => DeleteSelection(false), "Del"));
             items.Add(new Separator());
             items.Add(MI("Copy as path", "", () => { try { Clipboard.SetText(string.Join("\r\n", sel.Select(x => "\"" + x.FullPath + "\""))); } catch { } }));
@@ -1206,8 +1241,9 @@ public partial class MainWindow : Window
     {
         if (SwallowCardContinuation(e.ClickCount)) { e.Handled = true; return; }
         var under = EntryUnder(e.OriginalSource); _dragStart = e.GetPosition(null); _pendingSingle = null;
-        _dragItem = OnContent(e.OriginalSource as DependencyObject) ? under : null;   // only a name or icon is grabbed to drag a file; the blank part of a row starts the selection box
-        ArmRename(e, _dragItem); MarqueeArm(e, under);
+        bool grab = OnContent(e.OriginalSource as DependencyObject) || (under != null && List.SelectedItems.Contains(under) && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == 0);
+        _dragItem = grab ? under : null;   // a name or icon is grabbed to drag a file, and so is ANY part of a row that is already selected (you are dragging the selection out); the blank part of an unselected row starts the selection box
+        ArmRename(e, OnContent(e.OriginalSource as DependencyObject) ? _dragItem : null); if (grab) _mqArmed = false; else MarqueeArm(e, under);
         // pressing on one of several selected rows must not collapse the selection: that is how you drag them all
         if (_dragItem != null && List.SelectedItems.Count > 1 && List.SelectedItems.Contains(_dragItem) && Keyboard.Modifiers == ModifierKeys.None && e.ClickCount == 1)
         { _pendingSingle = _dragItem; e.Handled = true; List.Focus(); }

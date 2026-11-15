@@ -350,6 +350,14 @@ struct ThemePage : PageBase {
             if (cur) { auto* g = MkGlyph(sw, 0xE73E, 20, Col(K::White)); g->ha = g->va = Al::Center; }
             auto* l = MkLabel(c, t.name, FText(12.5f, cur ? 600 : 400)); l->ha = Al::Center; l->margin = Thick(0, 8, 0, 0);
         }
+        auto* wp = ClickCard(this, [sub] {   // the theme nearest to the wallpaper's strongest colour
+            ws id = WallpaperThemeId();
+            if (id.empty()) { sub->Set(L"Your wallpaper has no strong colour to match. Pick one above."); return; }
+            if (EqI(id, CurrentTheme().id)) { sub->Set(L"This colour already matches your wallpaper."); return; }
+            S.theme = id; SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); });
+        });
+        wp->lay = Lay::H; wp->gap = 10; wp->pad = Thick(14, 12); wp->margin = Thick(0, 10, 0, 0);
+        { auto* g = MkGlyph(wp, 0xE790, 16); g->va = Al::Center; auto* l = MkLabel(wp, L"Match my wallpaper", FText(13.5f)); l->va = Al::Center; }
     }
 };
 

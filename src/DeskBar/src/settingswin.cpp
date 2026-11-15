@@ -128,8 +128,9 @@ void PageStartup(View* col) {
     Head(col, 0xE7E8, nullptr, L"Start-up and updates", L"When DeskBar starts, and keeping it current.");
     auto* c = Card(col, L"Starting up");
     auto* sign = Row(c, 0xE7E8, L"Start DeskBar when I sign in", L"Runs as a scheduled task, so it starts before the desktop shows.", true, [](bool on) { std::thread([on] { SetSignInTask(on); }).detach(); });
-    std::thread([sign] { ws s = SignInTaskState(); bool on = s == L"?" || (!s.empty() && !ContainsI(s, L"Disabled"));
-        UiPost([sign, on] { if (g_sw && g_sw->hwnd && g_cur == 3) { sign->Set(on); sign->Invalidate(); } }); }).detach();
+    static int signGen = 0; int gen = ++signGen;   // the page can be rebuilt (and this switch deleted) while PowerShell answers: only the newest build may be touched
+    std::thread([sign, gen] { ws s = SignInTaskState(); bool on = s == L"?" || (!s.empty() && !ContainsI(s, L"Disabled"));
+        UiPost([sign, on, gen] { if (gen == signGen && g_sw && g_sw->hwnd && g_cur == 3) { sign->Set(on); sign->Invalidate(); } }); }).detach();
     c = Card(col, L"Updates");
     Row(c, 0xE895, L"Look for updates once a day", L"Only looks. Nothing installs until you press Update.", S.updateCheck, [](bool v) { S.updateCheck = v; });
     Sep(c);
@@ -138,6 +139,13 @@ void PageStartup(View* col) {
     Btn(st, L"Check now", 0xE72C, false, [] { UpdateCheck(); })->va = Al::Center;
     g_pageUpd = Btn(st, L"Update now", 0xE896, true, [] { UpdateNow(); }); g_pageUpd->va = Al::Center; g_pageUpd->visible = UpdateNewer();
     g_updStatus = us;
+    c = Card(col, L"Your settings");
+    auto* sx = MkBox(c, Lay::H); sx->pad = Thick(12, 10); sx->gap = 10;
+    auto* sm = Dim(sx, L"Everything you set in DeskBar, DeskDrawer and DeskTune, kept in Documents\\Desk settings: for a new PC or before a reinstall.", 13); sm->star = 1; sm->va = Al::Center; sm->wrap = true;
+    Btn(sx, L"Save", 0xE74E, false, [sm] { sm->Set(DeskSettingsExport()); })->va = Al::Center;
+    Btn(sx, L"Bring back", 0xE777, false, [sm] { sm->Set(DeskSettingsImport()); })->va = Al::Center;
+    c = Card(col, L"Help make it better");
+    Row(c, 0xEBE8, L"Report a bug", L"Adds \"Report a bug to Claude\" to the bar's right-click menu. It sends what you type, with DeskBar's recent log, to the developer. Nothing is sent unless you press Send.", S.bugReports, [](bool v) { S.bugReports = v; });
     c = Card(col, L"DeskBar itself");
     auto* b = MkBox(c, Lay::H); b->pad = Thick(10); b->gap = 8;
     Btn(b, L"Restart DeskBar", 0xE777, false, [] { AppQuit(true); });

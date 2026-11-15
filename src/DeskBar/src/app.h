@@ -166,6 +166,7 @@ void HooksEnsure(DWORD parentPid);
 void HooksListen();
 void WinMoveStart();
 void WinMoveTick(int n);
+ws WallpaperThemeId(); ws DeskSettingsExport(); ws DeskSettingsImport(); void TrimMemoryIfIdle();   // extras.cpp
 
 // ---------- window helpers ----------
 void SendToNextScreen(HWND h);

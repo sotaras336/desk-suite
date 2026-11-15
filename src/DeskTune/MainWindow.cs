@@ -220,6 +220,9 @@ public sealed class MainWindow : Window
         if (p) r.Edge.SetResourceReference(Border.BackgroundProperty, "Accent"); else r.Edge.Background = Brushes.Transparent;
     }
 
+    /// Memory in use right now, in GB: measured before and after Apply, so the report says what the changes really freed instead of an estimate.
+    private static double UsedGb() { var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() }; GlobalMemoryStatusEx(ref m); return (m.ullTotalPhys - m.ullAvailPhys) / 1073741824.0; }
+
     private void UpdateMemory()
     {
         var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() }; GlobalMemoryStatusEx(ref m);
@@ -262,10 +265,12 @@ public sealed class MainWindow : Window
         Work($"Applying {c.Count} change{(c.Count == 1 ? "" : "s")}…", () =>
         {
             string rp = turnOff.Any(t => t.Admin) ? Elevation.EnsureRestorePoint() : "";
-            var failed = new List<string>(); int done = 0;
+            var failed = new List<string>(); int done = 0; double before = UsedGb();
             foreach (var t in turnOff) try { Log.Apply(t); done++; } catch (Exception ex) { failed.Add($"{t.Title} ({ex.Message})"); }
             foreach (var t in putBack) try { Log.Undo(t.Id); done++; } catch (Exception ex) { failed.Add($"{t.Title} ({ex.Message})"); }
-            return $"Done: {done} change{(done == 1 ? "" : "s")}." + (failed.Count > 0 ? " Couldn't: " + string.Join("; ", failed) + "." : "") + " " + rp + " Startup and service changes fully take effect after a restart.";
+            System.Threading.Thread.Sleep(2500); double after = UsedGb(), freed = before - after;   // stopped services and closed apps let go within a couple of seconds
+            string mem = $" Memory in use: {before:N1} GB before, {after:N1} GB now" + (freed >= 0.05 ? $" ({freed * 1024:N0} MB freed so far)." : " (no change yet).");
+            return $"Done: {done} change{(done == 1 ? "" : "s")}." + mem + (failed.Count > 0 ? " Couldn't: " + string.Join("; ", failed) + "." : "") + " " + rp + " Startup and service changes fully take effect after a restart.";
         });
     }
 

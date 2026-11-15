@@ -56,7 +56,9 @@ std::vector<ScreenMode> ScreenModes() {
 
 // All the changes queued and applied in one commit (one blink), then checked: Windows reshuffles the screens while the power mode changes and can drop a request,
 // so it looks again and retries a few times (DeskMode's "Go easy stayed at 120 Hz" fix).
+static std::recursive_mutex g_dmMu;   // Go max, Go easy, the dock switch and a hand-picked rate each run on their own thread: one at a time, in the order asked, or their retry loops fight
 bool SetScreenRates(const std::vector<std::pair<ws, int>>& want) {
+    std::lock_guard<std::recursive_mutex> lk(g_dmMu);
     for (int attempt = 0; attempt < 4; attempt++) {
         int queued = 0;
         for (auto& [dev, hz] : want) {
@@ -90,6 +92,7 @@ void SetPowerModeNow(int mode) {
 int PickRate(const ScreenMode& s, int want) { if (s.rates.empty()) return s.hz; if (want <= 0) return s.rates.back(); int hz = s.rates.front(); for (int r : s.rates) if (r <= want) hz = r; return hz; }
 // Go max / Go easy, as chosen in DeskMode's settings: the rates, the power mode, Energy saver.
 void DeskModeGo(bool max) {
+    std::lock_guard<std::recursive_mutex> lk(g_dmMu);
     std::vector<std::pair<ws, int>> want;
     for (auto& s : ScreenModes()) { if (s.rates.empty()) continue; want.push_back({s.device, PickRate(s, max ? (s.internal ? S.dmMaxLaptopHz : S.dmMaxMonitorHz) : S.dmEasyHz)}); }
     SetPowerModeNow(max ? S.dmMaxMode : S.dmEasyMode);   // first: Windows reshuffles the screens when the power mode changes
@@ -119,12 +122,13 @@ void DeskModeTick() {
         std::thread([] { DeskModeGo(true); }).detach();
     } else if (!docked && S.dmRestore && g_haveSnap) {
         auto rates = g_snapRates; int mode = g_snapMode; g_haveSnap = false;
-        std::thread([rates, mode] { if (mode >= 0) SetPowerModeNow(mode); SetScreenRates(rates); Log(L"deskmode: back to how it was"); }).detach();
+        std::thread([rates, mode] { std::lock_guard<std::recursive_mutex> lk(g_dmMu); if (mode >= 0) SetPowerModeNow(mode); SetScreenRates(rates); Log(L"deskmode: back to how it was"); }).detach();
     }
 }
 
 // DeskMode's "monitor first": the monitor at its highest rate, the built-in screen at 60 Hz, Best performance.
 void DeskModeFirst() {
+    std::lock_guard<std::recursive_mutex> lk(g_dmMu);
     std::vector<std::pair<ws, int>> want;
     for (auto& s : ScreenModes()) { if (s.rates.empty()) continue; want.push_back({s.device, PickRate(s, s.internal ? S.dmEasyHz : S.dmMaxMonitorHz)}); }
     SetPowerModeNow(S.dmMaxMode); if (EnergySaverIsOn() >= 0) EnergySaverSet(false); SetScreenRates(want); Log(L"deskmode: monitor first");

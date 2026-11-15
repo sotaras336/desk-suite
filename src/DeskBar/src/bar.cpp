@@ -198,7 +198,6 @@ bool Bar::Init() {
         if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});
         if (BugReportsOn()) m.push_back({L"Report a bug to Claude", 0xEBE8, [] { OpenBugReport(); }});
         m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"DeskBar settings", 0xE713, [] { OpenSettingsWindow(); }});
-        m.push_back({L"Windows taskbar settings", 0xE713, [] { Launch(L"ms-settings:taskbar"); }});
         MenuShow(std::move(m), [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale);
     };
     auto* row = MkBox(r, Lay::H);
@@ -348,6 +347,8 @@ LRESULT Bar::Proc(UINT m, WPARAM w, LPARAM l) {
 struct BarDrop : IDropTarget {
     Bar* bar; ULONG refs = 1; TaskBtn* over = nullptr; UINT_PTR hold = 0; ws fileKind;
     BarDrop(Bar* b) : bar(b) {}
+    ~BarDrop() { if (hold) UiKillTimer(hold); }
+    void Check() { if (over && std::find(bar->btns.begin(), bar->btns.end(), over) == bar->btns.end()) over = nullptr; }   // the app under the cursor closed mid-drag: its button is gone
     HRESULT QueryInterface(REFIID r, void** o) override { if (r == IID_IUnknown || r == IID_IDropTarget) { *o = this; AddRef(); return S_OK; } *o = nullptr; return E_NOINTERFACE; }
     ULONG AddRef() override { return ++refs; } ULONG Release() override { ULONG r = --refs; if (!r) delete this; return r; }
     TaskBtn* At(POINTL pt) { POINT p{pt.x, pt.y}; ScreenToClient(bar->hwnd, &p); View* v = bar->HitTest(p.x / bar->scale, p.y / bar->scale); for (; v; v = v->parent) for (auto* b : bar->btns) if (b == v) return b; return nullptr; }
@@ -357,7 +358,7 @@ struct BarDrop : IDropTarget {
         return out;
     }
     void Over(TaskBtn* b) {
-        if (b == over) return; if (hold) { UiKillTimer(hold); hold = 0; } if (over) { over->hovered = false; } over = b; if (b) { b->hovered = true; hold = UiTimer(550, [this] { UiKillTimer(hold); hold = 0; if (over && !over->e.wins.empty()) { ForceForeground(over->e.wins[0].h); WinTrackerPoke(); } }); }
+        Check(); if (b == over) return; if (hold) { UiKillTimer(hold); hold = 0; } if (over) { over->hovered = false; } over = b; if (b) { b->hovered = true; hold = UiTimer(550, [this] { UiKillTimer(hold); hold = 0; Check(); if (over && !over->e.wins.empty()) { ForceForeground(over->e.wins[0].h); WinTrackerPoke(); } }); }
         bar->Invalidate();
     }
     HRESULT DragEnter(IDataObject* d, DWORD, POINTL pt, DWORD* ef) override { fileKind = L""; for (auto& f : Files(d)) { ws x = ExtOf(f); if (x == L".exe" || x == L".lnk") fileKind = x; } return DragOver(0, pt, ef); }
@@ -390,7 +391,7 @@ void BarsStart() {
     for (auto& m : mons) { if (!WantMonitor(m, mons)) continue; auto b = std::make_unique<Bar>(m.h, i++); if (b->Init()) g_bars.push_back(std::move(b)); }
     BarsSync(); TrayRefresh();
 }
-void BarsStop() { for (auto& b : g_bars) if (!g_dev) Dock::Remove(b->hwnd); g_bars.clear(); }
+void BarsStop() { for (auto& b : g_bars) { RevokeDragDrop(b->hwnd); if (!g_dev) Dock::Remove(b->hwnd); } g_bars.clear(); }   // revoke: the drop target points at the bar
 void BarsSync() {
     auto snap = WinSnapshot(); auto es = BuildEntries(*snap);
     for (auto& b : g_bars) b->Sync(es, snap->fg);

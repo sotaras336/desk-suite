@@ -173,8 +173,9 @@ void NetHotspot(bool query, bool on, std::function<void(int)> cb) {
             auto p = NetworkInformation::GetInternetConnectionProfile();
             if (p) {
                 auto m = NetOps::NetworkOperatorTetheringManager::CreateFromConnectionProfile(p);
-                if (query) r = m.TetheringOperationalState() == NetOps::TetheringOperationalState::On ? 1 : 0;
-                else { auto res = on ? m.StartTetheringAsync().get() : m.StopTetheringAsync().get(); r = res.Status() == NetOps::TetheringOperationStatus::Success ? (on ? 1 : 0) : -1; }
+                if (!m) r = -1;
+                else if (query) r = m.TetheringOperationalState() == NetOps::TetheringOperationalState::On ? 1 : 0;
+                else { auto res = on ? m.StartTetheringAsync().get() : m.StopTetheringAsync().get(); r = res && res.Status() == NetOps::TetheringOperationStatus::Success ? (on ? 1 : 0) : -1; }
             }
         } catch (hresult_error const& e) { Log(L"hotspot: %s", e.message().c_str()); }
         if (cb) UiPost([cb, r] { cb(r); });
@@ -184,7 +185,7 @@ std::vector<WifiNet> WifiLast() { std::lock_guard<std::mutex> l(g_mu); return g_
 // The network this adapter is joined to ("" = none). Windows can hand back a connection profile whose Wi-Fi details are not there yet (right after connecting): calling
 // into that missing object is a null dereference, which try/catch does not catch, so it is checked first.
 static ws ConnectedSsid() {
-    try { auto pr = g_adapter.NetworkAdapter().GetConnectedProfileAsync().get(); if (!pr) return {}; auto d = pr.WlanConnectionProfileDetails(); if (!d) return {}; return ws(d.GetConnectedSsid().c_str()); } catch (...) { return {}; }
+    try { if (!g_adapter) return {}; auto na = g_adapter.NetworkAdapter(); if (!na) return {}; auto pr = na.GetConnectedProfileAsync().get(); if (!pr) return {}; auto d = pr.WlanConnectionProfileDetails(); if (!d) return {}; return ws(d.GetConnectedSsid().c_str()); } catch (...) { return {}; }
 }
 static std::atomic<int> g_connecting{0};   // a connect is under way: no fresh scan may start under it (a scan aborts a connection that is starting)
 void WifiScan(bool fresh, std::function<void(bool, std::vector<WifiNet>)> cb) {
@@ -223,8 +224,8 @@ static const wchar_t* StatusName(WiFiConnectionStatus s) {
 // old, with an access point that has since changed: the first try failed instantly and a later one, after a rescan, worked), and the strongest signal wins.
 static ws TryConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, bool scanFirst) {
     if (scanFirst) { try { g_adapter.ScanAsync().get(); } catch (...) {} }
-    WiFiAvailableNetwork best{nullptr};
-    for (auto n : g_adapter.NetworkReport().AvailableNetworks()) if (ws(n.Ssid().c_str()) == ssid && (!best || n.NetworkRssiInDecibelMilliwatts() > best.NetworkRssiInDecibelMilliwatts())) best = n;
+    WiFiAvailableNetwork best{nullptr}; auto rep = g_adapter ? g_adapter.NetworkReport() : nullptr; if (!rep) return L"Network not available";
+    for (auto n : rep.AvailableNetworks()) if (ws(n.Ssid().c_str()) == ssid && (!best || n.NetworkRssiInDecibelMilliwatts() > best.NetworkRssiInDecibelMilliwatts())) best = n;
     if (!best) { Log(L"wifi connect %s: not in the adapter's report%s", ssid.c_str(), scanFirst ? L" even after a scan" : L""); return L"Network not available"; }
     uint64_t t0 = Now(); winrt::Windows::Devices::WiFi::WiFiConnectionResult res{nullptr};
     if (!usePass) res = g_adapter.ConnectAsync(best, WiFiReconnectionKind::Automatic).get();

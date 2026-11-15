@@ -99,6 +99,11 @@ public static partial class SelfTest
         }
         catch (Exception ex) { Check("no exception", false, ex.ToString()); }
         finally { try { Directory.Delete(root, true); } catch { } }
+        {   // F2 on several files: one name, numbered, own extensions kept, taken numbers skipped
+            var plan = MainWindow.BatchPlan(new[] { ("x/a.jpg", false), ("x/b.png", false), ("x/c.jpg", false) }, "Trip.jpg", p => p.EndsWith("Trip (2).png"));
+            Check("renaming a group numbers the files and keeps each extension", plan.Select(p => Path.GetFileName(p.To)).SequenceEqual(new[] { "Trip (1).jpg", "Trip (3).png", "Trip (4).jpg" }), string.Join(", ", plan.Select(p => Path.GetFileName(p.To))));
+        }
+        { var (l, r) = MainWindow.Halves(0, 0, 1921, 1040); Check("side by side splits a screen into two halves that cover it", l == "0,0,960,1040" && r == "960,0,961,1040", l + " | " + r); }
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());
         return fail;

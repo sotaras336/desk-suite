@@ -38,7 +38,7 @@ MIT: see `LICENSE`.
 
 ## Privacy
 
-None of the apps have accounts, telemetry or ads, and none sends anything about you or your PC. The one thing each app does by itself is look, about once a day, at `SHA256SUMS.txt` in this repository's newest release to see whether a newer version is out (GitHub sees an ordinary download request). A new version is only installed when you press **Update now**; it is downloaded, checked against that checksum and then run. Switch the daily look off in each app's settings. The only web pages the apps open are ones you click, such as a Wi-Fi sign-in page or a Microsoft Store page to reinstall an app.
+None of the apps have accounts, telemetry or ads, and none sends anything about you or your PC. The one thing each app does by itself is look, about once a day, at `SHA256SUMS.txt` in this repository's newest release to see whether a newer version is out (GitHub sees an ordinary download request). A new version is only installed when you press **Update now**; it is downloaded, checked against that checksum and then run. Switch the daily look off in each app's settings. The only web pages the apps open are ones you click, such as a Wi-Fi sign-in page or a Microsoft Store page to reinstall an app. DeskBar has an optional **Report a bug** notepad, switched off unless you turn it on in its settings: when you press Send, what you typed goes to the developer together with DeskBar's version, your Windows version, your screen setup and the apps' recent logs. Nothing is sent before you press Send.
 
 ## Build it yourself
 

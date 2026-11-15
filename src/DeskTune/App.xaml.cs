@@ -47,6 +47,17 @@ public partial class App : Application
     public static Size? ForcedSize;
 
     /// DeskTune.exe  [--install]  [--selftest report.txt]  [--snapshot out.png]  [--makeicon file.ico]  [--size WxH]
+    /// One-off errors used to close the app without a trace. Now they are written to crash.log; an error in the window itself no longer closes it
+    /// (after 20 in one run it is let through: something is really broken).
+    private void CrashNet(string app)
+    {
+        string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), app); int n = 0;
+        void W(string kind, object? ex) { try { System.IO.Directory.CreateDirectory(dir); System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "crash.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {kind}\r\n{ex}\r\n\r\n"); } catch { } }
+        DispatcherUnhandledException += (_, a) => { W("window", a.Exception); if (++n <= 20) a.Handled = true; };
+        AppDomain.CurrentDomain.UnhandledException += (_, a) => W("fatal", a.ExceptionObject);
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, a) => { W("task", a.Exception); a.SetObserved(); };
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -67,6 +78,7 @@ public partial class App : Application
             Shutdown(ok ? 0 : 1); return;
         }
         Theme.Load("black"); Theme.Apply();
+        CrashNet("DeskTune");
         var w = new MainWindow(); w.Show();
         if (!a.Contains("--snapshot") && !a.Contains("--settingsshot") || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
         for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--snapshot") SelfTest.SnapshotLater(w, a[i + 1]);

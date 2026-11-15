@@ -137,6 +137,14 @@ public partial class MainWindow
                 Check("and shrinks again when the pointer comes back", Sel().Count == 5, "(" + Sel().Count + ")");
                 MarqueeEnd();
                 Check("letting go removes the box and keeps the selection", !_mqActive && _mqRect!.Visibility != Visibility.Visible && Sel().Count == 5);
+                {   // the blank part of a row that is ALREADY selected is a grab (drag the selection out), not a new box; on an unselected row it still starts a box
+                    void Press(ListViewItem row) => List.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = row });
+                    var vis = Rows(); var selRow = vis.First(x => List.SelectedItems.Contains(x.Row.Content)).Row; var freeRow = vis.First(x => !List.SelectedItems.Contains(x.Row.Content)).Row;
+                    Press(selRow); bool grabbed = _dragItem == selRow.Content && !_mqArmed && Sel().Count == 5;
+                    Press(freeRow); bool boxed = _dragItem == null && _mqArmed;
+                    _dragItem = null; _pendingSingle = null; _mqArmed = false;
+                    Check("pressing the blank part of a selected row grabs the selection, of an unselected row starts a box", grabbed && boxed, $"(grab {grabbed}, box {boxed})");
+                }
                 List.SelectedItems.Clear(); var first = _tab.Entries!.First(x => x.Name == "f01.txt"); List.SelectedItems.Add(first); var rows2 = Rows();
                 MarqueeArmAt(new Point(x0, rows2[9].Box.Top + 3), false, true); MarqueeBegin(); MarqueeMoveTo(new Point(x0 - 500, rows2[11].Box.Bottom - 3)); got = Sel().Select(x => x.Name).OrderBy(x => x).ToList(); MarqueeEnd();
                 Check("with Ctrl or Shift the box adds to what was selected", got.SequenceEqual(new[] { "f01.txt", "f10.txt", "f11.txt", "f12.txt" }), "(" + string.Join(",", got) + ")");

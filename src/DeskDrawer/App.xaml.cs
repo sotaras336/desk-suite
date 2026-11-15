@@ -6,6 +6,7 @@ public partial class App : Application
 {
     /// DeskDrawer.exe [folder ...]  [--theme id]  [--snapshot out.png]  [--selftest report.txt]
     public static string? ForcedTheme, SnapshotFile, UiTest;   // --uitest report.txt: drive the real window (MainWindow.Test.cs)
+    public static string? Bounds;   // --bounds x,y,w,h: where a Side by side window goes (screen pixels)
     public static string? ForcedView;   // --view Details|List|Tiles|Icons, for snapshots
     public static string? SelectName;   // --select name: with --snapshot, select that item first (to photograph the preview pane)
     public static bool ShowMenu, ShowMore, BgMenu;   // --bgmenu: photograph the menu of empty space   // --showmore: photograph the themed "more options" menu of the first file   // --showmenu: with --snapshot, also open the right-click menu on the first item and photograph it
@@ -16,6 +17,17 @@ public partial class App : Application
 
     /// Windows passes a drive as "C:\" in quotes, which arrives as C:" (the backslash escapes the quote).
     internal static string CleanPath(string a) { a = a.Trim('"'); return a.Length == 2 && a[1] == ':' ? a + "\\" : a; }
+
+    /// One-off errors used to close the app without a trace. Now they are written to crash.log; an error in the window itself no longer closes it
+    /// (after 20 in one run it is let through: something is really broken).
+    private void CrashNet(string app)
+    {
+        string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), app); int n = 0;
+        void W(string kind, object? ex) { try { System.IO.Directory.CreateDirectory(dir); System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "crash.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {kind}\r\n{ex}\r\n\r\n"); } catch { } }
+        DispatcherUnhandledException += (_, a) => { W("window", a.Exception); if (++n <= 20) a.Handled = true; };
+        AppDomain.CurrentDomain.UnhandledException += (_, a) => W("fatal", a.ExceptionObject);
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, a) => { W("task", a.Exception); a.SetObserved(); };
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -32,6 +44,7 @@ public partial class App : Application
             else if (e.Args[i] == "--select" && i + 1 < e.Args.Length) SelectName = e.Args[++i];
             else if (e.Args[i] == "--view" && i + 1 < e.Args.Length) ForcedView = e.Args[++i];
             else if (e.Args[i] == "--new-window") newWindow = true;
+            else if (e.Args[i] == "--bounds" && i + 1 < e.Args.Length) Bounds = e.Args[++i];
             else if (e.Args[i] == "--uitest" && i + 1 < e.Args.Length) { UiTest = e.Args[++i]; newWindow = true; }
             else if (e.Args[i] == "--background") Background = true;
             else if (e.Args[i] == "--default" && i + 1 < e.Args.Length) { DefaultApp.Set(e.Args[++i] == "on", Environment.ProcessPath!); Shutdown(0); return; }
@@ -52,7 +65,9 @@ public partial class App : Application
         if (!test && !newWindow && !Background && Instance.HandOff(StartPaths)) { Shutdown(0); return; }   // already open: the folder becomes a tab there
         Resident = !test && !newWindow;
         SessionEnding += (_, _) => Quitting = true;
+        if (UiTest == null) CrashNet("DeskDrawer");   // a test run must still fail loudly
         var w = new MainWindow(); w.Show();
+        if (Bounds != null) { void Placed(object? s, EventArgs a) { w.ContentRendered -= Placed; w.PlaceAt(Bounds); } w.ContentRendered += Placed; w.PlaceAt(Bounds); }   // again once drawn: the window restores its remembered size while loading
         if (UiTest != null) { w.RunUiTest(UiTest); return; }
         if (!test) { if (Resident) Instance.Listen(w.OpenFromOutside);   /* only the resident copy takes folder hand-offs: a --new-window copy used to grab them when the resident was not running, then crashed once its window was closed */ DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); }
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
