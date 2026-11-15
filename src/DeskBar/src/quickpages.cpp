@@ -363,23 +363,52 @@ struct BtPage : PageBase {
     }
 };
 
+static bool WinAccentAvailable() { DWORD v = 0, n = sizeof v; return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &v, &n) == 0; }
+// a bar of every colour a custom theme can take (each spot drawn in the accent that hue gives), with a thumb wearing the picked one
+struct HueBar : View {
+    float value = 300; bool drag = false; std::function<void(float)> onChange; std::function<void()> onRelease;
+    HueBar() { hit = true; fh = 34; }
+    Sz MeasureContent(Sz) override { return {120, 34}; }
+    void From(float x) { float a = rc.l + 14, b = rc.r - 14; value = b > a ? std::clamp((x - a) / (b - a), 0.f, 1.f) * 359.f : 0; Invalidate(); if (onChange) onChange(value); }
+    bool OnDown(float x, float, bool) override { drag = true; From(x); return true; }
+    void OnDrag(float x, float) override { if (drag) From(x); }
+    void OnUp(float x, float) override { if (drag) { drag = false; From(x); if (onRelease) UiOnce(1, onRelease); } }   // after the press: the page, this bar included, is rebuilt in the new colour
+    void PaintContent(Gfx& g) override {
+        float a = rc.l + 14, b = rc.r - 14, cy = rc.cy();
+        auto acc = [](float h) { ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
+        Rf track{rc.l, cy - 9, rc.r, cy + 9}; g.PushClip(track, 9); const int n = 36;   // brushes take 3 stops: the rainbow is drawn in slices
+        for (int i = 0; i < n; i++) { float x0 = track.l + track.w() * i / n, x1 = track.l + track.w() * (i + 1) / n + 0.5f; g.Fill({x0, track.t, x1, track.b}, LinearB(0, 0.5f, 1, 0.5f, {{0, acc(359.f * i / n)}, {1, acc(359.f * (i + 1) / n)}})); }
+        g.PopClip();
+        float x = a + (b - a) * value / 359.f; ThemeDef t{L"custom", L"Custom", value, false, 0};
+        g.Circle(x, cy, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, cy, 11, ColFor(t, K::Accent));
+    }
+};
+
 // ======================================================= Color
 struct ThemePage : PageBase {
     ThemePage(QuickPanel* p) : PageBase(p) {
         PageHeader(this, L"Color", [p] { p->Back(); });
         auto* sub = MkLabel(this, L"Pick the color of the bar and the panels. DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 14);
-        {   // any colour: a hue slider, a live swatch, and a button to use it
-            auto* cap = MkLabel(this, L"Your own color: slide, then press Use.", FText(12.5f), Col(K::White, K::Dim)); cap->margin = Thick(4, 0, 0, 6);
-            auto* row = MkBox(this, Lay::H); row->gap = 10; row->margin = Thick(0, 0, 0, 12); row->va = Al::Center;
-            float h0 = EqI(CurrentTheme().id, L"custom") ? CurrentTheme().hue : 300.f;
-            auto* sw = MkBox(row); sw->fw = sw->fh = 32; sw->radius = 16; sw->va = Al::Center;
-            auto paint = [sw](float h) { ThemeDef t{L"custom", L"Custom", h, false, 0}; sw->bg = LinearB(0, 0, 1, 1, {{0, ColFor(t, K::Bar)}, {1, ColFor(t, K::Accent)}}); sw->Invalidate(); };
-            paint(h0);
-            auto* sl = row->Add(new Slider()); sl->star = 1; sl->va = Al::Center; sl->Set(h0 / 360.f);
-            auto hue = std::make_shared<float>(h0);
-            sl->onChange = [paint, hue](float v, bool) { *hue = v * 359.f; paint(*hue); };
-            auto* use = ClickCard(row, [hue] { S.theme = Fmt(L"custom:%d", (int)*hue); SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }, EqI(CurrentTheme().id, L"custom"));
-            use->pad = Thick(12, 8); use->margin = Thick(0); use->va = Al::Center; MkLabel(use, L"Use", FText(13));
+        {   // your own colour, the way DeskDrawer does it: the panel itself shows the colour as you slide, Cancel puts yours back, Use keeps it
+            bool mine = EqI(CurrentTheme().id, L"custom") || EqI(CurrentTheme().id, L"accent");
+            float h0 = mine && CurrentTheme().hue >= 0 ? CurrentTheme().hue : 300.f; auto hue = std::make_shared<float>(h0);
+            bool previewing = EqI(CurrentTheme().id, L"custom") && !StartsI(S.theme, L"custom:" + std::to_wstring((int)lroundf(h0)));
+            auto* card = MkBox(this, Lay::V); card->bg = SolidB(K::White, 0x10); card->radius = 14; card->pad = Thick(14, 12); card->gap = 10; card->margin = Thick(0, 0, 0, 12);
+            MkLabel(card, L"Pick a colour", FText(14, 600));
+            MkLabel(card, L"The panel changes as you slide. The bar follows when you press Use.", FText(11.5f), Col(K::White, K::Dim))->wrap = true;
+            auto* bar = card->Add(new HueBar()); bar->value = h0;
+            QuickPanel* qp = q;
+            bar->onChange = [hue](float h) { *hue = h; };
+            bar->onRelease = [hue, qp] { SetTheme(Fmt(L"custom:%d", (int)lroundf(*hue))); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); };
+            auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End;
+            auto pill = [&](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };
+            if (previewing) pill(L"Cancel", false, [qp] { SetTheme(S.theme); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); });
+            pill(L"Use this colour", true, [hue] { S.theme = Fmt(L"custom:%d", (int)lroundf(*hue)); SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); });
+        }
+        if (WinAccentAvailable()) {
+            auto* ac = ClickCard(this, [] { S.theme = L"accent"; SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }, EqI(CurrentTheme().id, L"accent"));
+            ac->lay = Lay::H; ac->gap = 10; ac->pad = Thick(14, 12); ac->margin = Thick(0, 0, 0, 12);
+            auto* g = MkGlyph(ac, 0xE771, 16); g->va = Al::Center; auto* l = MkLabel(ac, L"Windows accent colour", FText(13.5f)); l->va = Al::Center;
         }
         auto* grid = MkBox(this, Lay::Uniform); grid->cols = 4; grid->gap = 6;
         for (int i = 0; i < kThemeCount; i++) {

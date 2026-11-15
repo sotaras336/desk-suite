@@ -333,7 +333,14 @@ void SetTheme(const ws& id) {
 #endif
     for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, id)) d = &kThemes[i];
     static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>": any colour; DeskDrawer and DeskTune read the same id
-    if (id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7)) { float h = (float)_wtof(id.c_str() + 7); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
+    if (EqI(id, L"accent")) {   // Windows' accent colour (Settings > Personalisation > Colours), as DeskDrawer and DeskTune read it
+        DWORD abgr = 0, n = sizeof abgr;
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &abgr, &n) == 0) {
+            float h, s, l; ToHsl((abgr & 255) / 255.f, ((abgr >> 8) & 255) / 255.f, ((abgr >> 16) & 255) / 255.f, h, s, l);
+            if (s >= 0.1f) { custom = {L"accent", L"Windows accent", h, false, 0}; d = &custom; }
+        }
+    }
+    if (id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7)) { custom.id = L"custom"; custom.name = L"Custom"; float h = (float)_wtof(id.c_str() + 7); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
     g_theme = d;
 }
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {

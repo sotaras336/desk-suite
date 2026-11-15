@@ -1,11 +1,9 @@
-## Desk 3.1
+## Desk 3.1.1
 
 **DeskBar**
 
-- **Any colour you like:** Quick Settings > Color now has a slider. Slide it, watch the preview, press Use. DeskDrawer and DeskTune follow the same colour.
-- **Add a Bluetooth device right in the panel:** Bluetooth > Add device now searches for nearby devices itself (about ten seconds) and lists them with a Pair button. Before, it handed off to Windows' "Add a device" window, which did not always come up. Put the device in pairing mode first; Windows shows its own prompt when a device asks for a PIN or a confirmation.
-- Fixed "Searching 26" appearing where "Searching…" was meant.
-- The tester's bug-report setup now works whatever version it is: it switches Report a bug on, then installs the newest DeskBar from GitHub if that is newer than itself.
+- The custom colour picker is redone, the same way as DeskDrawer's: a bar showing every colour, and the panel recolours itself as you slide so you see the result before you commit. **Use this colour** keeps it, **Cancel** puts yours back. The 3.1 slider jumped wildly with the smallest drag; that is fixed.
+- New: **Windows accent colour** on the Color page makes DeskBar (and DeskDrawer and DeskTune) follow the colour you picked in Windows Settings.
 
 DeskDrawer and DeskTune are the same as in 3.0.
 
