@@ -27,3 +27,4 @@ View* MakeDeskModeSettings(QuickPanel* q);
 View* MakeDeskModeRates(QuickPanel* q);
 void MirrorSet(const ws& deviceId, bool on);          // "Also play" (mirror.cpp)
 bool MirrorIsOn(const ws& deviceId);
+void MirrorSetLag(int ms);                            // "Also play": how late Bluetooth is, set by ear

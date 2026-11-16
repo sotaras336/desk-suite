@@ -101,6 +101,7 @@ struct OverflowWnd : Wnd {
     UINT_PTR poll = 0; bool downPrev = false; HWND fg0 = nullptr; RECT anchor{};
     OverflowWnd() { noActivate = true; }
 };
+Bar* g_ovBar = nullptr; std::vector<ws> g_ovKeys; std::vector<bool> g_ovHasImg;   // the open popup: whose it is and which icons it shows, in order
 std::unique_ptr<OverflowWnd> g_ov; uint64_t g_ovGrace = 0;   // after a right-click the app takes the foreground a moment before its menu appears (and some menus aren't "#32768" at all): no dismissing until the next click or 15 s
 void OverflowClose() { if (!g_ov || !g_ov->hwnd) return; if (g_ov->poll) { UiKillTimer(g_ov->poll); g_ov->poll = 0; } g_ov->CancelInput(); TipHide(); ShowWindow(g_ov->hwnd, SW_HIDE); }
 View* TrayCell(View* parent, const std::shared_ptr<TrayIcon>& ic, float w) {
@@ -135,28 +136,34 @@ void TrayStop() {
 }
 void TrayKeepOnTop() { if (g_wnd && FindWindowW(L"Shell_TrayWnd", nullptr) != g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
 void TrayPlace(const RECT& r) { if (g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE); }
+bool OverflowFill(bool show);
 void TrayRefresh() {
     for (auto* bar : AllBars()) {
         bar->trayBox->Clear(); bool any = false;
         for (auto& ic : g_icons) { if (ic->hidden) continue; if (IsPromoted(*ic)) TrayCell(bar->trayBox, ic, 32); else any = true; }
         bar->overflowBtn->Show(any); bar->Relayout();
         bar->overflowBtn->onClick = [bar] { TrayToggleOverflow(bar); };
-    }   // shortcut: an open overflow popup keeps its icon list until reopened (any tray update used to close it within a second), upgrade by rebuilding it here
+    }
+    // The overflow popup, if it is open, follows too (it used to keep the icons it opened with: one that had gone stayed clickable, a new one did not appear).
+    if (!g_ov || !g_ov->hwnd || !IsWindowVisible(g_ov->hwnd)) return;
+    auto bars = AllBars(); if (std::find(bars.begin(), bars.end(), g_ovBar) == bars.end()) { OverflowClose(); return; }   // its bar is gone (a screen unplugged)
+    std::vector<std::shared_ptr<TrayIcon>> list; for (auto& ic : g_icons) if (!ic->hidden && !IsPromoted(*ic)) list.push_back(ic);
+    std::vector<ws> keys; std::vector<bool> has; for (auto& ic : list) { keys.push_back(ic->Key()); has.push_back((bool)ic->img); }
+    View* grid = g_ov->root->kids.empty() ? nullptr : g_ov->root->kids[0];
+    if (keys == g_ovKeys && has == g_ovHasImg && grid && grid->kids.size() == list.size()) {   // the same icons, perhaps redrawn (a network icon blinking): new pictures and tips in place, nothing under the pointer is rebuilt
+        for (size_t i = 0; i < list.size(); i++) { View* c = grid->kids[i]; if (list[i]->img && !c->kids.empty()) static_cast<Pic*>(c->kids[0])->img = list[i]->img; if (!EqI(FileNameOf(list[i]->exe), L"DeskMode.exe")) c->tip = list[i]->tip; }
+        g_ov->Invalidate(); return;
+    }
+    if ((GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON)) & 0x8000) { static bool again = false; if (!again) { again = true; UiOnce(300, [] { again = false; TrayRefresh(); }); } return; }   // not under a press: the cell being pressed would be deleted
+    g_ov->CancelInput(); TipHide(); if (!OverflowFill(false)) OverflowClose();
 }
 void TrayToggleOverflow(Bar* bar) {
     if (g_ov && g_ov->hwnd && IsWindowVisible(g_ov->hwnd)) { OverflowClose(); return; }
-    std::vector<std::shared_ptr<TrayIcon>> list; for (auto& ic : g_icons) if (!ic->hidden && !IsPromoted(*ic)) list.push_back(ic);
-    if (list.empty()) return;
-    RECT a = bar->ScreenRect(bar->overflowBtn); POINT mid{(a.left + a.right) / 2, (a.top + a.bottom) / 2};
-    if (!g_ov) { g_ov = std::make_unique<OverflowWnd>(); g_ov->Create(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, WS_POPUP, mid.x, mid.y, 10, 10); StyleFlyout(g_ov->hwnd, true); }
-    OverflowWnd& o = *g_ov; SetWindowPos(o.hwnd, nullptr, mid.x, mid.y, 10, 10, SWP_NOACTIVATE | SWP_NOZORDER); o.UpdateScale(); float sc = o.scale;
-    View* r = o.root; r->Clear(); r->lay = Lay::V; r->bg = PanelBrush(); r->borderW = 1; r->border = Col(K::White, K::CardLine); r->radius = 10; r->pad = Thick(8);
-    auto* grid = MkBox(r, Lay::Uniform); grid->cols = std::min<int>(4, (int)list.size()); grid->gap = 2; grid->cellH = 40;
-    for (auto& ic : list) TrayCell(grid, ic, 40)->ha = Al::Center;
-    float w = grid->cols * 40.f + (grid->cols - 1) * 2 + 16; Sz d = r->Measure({w, INF}); int pw = (int)ceilf(d.w * sc), ph = (int)ceilf(d.h * sc);
-    HMONITOR mon = MonitorFromPoint(mid, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi);
-    int x = std::clamp((int)a.right - pw, (int)mi.rcMonitor.left + 4, (int)mi.rcMonitor.right - pw - 4), y = g_dev ? a.bottom + (int)(8 * sc) : a.top - ph - (int)(8 * sc);
-    SetWindowPos(o.hwnd, HWND_TOPMOST, x, y, pw, ph, SWP_NOACTIVATE | SWP_SHOWWINDOW); o.Relayout(); o.fg0 = GetForegroundWindow(); o.anchor = a;
+    { bool any = false; for (auto& ic : g_icons) if (!ic->hidden && !IsPromoted(*ic)) any = true; if (!any) return; }
+    RECT a0 = bar->ScreenRect(bar->overflowBtn); POINT mid0{(a0.left + a0.right) / 2, (a0.top + a0.bottom) / 2};
+    if (!g_ov) { g_ov = std::make_unique<OverflowWnd>(); g_ov->Create(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, WS_POPUP, mid0.x, mid0.y, 10, 10); StyleFlyout(g_ov->hwnd, true); }
+    g_ovBar = bar; if (!OverflowFill(true)) return;
+    OverflowWnd& o = *g_ov; o.fg0 = GetForegroundWindow(); if (o.poll) { UiKillTimer(o.poll); o.poll = 0; }
     o.downPrev = (GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON)) & 0x8000;
     o.poll = UiTimer(40, [] {
         if (!g_ov) return; OverflowWnd& w = *g_ov; POINT p; GetCursorPos(&p); RECT r2; GetWindowRect(w.hwnd, &r2); RECT ar = w.anchor;
@@ -166,4 +173,21 @@ void TrayToggleOverflow(Bar* bar) {
         if (down && !w.downPrev && !PtInRect(&r2, p) && !PtInRect(&ar, p) && !MenuContains(p)) { if (grace) { g_ovGrace = 0; w.downPrev = down; return; } OverflowClose(); return; }   // grace: that click is on the app's menu
         w.downPrev = down; if (!grace && GetForegroundWindow() != w.fg0 && ClassOf(GetForegroundWindow()) != kWndClass) OverflowClose();   // switching app closes it
     });
+}
+// Fills the popup with the icons that are not on the bar and sizes it to them, above its bar's arrow. show: it is being opened (place and show it); otherwise it is
+// already open and only its content and size change. False = there is nothing to show.
+bool OverflowFill(bool show) {
+    Bar* bar = g_ovBar; if (!bar || !g_ov || !g_ov->hwnd) return false;
+    std::vector<std::shared_ptr<TrayIcon>> list; for (auto& ic : g_icons) if (!ic->hidden && !IsPromoted(*ic)) list.push_back(ic);
+    if (list.empty()) return false;
+    g_ovKeys.clear(); g_ovHasImg.clear(); for (auto& ic : list) { g_ovKeys.push_back(ic->Key()); g_ovHasImg.push_back((bool)ic->img); }
+    RECT a = bar->ScreenRect(bar->overflowBtn); POINT mid{(a.left + a.right) / 2, (a.top + a.bottom) / 2};
+    OverflowWnd& o = *g_ov; if (show) { SetWindowPos(o.hwnd, nullptr, mid.x, mid.y, 10, 10, SWP_NOACTIVATE | SWP_NOZORDER); o.UpdateScale(); } float sc = o.scale;
+    View* r = o.root; r->Clear(); r->lay = Lay::V; r->bg = PanelBrush(); r->borderW = 1; r->border = Col(K::White, K::CardLine); r->radius = 10; r->pad = Thick(8);
+    auto* grid = MkBox(r, Lay::Uniform); grid->cols = std::min<int>(4, (int)list.size()); grid->gap = 2; grid->cellH = 40;
+    for (auto& ic : list) TrayCell(grid, ic, 40)->ha = Al::Center;
+    float w = grid->cols * 40.f + (grid->cols - 1) * 2 + 16; Sz d = r->Measure({w, INF}); int pw = (int)ceilf(d.w * sc), ph = (int)ceilf(d.h * sc);
+    HMONITOR mon = MonitorFromPoint(mid, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi);
+    int x = std::clamp((int)a.right - pw, (int)mi.rcMonitor.left + 4, (int)mi.rcMonitor.right - pw - 4), y = g_dev ? a.bottom + (int)(8 * sc) : a.top - ph - (int)(8 * sc);
+    SetWindowPos(o.hwnd, HWND_TOPMOST, x, y, pw, ph, SWP_NOACTIVATE | (show ? SWP_SHOWWINDOW : 0)); o.Relayout(); o.anchor = a; return true;
 }

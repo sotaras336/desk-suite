@@ -29,14 +29,78 @@ public static class ShellOps
     /// Why the last operation failed, for the status bar; null when it worked or you cancelled it yourself.
     public static string? LastError;
 
+    // IFileOperation: the copy engine File Explorer itself has used since Vista. Unlike the old SHFileOperation it is not limited to 260-character paths, it reports
+    // a real error instead of a private code, and its copies, moves and deletes land in Explorer's own undo list.
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] private interface IShellItem { }
+    [ComImport, Guid("947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFileOperation   // every method declared, in vtable order: a missing one would shift the rest onto the wrong call
+    {
+        [PreserveSig] int Advise(IntPtr sink, out uint cookie);
+        [PreserveSig] int Unadvise(uint cookie);
+        [PreserveSig] int SetOperationFlags(uint flags);
+        [PreserveSig] int SetProgressMessage([MarshalAs(UnmanagedType.LPWStr)] string message);
+        [PreserveSig] int SetProgressDialog(IntPtr dialog);
+        [PreserveSig] int SetProperties(IntPtr props);
+        [PreserveSig] int SetOwnerWindow(IntPtr hwnd);
+        [PreserveSig] int ApplyPropertiesToItem(IShellItem item);
+        [PreserveSig] int ApplyPropertiesToItems(IntPtr items);
+        [PreserveSig] int RenameItem(IShellItem item, [MarshalAs(UnmanagedType.LPWStr)] string newName, IntPtr sink);
+        [PreserveSig] int RenameItems(IntPtr items, [MarshalAs(UnmanagedType.LPWStr)] string newName);
+        [PreserveSig] int MoveItem(IShellItem item, IShellItem destFolder, [MarshalAs(UnmanagedType.LPWStr)] string? newName, IntPtr sink);
+        [PreserveSig] int MoveItems(IntPtr items, IShellItem destFolder);
+        [PreserveSig] int CopyItem(IShellItem item, IShellItem destFolder, [MarshalAs(UnmanagedType.LPWStr)] string? copyName, IntPtr sink);
+        [PreserveSig] int CopyItems(IntPtr items, IShellItem destFolder);
+        [PreserveSig] int DeleteItem(IShellItem item, IntPtr sink);
+        [PreserveSig] int DeleteItems(IntPtr items);
+        [PreserveSig] int NewItem(IShellItem destFolder, uint attributes, [MarshalAs(UnmanagedType.LPWStr)] string name, [MarshalAs(UnmanagedType.LPWStr)] string? template, IntPtr sink);
+        [PreserveSig] int PerformOperations();
+        [PreserveSig] int GetAnyOperationsAborted([MarshalAs(UnmanagedType.Bool)] out bool aborted);
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SHCreateItemFromParsingName(string path, IntPtr bc, ref Guid iid, out IShellItem item);
+    private static readonly Guid ClsidFileOperation = new("3AD05575-8857-4850-9277-11B85BDB8E09");
+    private const uint FOFX_ADDUNDORECORD = 0x20000000, FOFX_RECYCLEONDELETE = 0x00080000, FOFX_SHOWELEVATIONPROMPT = 0x00040000, FOF_NOERRORUI = 0x400;
+    private const int Cancelled = unchecked((int)0x800704C7), CancelledCopy = unchecked((int)0x80270000);   // ERROR_CANCELLED, COPYENGINE_E_USER_CANCELLED
+
     private static bool Run(uint func, IEnumerable<string> from, string? to, ushort flags, IntPtr owner)
     {
         var list = from.ToList(); if (list.Count == 0) return true;
-        if (Silent) flags |= FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR;
-        var op = new SHFILEOPSTRUCT { hwnd = owner, wFunc = func, pFrom = string.Join("\0", list) + "\0", pTo = to == null ? null : to + "\0", fFlags = flags };
-        int rc = SHFileOperation(ref op);
-        LastError = rc != 0 && op.fAnyOperationsAborted == 0 ? $"Windows couldn't finish that (error 0x{rc:X})" : null;
-        return rc == 0 && op.fAnyOperationsAborted == 0;
+        uint f = flags | FOFX_ADDUNDORECORD | FOFX_SHOWELEVATIONPROMPT;
+        if (func == FO_DELETE && (flags & FOF_ALLOWUNDO) != 0) f |= FOFX_RECYCLEONDELETE;
+        if (Silent) f |= FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR | FOF_NOERRORUI;
+        int hr = 0; bool aborted = false; string? missing = null;
+        void Work()
+        {
+            IFileOperation? op = null;
+            try
+            {
+                op = (IFileOperation)Activator.CreateInstance(Type.GetTypeFromCLSID(ClsidFileOperation)!)!;
+                var iid = typeof(IShellItem).GUID; IShellItem? dest = null;
+                if ((hr = op.SetOperationFlags(f)) < 0) return; if (owner != IntPtr.Zero) op.SetOwnerWindow(owner);
+                if (to != null && (hr = SHCreateItemFromParsingName(to, IntPtr.Zero, ref iid, out dest)) < 0) { missing = to; return; }
+                foreach (var p in list)
+                {
+                    if ((hr = SHCreateItemFromParsingName(p, IntPtr.Zero, ref iid, out var item)) < 0) { missing = p; return; }   // nothing has been done yet: the whole job is refused, not half of it
+                    hr = func == FO_DELETE ? op.DeleteItem(item, IntPtr.Zero) : func == FO_MOVE ? op.MoveItem(item, dest!, null, IntPtr.Zero) : op.CopyItem(item, dest!, null, IntPtr.Zero);
+                    if (hr < 0) return;
+                }
+                hr = op.PerformOperations(); op.GetAnyOperationsAborted(out aborted);
+            }
+            catch (Exception ex) { hr = ex.HResult < 0 ? ex.HResult : unchecked((int)0x80004005); }
+            finally { if (op != null) Marshal.FinalReleaseComObject(op); }
+        }
+        // the shell's file engine wants a single-threaded apartment; callers are on a pool thread (RunOp) or the window's own thread
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA) Work();
+        else { var t = new Thread(Work) { IsBackground = true, Name = "DeskDrawer file operation" }; t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join(); }
+        bool cancelled = aborted || hr == Cancelled || hr == CancelledCopy;
+        LastError = hr >= 0 || cancelled ? null : missing != null ? $"Can't find “{Path.GetFileName(missing.TrimEnd('\\'))}”. It may have been moved or deleted." : "Windows couldn't finish that: " + Explain(hr);
+        return hr >= 0 && !aborted;
+    }
+
+    /// Windows' own sentence for an error ("Access is denied.", "The file name is too long."); the bare number only when it has none.
+    internal static string Explain(int hr)
+    {
+        string? m = null; try { m = Marshal.GetExceptionForHR(hr)?.Message; } catch { }
+        return string.IsNullOrWhiteSpace(m) || m.Contains("HRESULT", StringComparison.OrdinalIgnoreCase) ? $"error 0x{hr:X8}" : m.Trim();
     }
 
     /// Undo for a delete: puts the items back where they were, from the Recycle Bin. Takes the newest copy of each path.

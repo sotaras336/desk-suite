@@ -21,11 +21,18 @@ std::vector<std::pair<Sess, std::pair<event_token, event_token>>> g_hooked;
 bool Playing(Sess const& s) { try { auto i = s.GetPlaybackInfo(); return i && i.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing; } catch (...) { return false; } }
 void Dirty() { g_dirty = true; g_cv.notify_one(); }
 
+std::atomic<bool> g_sessionsChanged{true};   // an app started or stopped offering media: only then are the listeners set up again
 void Hook() {
-    for (auto& h : g_hooked) { try { h.first.PlaybackInfoChanged(h.second.first); h.first.MediaPropertiesChanged(h.second.second); } catch (...) {} }
-    g_hooked.clear();
-    std::vector<Sess> all; if (auto list = g_mgr.GetSessions()) for (auto s : list) if (s) all.push_back(s);
-    for (auto& s : all) { try { g_hooked.push_back({s, {s.PlaybackInfoChanged([](auto&&, auto&&) { Dirty(); }), s.MediaPropertiesChanged([](auto&&, auto&&) { Dirty(); })}}); } catch (...) {} }
+    // It used to drop and re-add its two listeners on EVERY session at every update (each track change, each play / pause, and every 5 s besides): pointless work, and a
+    // change that arrived between the drop and the re-add was missed. Now the listeners stay until Windows says the list of sessions itself changed.
+    std::vector<Sess> all;
+    if (!g_sessionsChanged.exchange(false)) { for (auto& h : g_hooked) all.push_back(h.first); }
+    else {
+        for (auto& h : g_hooked) { try { h.first.PlaybackInfoChanged(h.second.first); h.first.MediaPropertiesChanged(h.second.second); } catch (...) {} }
+        g_hooked.clear();
+        if (auto list = g_mgr.GetSessions()) for (auto s : list) if (s) all.push_back(s);
+        for (auto& s : all) { try { g_hooked.push_back({s, {s.PlaybackInfoChanged([](auto&&, auto&&) { Dirty(); }), s.MediaPropertiesChanged([](auto&&, auto&&) { Dirty(); })}}); } catch (...) {} }
+    }
     // show the one that's actually playing (Windows' "current" can be a paused one)
     Sess pick{nullptr}; for (auto& s : all) if (Playing(s)) { pick = s; break; }
     if (!pick) pick = g_mgr.GetCurrentSession();
@@ -54,12 +61,12 @@ void Update() {
             else if (m.active && props.Thumbnail()) { try { m.art = Decode(props.Thumbnail()); } catch (...) {} }
             lastKey = key; lastArt = m.art;
         }
-    } catch (hresult_error const& e) { Log(L"media: %s", e.message().c_str()); }
+    } catch (hresult_error const& e) { Log(L"media: %s", e.message().c_str()); g_sessionsChanged = true; }   // a session that failed may be gone: look at the list afresh next time
     { std::lock_guard<std::mutex> l(g_mu); g_media = m; } SysNotify();
 }
 void Loop() {
     init_apartment(apartment_type::multi_threaded);
-    try { g_mgr = Mgr::RequestAsync().get(); g_mgr.CurrentSessionChanged([](auto&&, auto&&) { Dirty(); }); g_mgr.SessionsChanged([](auto&&, auto&&) { Dirty(); }); }
+    try { g_mgr = Mgr::RequestAsync().get(); g_mgr.CurrentSessionChanged([](auto&&, auto&&) { Dirty(); }); g_mgr.SessionsChanged([](auto&&, auto&&) { g_sessionsChanged = true; Dirty(); }); }
     catch (hresult_error const& e) { Log(L"media start: %s", e.message().c_str()); return; }
     for (;;) {
         { std::unique_lock<std::mutex> l(g_wm); g_cv.wait_for(l, std::chrono::seconds(5), [] { return g_dirty.load(); }); }

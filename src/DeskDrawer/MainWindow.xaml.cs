@@ -62,7 +62,7 @@ public partial class MainWindow : Window
         Closing += (_, e) => { if (_pick != null) { e.Cancel = PickClosing(); return; }   /* a picker window: nothing of yours is saved, and it really closes */ SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
         PreviewKeyDown += Window_PreviewKeyDown;
         PreviewMouseDown += (_, e) => { if (e.ChangedButton == MouseButton.XButton1) { GoBack(); e.Handled = true; } else if (e.ChangedButton == MouseButton.XButton2) { GoForward(); e.Handled = true; } };   // the mouse's back / forward buttons
-        _reload.Tick += (_, _) => { _reload.Stop(); ReloadActive(); };
+        _reload.Tick += (_, _) => { _reload.Stop(); RefreshActive(); };
         BuildTree();
         if (_pick != null) PickInit();
     }
@@ -126,8 +126,11 @@ public partial class MainWindow : Window
     /// and do the click ourselves.
     private IntPtr CaptionHook(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
     {
-        const int WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1, WM_NCLBUTTONUP = 0xA2, HTMAXBUTTON = 9;
-        if (msg == WM_NCHITTEST)
+        const int WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1, WM_NCLBUTTONUP = 0xA2, HTMAXBUTTON = 9, WM_MOUSEACTIVATE = 0x21, WM_CAPTURECHANGED = 0x215, WM_LBUTTONUP = 0x202;
+        if (msg == WM_MOUSEACTIVATE) { if (OnMouseActivate(l, out var answer)) { handled = true; return answer; } }   // see MainWindow.DragBehind.cs
+        else if (msg == WM_LBUTTONUP && _lazyPress) Dispatcher.BeginInvoke(() => EndLazyPress(true));   // after WPF has handled the release itself; a release WPF never routes (no capture) still ends the press
+        else if (msg == WM_CAPTURECHANGED && _lazyPress && l == IntPtr.Zero) Dispatcher.BeginInvoke(() => { if (Mouse.LeftButton != MouseButtonState.Pressed) EndLazyPress(false); });
+        else if (msg == WM_NCHITTEST)
         {
             bool over = OverMax(l); MaxBtn.Tag = over ? "hover" : null;
             if (over) { handled = true; return (IntPtr)HTMAXBUTTON; }
@@ -167,9 +170,9 @@ public partial class MainWindow : Window
     private void OpenTabs(IEnumerable<string> asked)
     {
         var pick = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // a file path asked for = its folder, with that file selected ("Open file location")
-        asked = asked.Select(p => { if (!IsVirtual(p) && File.Exists(p) && Path.GetDirectoryName(p) is { } d) { pick[d] = p; return d; } return p; }).ToList();
-        var paths = asked.Where(p => IsVirtual(p) || Directory.Exists(p)).ToList(); int active = paths.Count - 1;
-        if (paths.Count == 0 && App.SnapshotFile == null) { paths = _settings.Tabs.Where(p => IsPage(p) || Directory.Exists(p)).ToList(); active = _settings.ActiveTab; }
+        asked = asked.Select(p => { if (!IsVirtual(p) && Reach.File(p) && Path.GetDirectoryName(p) is { } d) { pick[d] = p; return d; } return p; }).ToList();
+        var paths = asked.Where(p => IsVirtual(p) || Reach.Dir(p)).ToList(); int active = paths.Count - 1;
+        if (paths.Count == 0 && App.SnapshotFile == null) { paths = _settings.Tabs.Where(p => IsPage(p) || Reach.Dir(p)).ToList(); active = _settings.ActiveTab; }
         if (paths.Count == 0) paths.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
         foreach (var p in paths) { AddTab(p); if (pick.TryGetValue(p, out var f)) _tabs[^1].SelectAfterLoad.Add(f); }
         Activate(_tabs[Math.Clamp(active, 0, _tabs.Count - 1)]);
@@ -361,7 +364,7 @@ public partial class MainWindow : Window
         if (!IsVirtual(path))
         {
             try { path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'))); } catch { if (tab == _tab) FlashAddressError(); return; }
-            if (!Directory.Exists(path)) { if (tab == _tab) FlashAddressError(); return; }
+            if (!Reach.Dir(path)) { if (tab == _tab) FlashAddressError(); return; }
         }
         if (push && tab.Current != null && !string.Equals(tab.Current, path, StringComparison.OrdinalIgnoreCase)) { tab.Back.Push(tab.Current); tab.Fwd.Clear(); }
         tab.Current = path; tab.Filter = ""; tab.Kind = ""; tab.View = null; tab.Entries = null; tab.IconsRequested = false;
@@ -398,6 +401,7 @@ public partial class MainWindow : Window
         if (alt && key == Key.Left) GoBack();
         else if (alt && key == Key.Right) GoForward();
         else if (alt && key == Key.Up) GoUp();
+        else if (key == Key.Escape && CancelZip()) { }   // a compress or extract in progress: Esc stops it
         else if (key == Key.F5) ReloadActive();
         else if (alt && key == Key.P) SetPreview(!_previewOpen);
         else if ((ctrl && key == Key.L) || key == Key.F4 || (alt && key == Key.D)) EditAddress();
@@ -787,17 +791,98 @@ public partial class MainWindow : Window
         LoadTab(_tab);
     }
 
+    // ---------- keeping the open folder current ----------
+    // Windows tells us when something in the open folder changes. The folder is then read again in the background and the differences are merged into the list that is
+    // already showing: rows that are still there keep their place, icon, thumbnail, folder size and selection, and the scroll position does not move. (It used to throw the
+    // whole list away and build a new one 350 ms after EVERY change: in Downloads, during a download, that was several rebuilds a second.)
+
+    private bool _refreshing, _refreshAgain; private long _lastRefresh;
+
+    /// A change was reported: look soon, but during a storm of changes (a download writing its file) at most about once a second.
+    private void FolderChanged()
+    {
+        if (_reload.IsEnabled) return;
+        long since = Environment.TickCount64 - _lastRefresh;
+        _reload.Interval = TimeSpan.FromMilliseconds(since >= 1000 ? 350 : 1000 - since + 50); _reload.Start();
+    }
+
     private void ResetWatcher()
     {
-        _watch?.Dispose(); _watch = null;
-        if (_tab.Current == null || !Directory.Exists(_tab.Current)) return;
+        var old = _watch; _watch = null; old?.Dispose();
+        string? path = _tab.Current; if (path == null || IsVirtual(path)) return;
         try
         {
-            _watch = new FileSystemWatcher(_tab.Current) { NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size, EnableRaisingEvents = true };
-            FileSystemEventHandler h = (_, _) => Dispatcher.BeginInvoke(() => { _reload.Stop(); _reload.Start(); });
-            _watch.Created += h; _watch.Deleted += h; _watch.Changed += h; _watch.Renamed += (_, _) => h(null!, null!);
+            // NOT checked with Directory.Exists first: on a network drive that has gone away that call blocks the window for many seconds. A folder that is not there throws here instead, at once.
+            var w = new FileSystemWatcher(path) { NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size, InternalBufferSize = 64 * 1024 };
+            FileSystemEventHandler h = (_, _) => Dispatcher.BeginInvoke(FolderChanged);
+            w.Created += h; w.Deleted += h; w.Changed += h; w.Renamed += (_, _) => Dispatcher.BeginInvoke(FolderChanged);
+            // Windows dropped changes (too many at once) or lost the folder (a drive unplugged, a share gone): the list may be out of date, so read it again and watch afresh.
+            // Without this the folder silently stopped updating.
+            w.Error += (_, _) => Dispatcher.BeginInvoke(() => { if (_watch == w) { ResetWatcher(); FolderChanged(); } });
+            w.EnableRaisingEvents = true; _watch = w;
         }
         catch { }
+    }
+
+    /// Reads the open folder again and merges what changed into the list on screen.
+    private void RefreshActive()
+    {
+        var tab = _tab; string? path = tab.Current;
+        if (path == null || IsVirtual(path) || tab.Loading || tab.Entries == null || tab.View == null) return;
+        if (tab.Entries.Any(x => x.IsRenaming) || _mqActive) { _reload.Interval = TimeSpan.FromMilliseconds(700); _reload.Start(); return; }   // not under a rename or a selection box: afterwards
+        if (_refreshing) { _refreshAgain = true; return; }
+        _refreshing = true; _lastRefresh = Environment.TickCount64; bool showHidden = _settings.ShowHidden; var cts = tab.Cts;
+        Task.Run(() =>
+        {
+            var fresh = new List<FileEntry>();
+            try { foreach (var fi in new DirectoryInfo(path).EnumerateFileSystemInfos()) { if (!showHidden && (fi.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue; fresh.Add(new FileEntry(fi)); } }
+            catch { fresh = null!; }
+            Dispatcher.BeginInvoke(() =>
+            {
+                _refreshing = false;
+                bool same = tab.Cts == cts && cts is { IsCancellationRequested: false } && tab.Current == path && !tab.Loading && tab.Entries != null && tab.View != null;
+                if (same && fresh == null) LoadTab(tab);   // the folder can't be read any more (deleted, unplugged): the full load says why
+                else if (same) MergeListing(tab, fresh!);
+                if (_refreshAgain) { _refreshAgain = false; FolderChanged(); }
+            });
+        });
+    }
+
+    /// Makes tab.Entries equal to the fresh listing while keeping every FileEntry object that is still valid. Returns what it did, for the test.
+    internal (int Added, int Removed, int Changed) MergeListing(TabState tab, List<FileEntry> fresh)
+    {
+        var entries = tab.Entries!; var old = new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase); foreach (var e in entries) old[e.FullPath] = e;
+        var next = new List<FileEntry>(fresh.Count); var added = new List<FileEntry>(); var touchedDirs = new List<FileEntry>(); int changed = 0;
+        foreach (var f in fresh)
+        {
+            // the same item = same path, same kind, same spelling (a rename that only changes capitals is a new row: its Name is fixed)
+            if (old.TryGetValue(f.FullPath, out var o) && o.IsDir == f.IsDir && o.Name == f.Name) { old.Remove(f.FullPath); if (o.Update(f)) { changed++; if (o.IsDir) touchedDirs.Add(o); } next.Add(o); }
+            else { next.Add(f); added.Add(f); }
+        }
+        int removed = old.Count;
+        if (added.Count == 0 && removed == 0 && changed == 0 && tab.SelectAfterLoad.Count == 0) return (0, 0, 0);
+        bool structure = added.Count > 0 || removed > 0;
+        if (structure) { entries.Clear(); entries.AddRange(next); }
+        if (_cutPaths.Count > 0) foreach (var en in added) en.IsCut = _cutPaths.Contains(en.FullPath);
+        if (_groupBy.Length > 0) foreach (var en in entries) (en.Group, en.GroupRank) = GroupOf(en, _groupBy);
+        // A new or removed row, or (when the list is sorted or grouped by something that changed) a row that must move: the view re-sorts. Rows keep their objects, so the
+        // selection and the scroll position stay. A change that only alters a cell (a growing download, sorted by name) needs no re-sort at all: the cell updates itself.
+        if (structure || (changed > 0 && (_sortKey is "Size" or "Modified" || _groupBy.Length > 0))) tab.View!.Refresh();
+        if (added.Count > 0) IconCache.Request(added);
+        var dirs = added.Where(x => x.IsDir).Concat(touchedDirs).ToList();
+        if (dirs.Count > 0) FolderSizes.Start(dirs, tab.Cts!.Token, () => { if (_sortKey == "Size" && tab.View != null) ApplySort(tab.View); if (tab == _tab) UpdateSelectionStatus(); }, recount: true);
+        if (tab != _tab) return (added.Count, removed, changed);
+        if (tab.SelectAfterLoad.Count > 0)   // what a paste, a new folder or an undo just made: selected once it shows up
+        {
+            FileEntry? first = null; var want = entries.Where(en => tab.SelectAfterLoad.Contains(en.FullPath)).ToList();
+            if (want.Count > 0) { List.SelectedItems.Clear(); foreach (var en in want) { List.SelectedItems.Add(en); first ??= en; } if (first != null) List.ScrollIntoView(first); }
+            tab.SelectAfterLoad.Clear();   // one chance, as in BindTab: a name that never arrives must not select some later file
+        }
+        if (added.Count > 0) RequestThumbs();
+        Message.Visibility = Visibility.Collapsed;
+        if (tab.Error == null && entries.Count == 0) { Message.Text = "This folder is empty"; Message.Visibility = Visibility.Visible; }
+        UpdateStatus(); UpdateSelectionStatus(); PreviewSoon();
+        return (added.Count, removed, changed);
     }
 
     private void UpdateStatus()
@@ -959,9 +1044,9 @@ public partial class MainWindow : Window
     /// The folder a shortcut (.lnk) points to, or null. Handed to Windows, a folder shortcut opened in File Explorer.
     internal static string? FolderBehind(string path)
     {
-        if (Directory.Exists(path)) return path;
+        if (Reach.Dir(path)) return path;
         if (!path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)) return null;
-        try { dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!; string t = sh.CreateShortcut(path).TargetPath; return !string.IsNullOrEmpty(t) && Directory.Exists(t) ? t : null; }
+        try { dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!; string t = sh.CreateShortcut(path).TargetPath; return !string.IsNullOrEmpty(t) && Reach.Dir(t) ? t : null; }
         catch { return null; }
     }
 
@@ -1239,8 +1324,15 @@ public partial class MainWindow : Window
 
     private void List_PreviewDown(object s, MouseButtonEventArgs e)
     {
-        if (SwallowCardContinuation(e.ClickCount)) { e.Handled = true; return; }
+        if (SwallowCardContinuation(e.ClickCount)) { e.Handled = true; return; } TestTrace = "press, lazy=" + _lazyPress;
         var under = EntryUnder(e.OriginalSource); _dragStart = e.GetPosition(null); _pendingSingle = null;
+        if (_lazyPress)   // the window is behind another app and stays there for this press (MainWindow.DragBehind.cs): grab the selection and touch NOTHING else. No Focus() (it would activate
+        {                 // the window), no rename timer, no selection box; the row itself never sees the press, so it cannot focus or reselect either.
+            e.Handled = true; _mqArmed = false; DisarmRename(); TestTrace = "lazy press on " + (under?.Name ?? "nothing") + " from " + e.OriginalSource?.GetType().Name;
+            if (under != null && List.SelectedItems.Contains(under)) { _dragItem = under; if (List.SelectedItems.Count > 1) _pendingSingle = under; List.CaptureMouse(); }   // capture (it does not activate): the pointer may leave the list before it has moved far enough to count as a drag
+            else { _dragItem = null; EndLazyPress(true); }
+            return;
+        }
         bool grab = OnContent(e.OriginalSource as DependencyObject) || (under != null && List.SelectedItems.Contains(under) && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == 0);
         _dragItem = grab ? under : null;   // a name or icon is grabbed to drag a file, and so is ANY part of a row that is already selected (you are dragging the selection out); the blank part of an unselected row starts the selection box
         ArmRename(e, OnContent(e.OriginalSource as DependencyObject) ? _dragItem : null); if (grab) _mqArmed = false; else MarqueeArm(e, under);
@@ -1263,6 +1355,7 @@ public partial class MainWindow : Window
         if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
         if (!List.SelectedItems.Contains(_dragItem)) { List.SelectedItems.Clear(); List.SelectedItems.Add(_dragItem); }
         var paths = Sel().Select(x => x.FullPath).ToArray(); _dragItem = null; _pendingSingle = null;
+        _lazyPress = false;   // a drag from behind another app: it started, so the window stays where it is (the release happens inside the drag loop, often over that other app)
         List.ReleaseMouseCapture(); Mouse.Capture(null);   // the list held the mouse for its own selection: hand it to the drag, or it keeps "pressing" after the drop
         const uint okEffects = 1 | 2 | 4;   // copy, move, link
         if (!ShellMenu.Drag(paths, Hwnd, okEffects, out _))
@@ -1275,6 +1368,7 @@ public partial class MainWindow : Window
         base.OnPreviewMouseLeftButtonUp(e);
         if (_pendingSingle != null) { var one = _pendingSingle; _pendingSingle = null; List.SelectedItems.Clear(); List.SelectedItems.Add(one); }   // it was a click, not a drag
         MarqueeEnd();
+        if (_lazyPress) { _dragItem = null; EndLazyPress(true); List.ReleaseMouseCapture(); return; }   // a click on a window that was behind brings it forward and does nothing else (it must not start a rename)
         StartRenameTimer(_dragItem);   // _dragItem is cleared the moment a drag starts, so a drag never renames
         _dragItem = null;
     }
@@ -1367,7 +1461,7 @@ public partial class MainWindow : Window
     internal static List<(string Path, string Name)> CloudRoots(bool envToo = true)
     {
         var found = new List<(string Path, string Name)>();
-        void Add(string? p, string name) { p = p?.TrimEnd('\\'); if (!string.IsNullOrEmpty(p) && Directory.Exists(p) && !found.Any(f => string.Equals(f.Path, p, StringComparison.OrdinalIgnoreCase))) found.Add((p, name)); }
+        void Add(string? p, string name) { p = p?.TrimEnd('\\'); if (!string.IsNullOrEmpty(p) && Reach.Dir(p) && !found.Any(f => string.Equals(f.Path, p, StringComparison.OrdinalIgnoreCase))) found.Add((p, name)); }
         try
         {
             using var acc = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\OneDrive\Accounts");
@@ -1406,7 +1500,7 @@ public partial class MainWindow : Window
             ("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)), ("Pictures", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)),
             ("Music", Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)), ("Videos", Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)),
         })
-            if (path.Length > 0 && Directory.Exists(path)) quick.Items.Add(Node(name, path, "", lazy: true));
+            if (path.Length > 0 && Reach.Dir(path)) quick.Items.Add(Node(name, path, "", lazy: true));
         quick.IsExpanded = true; Tree.Items.Add(quick);
         foreach (TreeViewItem q in quick.Items) ExactIcon(q);
         _quick = quick; RefreshPins();   // swap the standard six for what is pinned in File Explorer's Quick access
@@ -1415,7 +1509,7 @@ public partial class MainWindow : Window
         foreach (var d in DriveInfo.GetDrives())
         {
             string label = "";
-            try { label = d.IsReady ? d.VolumeLabel : ""; } catch { }
+            try { label = Reach.Dir(d.Name) && d.IsReady ? d.VolumeLabel : ""; } catch { }   // Reach first: IsReady on a network drive that is gone blocks the window
             string text = (label.Length > 0 ? label : d.DriveType == DriveType.Removable ? "Removable disk" : d.DriveType == DriveType.Network ? "Network drive" : "Local disk") + " (" + d.Name.TrimEnd('\\') + ")";
             pc.Items.Add(Node(text, d.Name, "", lazy: true));
         }

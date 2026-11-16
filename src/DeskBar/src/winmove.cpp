@@ -42,6 +42,9 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
 void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (obj != OBJID_WINDOW || !h) return;
     if (ev == EVENT_SYSTEM_MOVESIZESTART) {
+        // A drag whose end never came (the window closed mid-drag) left its entry behind, and Windows hands the same window number to a later window: that one
+        // then got judged against a stranger's starting place. Entries of windows that are gone are dropped before each new drag.
+        std::erase_if(g_starts, [](auto& kv) { return !IsWindow(kv.first); }); std::erase_if(g_keepMax, [](auto& kv) { return !IsWindow(kv.first); });
         // A finger on the bar's top edge gets re-targeted by Windows to the window above (its bottom resize edge). Cancel that resize (Esc puts the size back) and replay the tap onto the bar.
         POINT p; HMONITOR pm; MONITORINFO pi{sizeof pi};
         { RECT wr = VisibleRect(h); GetCursorPos(&p); Log(L"movesize start: %s win=%d,%d,%d,%d cursor=%d,%d", ClassOf(h).c_str(), (int)wr.left, (int)wr.top, (int)wr.right, (int)wr.bottom, (int)p.x, (int)p.y); }
@@ -135,7 +138,8 @@ void Snapshot() {
 }
 RECT SpotRect(const Spot& s, const RECT& w) { int x = w.left + (int)(s.fx * W(w)), y = w.top + (int)(s.fy * H(w)); return FitInside({x, y, x + (int)(std::min(1.0, s.fw) * W(w)), y + (int)(std::min(1.0, s.fh) * H(w))}, w); }
 void OnScreensChanged() {
-    auto mons = Monitors(); std::set<ws> now = ScreenKeys(), removed, added;
+    auto mons = Monitors(); if (mons.empty()) return;   // no screen at all for a moment (lid shut, a remote session ending, the graphics driver restarting): nothing to move windows to, and mons[0] below would read past an empty list. The next change is looked at afresh.
+    std::set<ws> now = ScreenKeys(), removed, added;
     for (auto& s : g_screens) if (!now.count(s)) removed.insert(s); for (auto& s : now) if (!g_screens.count(s)) added.insert(s); g_screens = now;
     if (!S.rescueWindows) return;
     if (!removed.empty()) {
@@ -192,7 +196,8 @@ void FixMaximizedOverBar() {
         // times a day: Chrome drew half its page, drags glitched, Windows' taskbar popped up). Only a window that really covers the bar (the stale full-screen
         // height after a rotation runs under it by the whole bar) is pulled up, and never the same window twice within a minute.
         if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 2) continue;
-        static std::map<HWND, uint64_t> pulled; uint64_t now = Now(); auto it = pulled.find(h);
+        static std::map<HWND, uint64_t> pulled; uint64_t now = Now(); if (pulled.size() > 64) std::erase_if(pulled, [](auto& kv) { return !IsWindow(kv.first); });   // closed windows don't pile up here for ever
+        auto it = pulled.find(h);
         if (it != pulled.end() && now - it->second < 60000) continue;   // pulled up a moment ago and back again: Windows wants it there, leave it
         pulled[h] = now;
         Log(L"maximized window ran %d px under the bar, pulled up: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());

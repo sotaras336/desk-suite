@@ -107,13 +107,13 @@ public static partial class DialogSwitch
         IntPtr edit = FindNameBox(dialog), ok = IntPtr.Zero;
         EnumChildWindows(dialog, (c, _) => { if (ClassOf(c) == "Button" && GetDlgCtrlID(c) == 1) { ok = c; return false; } return true; }, IntPtr.Zero);
         if (edit == IntPtr.Zero) return false;
-        var old = new StringBuilder(1024); SendMessage(edit, 0x000D /*WM_GETTEXT*/, (IntPtr)old.Capacity, old);
+        var old = new StringBuilder(1024); SendMessage(edit, 0x000D /*WM_GETTEXT*/, (IntPtr)old.Capacity, old); string shownBefore = Describe(dialog).Folder;
         SendMessage(edit, 0x000C /*WM_SETTEXT*/, IntPtr.Zero, folder);
         if (ok != IntPtr.Zero) SendMessage(ok, 0x00F5 /*BM_CLICK*/, IntPtr.Zero, IntPtr.Zero); else SendMessage(dialog, 0x0111 /*WM_COMMAND*/, (IntPtr)1 /*IDOK*/, IntPtr.Zero);
         string keep = old.ToString();
-        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
-        t.Tick += (_, _) => { t.Stop(); if (IsWindow(edit)) SendMessage(edit, 0x000C, IntPtr.Zero, keep); SetForegroundWindow(dialog); };   // the file name you had typed comes back
-        t.Start();
+        // The file name you had typed comes back once the dialog has really gone to the folder. It used to be put back after a fixed 350 ms: on a slow folder (a network
+        // share, a big one) that was before the dialog had read the path, and the dialog then tried to open your file name as a folder.
+        WhenIn(dialog, folder, shownBefore, 0, () => { if (IsWindow(edit)) SendMessage(edit, 0x000C, IntPtr.Zero, keep); if (IsWindow(dialog)) SetForegroundWindow(dialog); });
         return true;
     }
 

@@ -89,7 +89,7 @@ public partial class MainWindow
         foreach (var d in DriveInfo.GetDrives())
         {
             long total = 0, free = 0; string label = "";
-            try { if (d.IsReady) { total = d.TotalSize; free = d.AvailableFreeSpace; label = d.VolumeLabel; } } catch { }
+            try { if (Reach.Dir(d.Name) && d.IsReady) { total = d.TotalSize; free = d.AvailableFreeSpace; label = d.VolumeLabel; } } catch { }
             if (total == 0) continue;
             list.Add((d.Name, (label.Length > 0 ? label : d.DriveType == DriveType.Removable ? "USB Drive" : "Local Disk") + " (" + d.Name.TrimEnd('\\') + ")", free, total));
         }

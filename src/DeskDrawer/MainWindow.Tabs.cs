@@ -12,7 +12,7 @@ public partial class MainWindow
 
     private void ReopenClosed()
     {
-        while (_closed.Count > 0) { var p = _closed.Pop(); if (IsVirtual(p) || Directory.Exists(p)) { NewTab(p); return; } }   // skip folders deleted since
+        while (_closed.Count > 0) { var p = _closed.Pop(); if (IsVirtual(p) || Reach.Dir(p)) { NewTab(p); return; } }   // skip folders deleted since
         Flash("No closed tabs to reopen");
     }
 

@@ -48,6 +48,22 @@ int RunSelfTest(const ws& outFile) {
         int one = WheelStep(0.6f), tail = 0; for (int i = 0; i < 20; i++) tail += WheelStep(0.4f);
         check(L"wheel: small deltas make one step", early == 0 && one == 1 && tail == 0, Fmt(L"%d %d %d", early, one, tail));
     }
+    {   // touchpad: three fingers sliding down then lifting is a swipe; a short slide, a sideways one or four fingers is not
+        auto run = [](std::initializer_list<std::tuple<int, float, float>> frames) { SwipeTracker t; int got = 0; for (auto& [n, x, y] : frames) got += t.Feed(n, x, y); return got; };
+        int down = run({{1, .5f, .3f}, {3, .5f, .3f}, {3, .5f, .45f}, {3, .51f, .6f}, {2, .5f, .62f}, {0, 0, 0}});
+        int shortSlide = run({{3, .5f, .3f}, {3, .5f, .38f}, {0, 0, 0}}), side = run({{3, .2f, .3f}, {3, .6f, .5f}, {0, 0, 0}}), up = run({{3, .5f, .7f}, {3, .5f, .3f}, {0, 0, 0}});
+        int four = run({{3, .5f, .3f}, {4, .5f, .4f}, {4, .5f, .7f}, {3, .5f, .7f}, {0, 0, 0}});
+        check(L"touchpad: three-finger swipe down", down == 1 && !shortSlide && !side && !up && !four, Fmt(L"%d %d %d %d %d", down, shortSlide, side, up, four));
+    }
+    {   // Wi-Fi: the list order, what a failed join means, and the sign-in page check's verdict
+        WifiNet on, known, strong, weak; on.connected = true; on.pct = 10; known.saved = true; known.pct = 20; strong.pct = 90; weak.pct = 30;
+        std::vector<WifiNet> v{weak, strong, known, on}; std::sort(v.begin(), v.end(), WifiBefore);
+        bool order = v[0].connected && v[1].saved && v[2].pct == 90 && v[3].pct == 30;
+        bool why = WlanReasonKind(0).empty() && WlanReasonKind(0x00048005 /*a security failure*/) == L"password" && WlanReasonKind(0x00010011) != L"password";
+        bool portal = PortalVerdict(200, "Microsoft Connect Test") == 0 && PortalVerdict(302, "") == 1 && PortalVerdict(200, "<html>Welcome to Hotel") == 1 && PortalVerdict(511, "") == 1;
+        check(L"wifi: list order, failure kinds, sign-in check", order && why && portal, Fmt(L"%d %d %d", (int)order, (int)why, (int)portal));
+    }
+    check(L"bluetooth: address from a device id", BtAddressFromId(L"Bluetooth#Bluetooth00:11:22:33:44:55-aa:bb:cc:0d:ee:ff") == L"AABBCC0DEEFF" && BtAddressFromId(L"short").empty() && BtAddressFromId(L"BluetoothLE#xx-zz:bb:cc:dd:ee:ff").empty(), L"");
     {   // Discord-style update: the pinned app-1.0.9266 folder is gone, app-1.0.10000 has the exe: the pin follows it (and 10000 beats 9266 by number, not by letters)
         wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws root = ws(t) + L"db3-selftest-sq"; CreateDirectoryW(root.c_str(), nullptr);
         for (const wchar_t* v : {L"app-1.0.9267", L"app-1.0.10000"}) { CreateDirectoryW((root + L"\\" + v).c_str(), nullptr); HANDLE h = CreateFileW((root + L"\\" + v + L"\\Z.exe").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr); if (h != INVALID_HANDLE_VALUE) CloseHandle(h); }

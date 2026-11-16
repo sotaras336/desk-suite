@@ -74,7 +74,13 @@ struct PreviewWnd : Wnd {
         int round = 2; DwmSetWindowAttribute(hwnd, 33, &round, 4); DWORD border = 0x003D3D3D; DwmSetWindowAttribute(hwnd, 34, &border, 4);
         int dark = CurrentTheme().kind == 2 ? 0 : 1; DwmSetWindowAttribute(hwnd, 20, &dark, 4); int bd = 3; DwmSetWindowAttribute(hwnd, 38 /*SYSTEMBACKDROP_TYPE: transient acrylic*/, &bd, 4);   // the white theme gets light acrylic (its text is dark)
         root->onHover = [this](bool in) { if (in) PreviewCancelHide(); else PreviewHideSoon(); };
-        watch = UiTimer(150, [this] { if (open && req.touch && GetForegroundWindow() != fg0) Close(); });
+        watch = UiTimer(150, [this] {
+            if (!open) return;
+            if (req.touch && GetForegroundWindow() != fg0) { Close(); return; }
+            // a window shown here was closed from somewhere else (its own X, Alt+F4, the app quitting): its card would stay, blank and still clickable, and a peek of it would leave the screens dimmed
+            if (g_peekTarget && !IsWindow(g_peekTarget)) PeekHide();
+            static uint64_t asked = 0; for (auto& wl : wells) if (!IsWindow(wl.second) && Now() - asked > 1000) { asked = Now(); Refresh(); break; }
+        });
     }
     void ClearThumbs() { for (auto& t : thumbs) DwmUnregisterThumbnail(t.first); thumbs.clear(); wells.clear(); }
     void Close() { if (hideT) { UiKillTimer(hideT); hideT = 0; } if (peekT) { UiKillTimer(peekT); peekT = 0; } PeekHide(); ClearThumbs(); CancelInput(); if (hwnd) ShowWindow(hwnd, SW_HIDE); open = false; }

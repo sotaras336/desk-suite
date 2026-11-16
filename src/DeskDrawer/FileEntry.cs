@@ -10,8 +10,17 @@ public sealed class FileEntry : INotifyPropertyChanged
     public string Name { get; }
     public string FullPath { get; }
     public bool IsDir { get; }
-    public DateTime Modified { get; }
-    public string ModifiedText { get; }
+    public DateTime Modified { get; private set; }
+    public string ModifiedText { get; private set; }
+    /// The folder changed on disk and this item is still there: take its new size and date, keep everything else (icon, thumbnail, folder size, selection).
+    /// True when something a column shows has changed.
+    public bool Update(FileEntry fresh)
+    {
+        bool ch = false;
+        if (Modified != fresh.Modified) { Modified = fresh.Modified; ModifiedText = fresh.ModifiedText; Raise(nameof(Modified)); Raise(nameof(ModifiedText)); ch = true; }
+        if (!IsDir && _size != fresh._size) { _size = fresh._size; _sizeText = fresh._sizeText; Raise(nameof(Size)); Raise(nameof(SizeText)); ch = true; if (_thumb != null) { ThumbPx = 0; } }   // a picture that was rewritten gets a new thumbnail on the next request
+        return ch;
+    }
     private long _size; private string _sizeText = "";
     public long Size => _size;
     public string SizeText => _sizeText;

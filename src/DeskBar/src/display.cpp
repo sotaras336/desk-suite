@@ -101,7 +101,14 @@ std::map<ws, std::shared_ptr<Chan>> g_chan; std::mutex g_chanMu;
 void BrightOpen(const Mon& m, std::function<void(bool, int)> cb) {
     ws dev = m.device;
     std::thread([dev, cb] {
-        { std::lock_guard<std::mutex> l(g_chanMu); auto it = g_chan.find(dev); if (it != g_chan.end() && it->second->avail) { int v = it->second->value; UiPost([cb, v] { cb(true, v); }); return; } }
+        // Known already: read the screen again before answering. The value kept from last time goes stale whenever something else changes the brightness
+        // (the keyboard's brightness keys, Windows' automatic brightness, plugging the charger in or out), and the slider then showed the wrong place.
+        std::shared_ptr<Chan> have; { std::lock_guard<std::mutex> l(g_chanMu); auto it = g_chan.find(dev); if (it != g_chan.end() && it->second->avail) have = it->second; }
+        if (have) {
+            int now = have->Read(), v;
+            { std::lock_guard<std::mutex> l(have->mu); if (now >= 0 && (have->target < 0 || have->target == have->written)) have->value = now; v = have->value; }   // not while a change of ours is still on its way to the screen
+            UiPost([cb, v] { cb(true, v); }); return;
+        }
         bool internal = DisplayInfoFor(dev).internal; std::shared_ptr<Chan> c; if (internal) c = std::make_shared<Internal>(); else c = std::make_shared<Ddc>(dev);
         c->Start(); bool ok = c->avail; int v = c->value;
         { std::lock_guard<std::mutex> l(g_chanMu); auto& slot = g_chan[dev]; if (slot) slot->Stop(); slot = std::move(c); }

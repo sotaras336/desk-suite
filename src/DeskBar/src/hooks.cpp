@@ -62,8 +62,11 @@ void ReleaseClipLocked() { if (g_haveClip) { RECT c; GetClipCursor(&c); if (Same
 void ReleaseClip() { std::lock_guard<std::mutex> l(g_mmu); ReleaseClipLocked(); }
 void RefreshLayout() {
     std::vector<RECT> v; EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR h, HDC, LPRECT, LPARAM p) -> BOOL { MONITORINFO mi{sizeof mi}; if (GetMonitorInfoW(h, &mi)) ((std::vector<RECT>*)p)->push_back(mi.rcMonitor); return TRUE; }, (LPARAM)&v);
-    { std::lock_guard<std::mutex> l(g_mmu); g_mons = v; ReleaseClipLocked(); }   // layout changed: drop our clip, it is re-applied on the next move
-    if (g_mbTid) PostThreadMessageW(g_mbTid, WM_APPLY, 0, 0);
+    // g_mons belongs to the mouse thread: every mouse move reads it there (FindMon, Neighbour, the hook itself) without a lock. This is also called from the helper's
+    // main loop when a screen is plugged or unplugged, and writing the list from there, under a move being handled, was a crash waiting in the one process that holds
+    // every key press and mouse move. So another thread only hands the new list over; the mouse thread takes it in between two messages.
+    if (!g_mbTid || GetCurrentThreadId() == g_mbTid) { std::lock_guard<std::mutex> l(g_mmu); g_mons = v; ReleaseClipLocked(); return; }   // layout changed: drop our clip, it is re-applied on the next move
+    auto* hand = new std::vector<RECT>(std::move(v)); if (!PostThreadMessageW(g_mbTid, WM_APPLY, 0, (LPARAM)hand)) delete hand;
 }
 int FindMon(POINT p) {
     for (size_t i = 0; i < g_mons.size(); i++) if (PtInRect(&g_mons[i], p)) return (int)i;
@@ -147,7 +150,10 @@ void MouseThread() {
     HWND h = CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, g_inst, nullptr);
     RAWINPUTDEVICE rid{1, 2, RIDEV_INPUTSINK, h}; if (!RegisterRawInputDevices(&rid, 1, sizeof rid)) Log(L"MouseBridge: raw input registration failed %lu", GetLastError());
     ApplyHook(); MSG m;
-    while (GetMessageW(&m, nullptr, 0, 0) > 0) { if (m.message == WM_APPLY) { ApplyHook(); continue; } TranslateMessage(&m); DispatchMessageW(&m); }
+    while (GetMessageW(&m, nullptr, 0, 0) > 0) {
+        if (m.message == WM_APPLY && !m.hwnd) { if (auto* hand = (std::vector<RECT>*)m.lParam) { { std::lock_guard<std::mutex> l(g_mmu); g_mons = std::move(*hand); ReleaseClipLocked(); } delete hand; } ApplyHook(); continue; }
+        TranslateMessage(&m); DispatchMessageW(&m);
+    }
 }
 void KeyThread() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);

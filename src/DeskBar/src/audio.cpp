@@ -37,12 +37,32 @@ ws NameOf(IMMDevice* d) {
 }
 ComPtr<IAudioEndpointVolume> EvOf(IMMDevice* d) { ComPtr<IAudioEndpointVolume> e; d->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, (void**)&e); return e; }
 
+// Windows tells us when the volume moves or a device comes, goes or becomes the main one. The loop used to ask every 0.4 s, for ever: late by up to that much
+// after a volume key, and a wake-up 150 times a minute for nothing. The callbacks run on Windows' own threads and must return at once, so they only wake the loop.
+std::atomic<int> g_devGen{0};
+struct Notes : IMMNotificationClient, IAudioEndpointVolumeCallback {
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; } ULONG STDMETHODCALLTYPE Release() override { return 1; }   // lives as long as the program
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override {
+        if (!p) return E_POINTER;
+        if (r == __uuidof(IUnknown) || r == __uuidof(IMMNotificationClient)) { *p = (IMMNotificationClient*)this; return S_OK; }
+        if (r == __uuidof(IAudioEndpointVolumeCallback)) { *p = (IAudioEndpointVolumeCallback*)this; return S_OK; }
+        *p = nullptr; return E_NOINTERFACE;
+    }
+    void Wake(bool devices) { if (devices) g_devGen++; AudioPost([] {}); }
+    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) override { Wake(true); return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override { Wake(true); return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) override { Wake(true); return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow f, ERole, LPCWSTR) override { if (f == eRender) Wake(true); return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA) override { Wake(false); return S_OK; }
+} g_notes;
+
 void Poll() {
     ComPtr<IMMDevice> dev; VolState s;
-    if (!g_en || FAILED(g_en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) { g_ev.Reset(); g_defId.clear(); s.ok = false; s.muted = true; s.device = L"No output device"; }
+    if (!g_en || FAILED(g_en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) { if (g_ev) g_ev->UnregisterControlChangeNotify(&g_notes); g_ev.Reset(); g_defId.clear(); s.ok = false; s.muted = true; s.device = L"No output device"; }
     else {
         ws id = IdOf(dev.Get());
-        if (id != g_defId || !g_ev) { bool first = g_defId.empty(); g_defId = id; g_ev = EvOf(dev.Get()); s.device = NameOf(dev.Get()); if (!first && g_onDefault) g_onDefault(); }
+        if (id != g_defId || !g_ev) { bool first = g_defId.empty(); g_defId = id; if (g_ev) g_ev->UnregisterControlChangeNotify(&g_notes); g_ev = EvOf(dev.Get()); if (g_ev) g_ev->RegisterControlChangeNotify(&g_notes); s.device = NameOf(dev.Get()); if (!first && g_onDefault) g_onDefault(); }
         else { std::lock_guard<std::mutex> l(g_mu); s.device = g_vol.device; }
         float f = 0; BOOL m = FALSE;
         if (g_ev && SUCCEEDED(g_ev->GetMasterVolumeLevelScalar(&f)) && SUCCEEDED(g_ev->GetMute(&m))) { s.ok = true; s.vol = f; s.muted = m != 0; }
@@ -53,9 +73,13 @@ void Poll() {
 void Loop() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&g_en));
+    bool told = g_en && SUCCEEDED(g_en->RegisterEndpointNotificationCallback(&g_notes));
+    Log(L"audio: change notices %s", told ? L"on" : L"not available, asking every 0.4 s instead");
+    const int waitMs = told ? 5000 : 400;   // with notices the timed look is only a safety net
+    try { Poll(); } catch (...) {}   // the first look, before anything is asked: the Sound page marks the main output from it, and the bar shows the volume
     for (;;) {
         std::function<void()> job;
-        { std::unique_lock<std::mutex> l(g_qmu); g_cv.wait_for(l, std::chrono::milliseconds(400), [] { return !g_q.empty(); }); if (!g_q.empty()) { job = std::move(g_q.front()); g_q.pop_front(); } }
+        { std::unique_lock<std::mutex> l(g_qmu); g_cv.wait_for(l, std::chrono::milliseconds(waitMs), [] { return !g_q.empty(); }); if (!g_q.empty()) { job = std::move(g_q.front()); g_q.pop_front(); } }
         try { if (job) job(); Poll(); } catch (...) { Log(L"audio loop exception"); }
     }
 }
@@ -87,6 +111,7 @@ void AudioPost(std::function<void()> job) { { std::lock_guard<std::mutex> l(g_qm
 void AudioOnDefaultChanged(std::function<void()> f) { g_onDefault = std::move(f); }
 void AudioStart() { std::thread(Loop).detach(); }
 VolState Volume() { std::lock_guard<std::mutex> l(g_mu); return g_vol; }
+int AudioDeviceGen() { return g_devGen; }
 
 void AudioSetVolume(float v) {
     AudioPost([v] {

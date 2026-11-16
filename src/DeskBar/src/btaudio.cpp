@@ -3,6 +3,8 @@
 #include <mmdeviceapi.h>
 #include <devicetopology.h>
 #include <bluetoothapis.h>
+#include <setupapi.h>
+#include <devpropdef.h>
 
 // Connects / disconnects paired Bluetooth audio devices the way the Windows flyout does: every Bluetooth audio endpoint sits on a
 // kernel-streaming filter that understands the one-shot "reconnect / disconnect" property. Mice, keyboards and pens connect by themselves.
@@ -10,7 +12,20 @@ static const GUID kKsControl = {0x28F54685, 0x06FD, 0x11D2, {0xB2, 0x7A, 0x00, 0
 static const GUID kBtAudioSet = {0x7FA06C40, 0xB8F6, 0x4C7E, {0x85, 0x56, 0xE8, 0xC3, 0x3A, 0x12, 0xE5, 0x4D}};
 struct KSPROP { GUID Set; ULONG Id, Flags; };
 
-static ws AddressFromId(const ws& id) {   // AEP ids end in "...-aa:bb:cc:dd:ee:ff"
+// Charge of Bluetooth devices, as Windows' own Bluetooth page shows it: a property the hands-free driver keeps on the device node.
+// shortcut: classic Bluetooth only (earbuds, headsets, speakers); low-energy mice and pens report charge another way. Upgrade: read their GATT battery service.
+std::vector<std::pair<ws, int>> BtBatteries() {
+    static const DEVPROPKEY kBattery = {{0x104EA319, 0x6EE2, 0x4701, {0xBD, 0x47, 0x8D, 0xDB, 0xF4, 0x25, 0xBB, 0xE5}}, 2};
+    std::vector<std::pair<ws, int>> out; HDEVINFO h = SetupDiGetClassDevsW(nullptr, L"BTHENUM", nullptr, DIGCF_ALLCLASSES | DIGCF_PRESENT); if (h == INVALID_HANDLE_VALUE) return out;
+    SP_DEVINFO_DATA d{sizeof d};
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(h, i, &d); i++) {
+        DEVPROPTYPE t = 0; BYTE v = 0; wchar_t id[400];
+        if (!SetupDiGetDevicePropertyW(h, &d, &kBattery, &t, &v, 1, nullptr, 0) || t != DEVPROP_TYPE_BYTE || v > 100) continue;
+        if (SetupDiGetDeviceInstanceIdW(h, &d, id, 400, nullptr)) { ws s = id; for (auto& c : s) c = (wchar_t)towupper(c); out.push_back({s, v}); }
+    }
+    SetupDiDestroyDeviceInfoList(h); return out;
+}
+ws BtAddressFromId(const ws& id) {   // AEP ids end in "...-aa:bb:cc:dd:ee:ff"
     if (id.size() < 17) return {};
     ws hex; for (wchar_t c : id.substr(id.size() - 17)) if (c != L':') hex += (wchar_t)towupper(c);
     if (hex.size() != 12) return {}; for (wchar_t c : hex) if (!iswxdigit(c)) return {};
@@ -58,7 +73,7 @@ static int ServiceToggle(const ws& hexAddr, bool connect) {
     BluetoothFindRadioClose(find); return result;
 }
 void BtConnectAudio(const ws& id, bool connect, std::function<void(int)> cb) {
-    ws addr = AddressFromId(id);
+    ws addr = BtAddressFromId(id);
     if (addr.empty()) { UiPost([cb] { cb(1); }); return; }
     std::thread([addr, connect, cb] { CoInitializeEx(nullptr, COINIT_MULTITHREADED); int r = Send(addr, connect ? 0 : 1); if (r != 0) r = ServiceToggle(addr, connect); UiPost([cb, r] { cb(r); }); }).detach();
 }

@@ -89,15 +89,34 @@ struct WifiPage : PageBase {
         auto* head = MkBox(this, Lay::H); netsHead = head; auto* sl = SectionLabel(head, L"Available networks"); sl->star = 1; sl->va = Al::Center; netsLabel = sl;
         auto* rf = IconBtn(head, 0xE72C, 36, 13, [this] { Load(true, true); });   /* bigger: at 26 a finger often missed it */ rf->bg = Brush{}; rf->tip = L"Scan again";
         list = MkBox(this, Lay::V);
-        auto* f = Footer(this); MiniPill(f, L"Wi-Fi settings", 0xE713, false, [] { CloseAnd(L"ms-settings:network-wifi"); }); MiniPill(f, L"Hidden network", 0xE710, false, [] { CloseAnd(L"ms-settings:network-wifi"); });
-        Load(NetSnap().wifiOn);
+        auto* f = Footer(this); MiniPill(f, L"Wi-Fi settings", 0xE713, false, [] { CloseAnd(L"ms-settings:network-wifi"); });        Load(NetSnap().wifiOn);
+        {   // the page keeps itself current while it is open: a network joined or dropped shows at once, signal strengths and new networks every 10 s
+            liveSig = LiveSig(); GUARD auto id = std::make_shared<UINT_PTR>(0); auto n = std::make_shared<int>(0);
+            *id = UiTimer(2000, [this, w_, id, n] { if (w_.expired()) { UiKillTimer(*id); return; } Live(++*n); });
+        }
         if (!g_wifiPreview.empty()) {   // developer check: --wifipreview connecting|done|failed shows that card without joining anything
             GUARD ws mode = g_wifiPreview; connecting = L"Ucywifi_6GHz"; connStart = Now(); phase = 0; BuildConnecting(connecting);
             auto id = std::make_shared<UINT_PTR>(0); *id = UiTimer(33, [this, w_, id] { if (w_.expired() || phase != 0) { UiKillTimer(*id); return; } ConnTick(); });
             if (mode != L"connecting") UiOnce(400, [this, w_, mode] { IFALIVE ConnectDone(mode == L"done" ? ws() : ws(L"Windows couldn't reach the network (preview)."), connecting, false, false); });
         }
     }
-    void Load(bool on, bool forceFresh = false) {
+    ws liveSig;
+    static ws LiveSig() { NetState ns = NetSnap(); return ns.name + L"|" + ns.status + Fmt(L"|%d%d%d%d", ns.bars, (int)ns.needsSignIn, (int)ns.wifiOn, (int)ns.kind); }
+    static bool SameList(const std::vector<WifiNet>& a, const std::vector<WifiNet>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); i++) if (a[i].ssid != b[i].ssid || a[i].bars != b[i].bars || a[i].connected != b[i].connected || a[i].saved != b[i].saved) return false;
+        return true;
+    }
+    void Live(int tick) {
+        if (!connecting.empty() || !expanded.empty() || !NetSnap().wifiOn) return;   // never under a connect or an open form (it would throw away what is being typed)
+        ws sig = LiveSig(); bool changed = sig != liveSig; liveSig = sig;
+        if (!changed && tick % 5) return;
+        GUARD WifiScan(false, [this, w_, changed](bool access, std::vector<WifiNet> v) {
+            IFALIVE if (!access || !connecting.empty() || !expanded.empty()) return;
+            if (changed || (!v.empty() && !SameList(v, nets))) { if (!v.empty()) nets = v; Render(); }
+        });
+    }
+    void Load(bool on, bool forceFresh = false, bool scan = true) {
         if (!connecting.empty()) return;   // rebuilding now would throw away the password box mid-connect
         connLabel = nullptr; netsHead->visible = true; list->Clear(); hero->Clear(); NetState ns = NetSnap();
         if (!on) { Empty(list, 0xEB5E, L"Wi-Fi is off", L"Turn it on with the switch above."); q->Relayout(); return; }
@@ -108,6 +127,7 @@ struct WifiPage : PageBase {
             WifiScan(false, [this, w_](bool, std::vector<WifiNet> v) { IFALIVE if (nets.empty() && !v.empty()) { nets = v; Render(); } });
             Skeleton(list, 4);
         } else Render();
+        if (!scan) { q->Relayout(); return; }   // right after joining: a scan now takes the radio off the new network for a moment, just as it is getting its address
         if (forceFresh && netsLabel) netsLabel->Set(L"Searching…");   // the press shows at once: the list often comes back the same, which looked like nothing happened
         WifiScan(true, [this, w_](bool access, std::vector<WifiNet> v) {
             IFALIVE if (netsLabel) netsLabel->Set(L"Available networks");
@@ -144,6 +164,11 @@ struct WifiPage : PageBase {
         auto* dot = MkBox(st); dot->fw = dot->fh = 7; dot->radius = 3.5f; dot->va = Al::Center; dot->bg = SolidB(ns.internet ? K::Green : ns.needsSignIn ? 0xFFD700 : 0xFFA500);
         MkLabel(st, ns.status + (secured ? L" · Secured" : L" · Open"), FText(12), Col(K::White, 0xDD));
         top->Add(new Bars(bars, Col(K::White), Col(K::White, 0x50), 1.3f));
+        if (ns.needsSignIn) {   // a network with a sign-in page (hotel, campus guest, café): the link to it, right where you look after joining
+            auto* s = MkBox(h, Lay::V); s->radius = 10; s->pad = Thick(12, 10); s->margin = Thick(0, 12, 0, 0); s->bg = SolidB(0x000000, 0x38);
+            auto* t = MkLabel(s, L"One more step: this network wants you to sign in before the internet works.", FText(12)); t->wrap = true;
+            auto* b = MiniPill(s, L"Open sign-in page", 0xE774, true, [] { CloseAnd(L"http://www.msftconnecttest.com/redirect"); }); b->margin = Thick(0, 8, 0, 0); b->ha = Al::Start;
+        }
         auto* chips = MkBox(h, Lay::Wrap); chips->margin = Thick(60, 10, 0, 0); chips->gap = 6;
         auto chip = [&](wchar_t g, const ws& t) {
             if (t.empty()) return; auto* c = MkBox(chips, Lay::H); c->radius = 9; c->pad = Thick(8, 2, 9, 3); c->bg = SolidB(K::White, 0x30); c->gap = 5;
@@ -154,21 +179,32 @@ struct WifiPage : PageBase {
         auto* act = Footer(h); act->margin = Thick(0, 14, 0, 0);
         GUARD
         MiniPill(act, L"Disconnect", 0xE711, false, [this, w_] { WifiDisconnect(); UiOnce(900, [this, w_] { IFALIVE Load(true); }); });
+        MiniPill(act, L"Forget", 0xE74D, false, [this, w_, ssid] { WifiForget(ssid, [this, w_] { IFALIVE nets = WifiLast(); Load(true, false, false); }); });
         MiniPill(act, L"Properties", 0xE946, false, [] { CloseAnd(L"ms-settings:network-wifi"); });
-        if (ns.needsSignIn) { auto* s = MiniPill(h, L"Open sign-in page", 0xE774, true, [] { CloseAnd(L"http://www.msftconnecttest.com/redirect"); }); s->margin = Thick(60, 8, 0, 0); }
     }
     void BuildRow(const WifiNet& n) {
-        bool open = expanded == n.ssid; ws ssid = n.ssid;
-        auto* c = ClickCard(list, [this, ssid] { if (!connecting.empty()) return; expanded = expanded == ssid ? ws() : ssid; askPass = askUser = false; formErr.clear(); savedPass.clear(); savedUser.clear(); Render(); }, open);
+        bool open = expanded == n.ssid; ws ssid = n.ssid; bool needPass = n.secured && !n.saved, ent = n.enterprise, known = n.saved; GUARD
+        // opens the row's form; a network that will want a password shows the box at once, ready to type (it used to try without one first, fail, and only then ask)
+        auto toggle = [this, w_, ssid, needPass, ent] {
+            if (!connecting.empty()) return; expanded = expanded == ssid ? ws() : ssid; askPass = needPass; askUser = needPass && ent; formErr.clear(); savedPass.clear(); savedUser.clear(); Render();
+            if (!expanded.empty() && needPass) UiOnce(80, [this, w_] { IFALIVE if (askUser && user) q->SetFocus(user); else if (pwd) q->SetFocus(pwd); });
+        };
+        // a network this PC already knows joins on the first tap; its "more" button opens the row (Forget)
+        auto* c = ClickCard(list, [this, w_, ssid, known, ent, toggle] {
+            if (!connecting.empty()) return;
+            if (known && expanded != ssid) { connecting = ssid; UiOnce(0, [this, w_, ssid, ent] { IFALIVE StartConnect(ssid, L"", L"", false, ent); }); return; }
+            toggle();
+        }, open);
         auto* top = MkBox(c, Lay::H); top->gap = 0;
         auto* b = top->Add(new Bars(n.bars, Col(K::Accent), Col(K::White, K::CardHover), 1)); b->margin = Thick(0, 0, 17, 0);
         auto* nm = MkBox(top, Lay::V); nm->star = 1; nm->va = Al::Center;
         MkLabel(nm, n.ssid, FText(13));
         MkLabel(nm, n.band + (n.band.empty() ? L"" : L" · ") + n.security + Fmt(L" · %d%%", n.pct), FText(11), Col(K::White, K::Dim));
         auto* r = MkBox(top, Lay::H); r->gap = 8; r->va = Al::Center;
-        auto* badge = MkBox(r, Lay::H); badge->radius = 8; badge->pad = Thick(7, 1, 7, 2); badge->gap = 4; badge->va = Al::Center; badge->bg = n.secured ? SolidB(K::White, K::CardHover) : SolidB(0xF2C64B, 0x40);
-        auto* bg = MkGlyph(badge, n.secured ? 0xE72E : 0xE785, 9); bg->va = Al::Center; auto* bt = MkLabel(badge, n.secured ? L"Secured" : L"Open", FText(10.5f)); bt->va = Al::Center;
-        MkGlyph(r, open ? 0xE70D : 0xE70E, 10, Col(K::White, K::Dim));
+        auto* badge = MkBox(r, Lay::H); badge->radius = 8; badge->pad = Thick(7, 1, 7, 2); badge->gap = 4; badge->va = Al::Center; badge->bg = known ? SolidB(K::Accent, 0x40) : n.secured ? SolidB(K::White, K::CardHover) : SolidB(0xF2C64B, 0x40);
+        auto* bg = MkGlyph(badge, known ? 0xE73E : n.secured ? 0xE72E : 0xE785, 9); bg->va = Al::Center; auto* bt = MkLabel(badge, known ? L"Saved" : n.secured ? L"Secured" : L"Open", FText(10.5f)); bt->va = Al::Center;
+        if (known) { auto* more = IconBtn(r, open ? 0xE70E : 0xE712, 30, 12, toggle); more->bg = Brush{}; more->tip = L"More"; }
+        else MkGlyph(r, open ? 0xE70E : 0xE70D, 10, Col(K::White, K::Dim));   // down = opens, up = closes
         if (open) BuildConnect(c, n);
     }
     void BuildConnect(View* card, const WifiNet& n) {
@@ -195,7 +231,9 @@ struct WifiPage : PageBase {
             connecting = ssid;   // shuts the door at once; the card is built a moment later, outside this click (it replaces the form that was clicked)
             UiOnce(0, [this, w_, ssid, pass, who, usePass, ent] { IFALIVE StartConnect(ssid, pass, who, usePass, ent); });
         };
-        btn = Pill(p, L"Connect", 0xE71B, true, connect); btn->ha = Al::End; btn->pad = Thick(18, 8);
+        auto* acts = MkBox(p, Lay::H); acts->gap = 8; acts->ha = Al::End;
+        if (n.saved) { auto* fg = Pill(acts, L"Forget", 0xE74D, false, [this, w_, ssid] { expanded.clear(); WifiForget(ssid, [this, w_] { IFALIVE nets = WifiLast(); Render(); }); }); fg->pad = Thick(14, 8); }
+        btn = Pill(acts, L"Connect", 0xE71B, true, connect); btn->pad = Thick(18, 8);
         pwd->onEnter = connect;
     }
 
@@ -229,16 +267,18 @@ struct WifiPage : PageBase {
         if (res.empty()) {   // joined: the card turns green with a check and a ring, holds for a moment, then the page shows the network as connected
             phase = 1; art->Finish(1); sweep->visible = false; connCard->bg = CardGreen(); connTop->Set(L"Connected to"); connSub->Set(L"You're on the network."); q->Relayout();
             justConnected = ssid; for (auto& n : nets) n.connected = n.ssid == ssid;   // the list on this page is from before the connect: the new network is the connected one now
-            UiOnce(1300, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true); UiOnce(4000, [this, w_] { IFALIVE justConnected.clear(); Load(true); }); });
+            nets = WifiLast(); liveSig = LiveSig();
+            UiOnce(1300, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true, false, false); UiOnce(4000, [this, w_] { IFALIVE justConnected.clear(); if (connecting.empty() && expanded.empty()) Load(true, false, false); }); });
             return;
         }
         if (res == L"password") {   // it wants a password (or a different one): straight back to the form, with the field open and focused
-            askPass = true; askUser = ent; formErr = usePass ? ws(L"That password didn't work. Try again.") : ws(); connecting.clear(); expanded = ssid; Render();
+            askPass = true; askUser = ent; formErr = usePass ? ws(L"That password didn't work. Try again.") : ws(L"Windows couldn't sign in with what it has saved for this network. Type the password again."); connecting.clear(); expanded = ssid; Render();
             UiOnce(80, [this, w_] { IFALIVE if (askUser && user) q->SetFocus(user); else if (pwd) q->SetFocus(pwd); });
             return;
         }
         phase = 2; art->Finish(2); sweep->visible = false; connCard->bg = CardRed(); connTop->Set(L"Couldn't connect to"); connSub->Set(res); connActs->visible = true;
         MiniPill(connActs, L"Try again", 0xE72C, false, [this, w_, ssid, usePass, ent] { UiOnce(0, [this, w_, ssid, usePass, ent] { IFALIVE connecting.clear(); StartConnect(ssid, savedPass, savedUser, usePass, ent); }); });
+        if (ent) MiniPill(connActs, L"Use Windows' list", 0xE701, false, [] { CloseAnd(L"ms-availablenetworks:"); });   // work and campus networks can need a certificate prompt only Windows can show
         MiniPill(connActs, L"Back", 0xE72B, false, [this, w_] { UiOnce(0, [this, w_] { IFALIVE connecting.clear(); expanded.clear(); Load(true); }); });
         q->Relayout();
     }
@@ -268,6 +308,16 @@ struct BtPage : PageBase {
         auto* f = Footer(this); MiniPill(f, L"Add device", 0xE710, true, [this] { Search(); }); MiniPill(f, L"Bluetooth settings", 0xE713, false, [] { CloseAnd(L"ms-settings:bluetooth"); });
         MiniPill(f, L"Refresh", 0xE72C, false, [this] { Load(true); });
         Load();
+        {   // the page keeps itself current: DeskBar is told when a device connects or drops (netsvc.cpp), this shows it within two seconds
+            auto id = std::make_shared<UINT_PTR>(0); auto on = std::make_shared<bool>(NetSnap().btOn);
+            *id = UiTimer(2000, [this, w_, id, on] {
+                if (w_.expired()) { UiKillTimer(*id); return; }
+                bool now = NetSnap().btOn; if (now != *on) { *on = now; tg->Set(now); Load(); return; }   // switched from the tile, a key or Windows
+                if (!now || !status.empty()) return;   // a connect in progress draws itself
+                auto v = BtCached(); bool same = v.size() == devs.size(); for (size_t i = 0; same && i < v.size(); i++) same = v[i].id == devs[i].id && v[i].connected == devs[i].connected && v[i].battery == devs[i].battery && v[i].name == devs[i].name;
+                if (!same) Render(v);
+            });
+        }
     }
     void Load(bool asked = false) {
         content->Clear(); if (!NetSnap().btOn) { Empty(content, 0xE702, L"Bluetooth is off", L"Turn it on to use your pen, earbuds and other devices."); q->Relayout(); return; }
@@ -291,7 +341,7 @@ struct BtPage : PageBase {
         BtConnectAudio(id, true, [this, w_, id](int r) {
             IFALIVE
             if (r == 0) { Poll(id, true, 16); return; }
-            status[id] = L"Couldn't connect · is it on, nearby and not connected to another device?"; Render(devs);
+            status[id] = r == 1 ? L"Nothing to do here · it connects by itself when it is switched on and nearby" : L"Couldn't connect · is it on, nearby and not connected to another device?"; Render(devs);   // 1 = no audio side: a mouse, keyboard or pen
             UiOnce(4000, [this, w_, id] { IFALIVE status.erase(id); Render(devs); });
         });
     }
@@ -306,7 +356,15 @@ struct BtPage : PageBase {
     // Add device: the search runs right here (it used to hand off to Windows' "Add a device" window, which did not always come up)
     void Search() {
         if (searching || !NetSnap().btOn) return; searching = true; searched = true; found.clear(); Render(devs); GUARD
-        BtFindNew([this, w_](std::vector<BtDev> v) { IFALIVE searching = false; found = v; Render(devs); });
+        BtFindNew([this, w_](std::vector<BtDev> v, bool done) { IFALIVE if (done) searching = false; found = v; if (status.empty() || done) Render(devs); });
+    }
+    void Forget(const BtDev& d) {
+        ws id = d.id; status[id] = L"Forgetting…"; Render(devs); EnsureDots(); GUARD
+        BtForget(d.name, [this, w_, id](bool ok) {
+            IFALIVE status.erase(id); selected.clear();
+            if (ok) { Load(); NetRefresh(); return; }
+            status[id] = L"Windows wouldn't forget it"; Render(devs); UiOnce(4000, [this, w_, id] { IFALIVE status.erase(id); Render(devs); });
+        });
     }
     void Pair(const BtDev& d) {
         if (status.count(d.id)) return; ws id = d.id; status[id] = L"Pairing…"; Render(devs); EnsureDots(); GUARD
@@ -321,6 +379,7 @@ struct BtPage : PageBase {
         if (!searching && !searched) return;
         SectionLabel(content, searching ? L"Searching for new devices…" : L"New devices");
         if (searching && found.empty()) { Skeleton(content, 2); return; }
+        if (searching) { auto* sw = new Sweep(); content->Add(sw); sw->margin = Thick(4, 0, 4, 10); }   // still looking: more can turn up
         if (found.empty()) { auto* l = MkLabel(content, L"Nothing found. Put the device in pairing mode and press Add device again.", FText(12), Col(K::White, K::Dim)); l->wrap = true; l->margin = Thick(4, 0, 0, 12); return; }
         for (auto& d : found) {
             BtDev dev = d; auto it = status.find(d.id); bool busy = it != status.end();
@@ -343,10 +402,10 @@ struct BtPage : PageBase {
                 Bubble(t, BtGlyph(d.name), SolidB(K::Accent), Col(K::Black), 40)->ha = Al::Start;
                 auto* nm = MkLabel(t, d.name, FText(13, 600)); nm->margin = Thick(0, 10, 0, 2);
                 auto* st = MkBox(t, Lay::H); st->gap = 6; auto* dot = MkBox(st); dot->fw = dot->fh = 7; dot->radius = 3.5f; dot->bg = SolidB(K::Green); dot->va = Al::Center;
-                auto it = status.find(d.id); MkLabel(st, it != status.end() ? Show(it->second) : ws(L"Connected"), FText(11.5f), Col(K::White, K::Dim));
+                auto it = status.find(d.id); MkLabel(st, it != status.end() ? Show(it->second) : d.battery >= 0 ? Fmt(L"Connected · %d%%", d.battery) : ws(L"Connected"), FText(11.5f), Col(d.battery >= 0 && d.battery <= 20 && it == status.end() ? 0xFFB347 : K::White, d.battery >= 0 && d.battery <= 20 ? 255 : K::Dim));   // charge, amber when low
                 if (selected == d.id && it == status.end()) {
                     auto* row = MkBox(t, Lay::H); row->gap = 6; row->margin = Thick(0, 10, 0, 0);
-                    MiniPill(row, L"Disconnect", 0, false, [this, dev] { Disconnect(dev); }); MiniPill(row, L"Settings", 0, false, [] { CloseAnd(L"ms-settings:bluetooth"); });
+                    MiniPill(row, L"Disconnect", 0, false, [this, dev] { Disconnect(dev); }); MiniPill(row, L"Forget", 0, false, [this, dev] { Forget(dev); });
                 }
             }
         }
@@ -358,6 +417,8 @@ struct BtPage : PageBase {
                 Bubble(row, BtGlyph(d.name), SolidB(K::White, K::CardHover), Col(K::White), 32);
                 auto* nm = MkBox(row, Lay::V); nm->star = 1; nm->va = Al::Center; MkLabel(nm, d.name, FText(13)); MkLabel(nm, busy ? Show(it->second) : ws(L"Not connected"), FText(11.5f), Col(busy ? K::Accent : K::White, busy ? 255 : K::Dim));
                 if (!busy) { auto* b = MiniPill(row, L"Connect", 0xE702, true, [this, dev] { Connect(dev); }); b->va = Al::Center; b->ha = Al::End; }   // an actual button: the whole row also works, but nothing said so
+                if (!busy) { auto* more = IconBtn(row, 0xE712, 30, 12, [this, dev] { selected = selected == dev.id ? ws() : dev.id; Render(devs); }); more->bg = Brush{}; more->va = Al::Center; more->tip = L"More"; }
+                if (!busy && selected == d.id) { auto* r2 = MkBox(c, Lay::H); r2->gap = 6; r2->margin = Thick(44, 10, 0, 0); MiniPill(r2, L"Forget", 0xE74D, false, [this, dev] { Forget(dev); }); MiniPill(r2, L"Settings", 0xE713, false, [] { CloseAnd(L"ms-settings:bluetooth"); }); }
             }
         }
         q->Relayout();
@@ -450,14 +511,35 @@ struct SoundPage : PageBase {
         GUARD
         AudioDevices([this, w_](std::vector<AudioDev> d) {
             IFALIVE devs = d;
-            AudioApps([this, w_, d](std::vector<AppAudio> a) { IFALIVE Build(d, a); });
+            AudioApps([this, w_, d](std::vector<AppAudio> a) { IFALIVE shownApps = AppKey(a); Build(d, a); });
         });
+        {   // the page keeps itself current: headphones plugged in or a Bluetooth speaker connecting shows at once, an app that starts or stops playing within two seconds.
+            // Never while a button is held: rebuilding the page under a slider being dragged would end the drag.
+            auto id = std::make_shared<UINT_PTR>(0); auto gen = std::make_shared<int>(AudioDeviceGen()); auto n = std::make_shared<int>(0);
+            *id = UiTimer(1000, [this, w_, id, gen, n] {
+                if (w_.expired()) { UiKillTimer(*id); return; }
+                if (GetAsyncKeyState(VK_LBUTTON) < 0 || reloading) return;
+                if (AudioDeviceGen() != *gen) { *gen = AudioDeviceGen(); Reload(250); return; }   // a moment for Windows to finish adding the device
+                if (++*n % 2) return;
+                AudioApps([this, w_](std::vector<AppAudio> a) { IFALIVE if (!reloading && !shownApps.empty() && AppKey(a) != shownApps && GetAsyncKeyState(VK_LBUTTON) >= 0) Reload(0); });
+            });
+        }
     }
-    void Reload(int ms) { GUARD UiOnce(ms, [this, w_] { IFALIVE q->ShowDetail(MakeSoundPage(q)); }); }
+    ws shownApps = L"?"; bool reloading = false;
+    static ws AppKey(const std::vector<AppAudio>& a) { ws k = L"|"; for (auto& x : a) k += std::to_wstring(x.pid) + L"|"; return k; }   // which apps are in the mixer (not their volumes: those are the sliders' business)
+    void Reload(int ms) { if (reloading) return; reloading = true; GUARD UiOnce(ms, [this, w_] { IFALIVE q->ShowDetail(MakeSoundPage(q)); }); }   // one at a time: two queued rebuilds would each replace the page
     std::set<ws> dupNames;
     void Build(const std::vector<AudioDev>& d, const std::vector<AppAudio>& apps) {
         dupNames.clear(); { std::map<ws, int> n; for (auto& dev : d) n[AudioShortName(dev.name)]++; for (auto& [k, c] : n) if (c > 1) dupNames.insert(k); }   // one headset listed twice (USB + Bluetooth): show the full names so they can be told apart
         for (auto& dev : d) { OutputRow(dev); if (dev.vol >= 0 && !S.mirrorDevices.empty() && (dev.def || MirrorIsOn(dev.id))) DeviceVolume(dev); }
+        if (!S.mirrorDevices.empty()) {   // "Also play" is on: Bluetooth plays late by an amount Windows does not tell us (it differs per device), so it is set by ear
+            auto* g = MkBox(outputs, Lay::V); g->margin = Thick(4, 6, 4, 4);
+            auto* r = MkBox(g, Lay::H); auto* n = MkLabel(r, L"Bluetooth delay", FText(11.5f), Col(K::White, K::Dim)); n->fw = 100; n->va = Al::Center;
+            auto* s = r->Add(new Slider()); s->star = 1; s->value = S.btLagMs / 4.f; s->va = Al::Center;
+            auto* ms = MkLabel(r, Fmt(L"%d ms", S.btLagMs), FText(11.5f), Col(K::White, K::Dim)); ms->fw = 48; ms->ta = TA::Right; ms->va = Al::Center;
+            s->onChange = [ms](float v, bool) { int lag = (int)lroundf(v * 4); ms->Set(Fmt(L"%d ms", lag)); MirrorSetLag(lag); };
+            auto* h = MkLabel(g, L"Hear an echo between a Bluetooth speaker and a wired one? Slide until it is gone.", FText(11), Col(K::White, K::Dim)); h->wrap = true; h->margin = Thick(0, 2, 0, 0);
+        }
         if (apps.empty()) { auto* l = MkLabel(mixer, L"No apps are playing sound right now", FText(12), Col(K::White, K::Dim)); l->margin = Thick(4, 0, 0, 8); }
         for (auto& a : apps) AppRow(a, d);
         q->Relayout();

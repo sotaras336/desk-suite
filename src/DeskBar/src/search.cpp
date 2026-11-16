@@ -374,7 +374,19 @@ std::vector<RecentItem> RecentLoad(int max) {
 
 std::vector<RecentItem> RecentCached() {
     static std::mutex mu; static std::vector<RecentItem> cache; static bool started = false; std::lock_guard<std::mutex> l(mu);
-    if (!started) { started = true; std::thread([] { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); for (;;) { auto v = RecentLoad(80); { std::lock_guard<std::mutex> l2(mu); cache = v; } Sleep(30000); } }).detach(); }
+    if (!started) {
+        started = true;
+        std::thread([] {
+            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); ws dir = KnownFolder(FOLDERID_Recent);
+            // Read again only when Windows' Recent folder has changed (a file was opened somewhere). It used to open and resolve up to 80 shortcuts every 30 seconds
+            // for as long as DeskBar ran, whether anything had changed or not.
+            for (uint64_t last = ~0ull;;) {
+                WIN32_FILE_ATTRIBUTE_DATA d{}; uint64_t st = GetFileAttributesExW(dir.c_str(), GetFileExInfoStandard, &d) ? ((uint64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime : 0;
+                if (st != last || !st) { last = st; auto v = RecentLoad(80); std::lock_guard<std::mutex> l2(mu); cache = v; }
+                Sleep(st ? 5000 : 30000);   // the look itself costs nothing now, so it can be often: a file you just opened shows in search within 5 s (it took up to 30)
+            }
+        }).detach();
+    }
     return cache;
 }
 

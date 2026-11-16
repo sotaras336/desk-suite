@@ -55,6 +55,8 @@ void SetFlashing(HWND h, bool on);
 bool IsFlashing(HWND h);
 ws PackageFamilyFromPath(const ws& exe);
 ws AumidOfShortcut(const ws& lnk);
+void GesturesStart();                                                   // three-finger swipe down on the touchpad minimises everything (gesture.cpp)
+struct SwipeTracker { bool armed = false; float sx = 0, sy = 0, lx = 0, ly = 0; int Feed(int fingers, float x, float y); };   // 1 = a three-finger swipe down just ended
 
 // ---------- system state (each service runs on its own thread; the UI only reads snapshots) ----------
 struct BattState { bool present = false, charging = false, ac = false, saver = false; int pct = 100; int secsLeft = -1; };
@@ -64,8 +66,23 @@ struct NetState {
     ws name, adapter, status = L"Not connected", ip, btSubtitle;
 };
 NetState NetSnap();
-struct WifiNet { ws ssid, band, security; int bars = 0, pct = 0; bool secured = false, connected = false, enterprise = false; };
-struct BtDev { ws name, id; bool connected = false; };
+struct WifiNet { ws ssid, band, security; int bars = 0, pct = 0; bool secured = false, connected = false, enterprise = false, saved = false; };   // saved: this PC has its password already
+bool WifiBefore(const WifiNet& a, const WifiNet& b);   // list order: connected, saved, then by signal
+void WifiForget(const ws& ssid, std::function<void()> cb);
+int WifiDump();   // --wifilist
+// wlan.cpp: Windows' own Wi-Fi engine, and the sign-in page check
+void WlanOnChange(std::function<void()> f);            // joined, dropped or a profile changed (called on Windows' thread)
+bool WlanSaved(std::set<ws>& names);
+bool WlanCurrentSsid(ws& ssid);                        // false = can't tell; true with "" = not connected
+bool WlanForget(const ws& ssid);
+ws WlanReasonKind(DWORD reason);                       // "" ok, "password", or a message
+ws WlanConnectSaved(const ws& ssid, int timeoutMs);    // "" joined, "password", "none" = not a saved network, or a message
+int PortalProbe();                                     // 0 online, 1 a sign-in page is in the way, -1 no answer
+int PortalVerdict(int httpStatus, const std::string& bodyStart);
+struct BtDev { ws name, id; bool connected = false; int battery = -1; };   // battery: percent, -1 = Windows does not know
+ws BtAddressFromId(const ws& id);                          // "AABBCCDDEEFF", "" when the id has none
+std::vector<std::pair<ws, int>> BtBatteries();             // (device instance id in capitals, percent) for every Bluetooth device that reports its charge
+void BtForget(const ws& name, std::function<void(bool ok)> cb);
 void NetStart();
 void NetRefresh();
 void NetSetWifi(bool on); void NetSetBt(bool on); void NetSetAirplane(bool on);
@@ -77,7 +94,7 @@ void WifiConnect(const ws& ssid, const ws& pass, const ws& user, bool usePass, s
 void WifiDisconnect();
 void BtDevices(std::function<void(std::vector<BtDev>)> cb);
 std::vector<BtDev> BtCached();
-void BtFindNew(std::function<void(std::vector<BtDev>)> cb); void BtPair(const ws& id, std::function<void(int)> cb);   // unpaired devices nearby (~10 s); pair one: 0 ok, 1 cancelled, 2 failed
+void BtFindNew(std::function<void(std::vector<BtDev>, bool done)> cb); void BtPair(const ws& id, std::function<void(int)> cb);   // unpaired devices nearby (~10 s); pair one: 0 ok, 1 cancelled, 2 failed
 void BtConnectAudio(const ws& deviceId, bool connect, std::function<void(int)> cb);   // result 0 done, 1 not an audio device, 2 failed
 void MediaStart();
 void MediaOpenSource();
@@ -98,6 +115,7 @@ bool EnergySaverSet(bool on);
 void ToggleTouchKeyboard();
 struct VolState { bool ok = false, muted = false; float vol = 0; ws device; };
 VolState Volume();
+int AudioDeviceGen();   // goes up whenever an output device comes, goes or becomes the main one (the Sound page reloads itself on it)
 struct MediaState { bool active = false, playing = false; ws title, artist, source; ImgP art; };
 MediaState Media();
 // audio: every COM call happens on one MTA thread; results come back on the UI thread

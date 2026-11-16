@@ -30,7 +30,7 @@ public static partial class DialogSwitch
         try
         {
             var places = _folders?.Invoke() ?? new();
-            string start = Directory.Exists(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string start = Reach.Dir(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             GetWindowRect(dlg, out var r);
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
@@ -128,9 +128,11 @@ public static partial class DialogSwitch
         }
         string dir = Path.GetDirectoryName(paths[0]) ?? "";
         bool several = paths.Count > 1 && paths.All(p => string.Equals(Path.GetDirectoryName(p), dir, StringComparison.OrdinalIgnoreCase));
+        string shownBefore = folder ? Describe(dlg).Folder : "";
         if (several) Press(string.Join(" ", paths.Select(p => "\"" + p + "\"")));
         else Press(paths[0]);   // files from different folders can't be picked together in these dialogs: the first one
-        if (folder) After(350, () => { if (IsWindow(dlg)) Press(""); });   // a folder picker opens a typed folder instead of choosing it: pressed again with an empty name, it chooses the folder it is in
+        // (it used to press again after a fixed 350 ms: on a slow folder that was before the dialog had gone there, and it chose the folder it was still in)
+        if (folder) WhenIn(dlg, paths[0], shownBefore, 0, () => { if (IsWindow(dlg)) Press(""); });   // a folder picker opens a typed folder instead of choosing it: pressed again with an empty name, it chooses the folder it is in
         // still there a moment later = it had something to say (replace this file? bad name?): show it again so the app's answer is visible
         if (follow) After(several ? 1500 : 1000, () =>
         {
@@ -249,6 +251,12 @@ public static partial class DialogSwitch
         EnumChildWindows(dlg, (c, _) => { if (ClassOf(c) == "Button" && GetDlgCtrlID(c) == 2) { cancel = c; return false; } return true; }, IntPtr.Zero);
         if (cancel != IntPtr.Zero) PostMessage(cancel, 0x00F5, IntPtr.Zero, IntPtr.Zero); else PostMessage(dlg, 0x0111, (IntPtr)2, IntPtr.Zero);
     }
+
+    /// Runs then() once the dialog has gone to the folder that was typed into it: its address bar shows that folder, or has changed from what it showed before (it shows
+    /// "Documents", not the path, for the well-known folders). Looks every 60 ms. After 1.5 s it runs anyway: a dialog whose address bar can't be read still gets its answer.
+    internal static bool SameFolder(string shown, string wanted) => shown.Length > 0 && string.Equals(shown.TrimEnd('\\'), wanted.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+    internal static bool Arrived(string shownNow, string shownBefore, string wanted) => SameFolder(shownNow, wanted) || (shownNow.Length > 0 && !string.Equals(shownNow, shownBefore, StringComparison.OrdinalIgnoreCase));
+    private static void WhenIn(IntPtr dlg, string folder, string before, int n, Action then) => After(n == 0 ? 120 : 60, () => { if (!IsWindow(dlg)) return; if (n >= 23 || Arrived(Describe(dlg).Folder, before, folder)) then(); else WhenIn(dlg, folder, before, n + 1, then); });
 
     private static void After(int ms, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) }; t.Tick += (_, _) => { t.Stop(); a(); }; t.Start(); }
 

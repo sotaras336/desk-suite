@@ -62,7 +62,7 @@ int RunTaskbar(bool real) {
     // everything below is deferred: the bar is what you are waiting for
     UiOnce(100, [real] {
         SysStart(); MirrorStart();
-        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); DeskModeHotkeysStart(); }
+        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); DeskModeHotkeysStart(); GesturesStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
         if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own
@@ -112,11 +112,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (has(L"--supervise")) return RunSupervisor();
     if (has(L"--hooks")) return RunHooks((DWORD)_wtoi(val(L"--hooks").c_str()));
     if (!val(L"--stackof").empty() && argc > 3) { LogInit(false); return RunStackOf((DWORD)_wtoi(val(L"--stackof").c_str()), argv[argc - 1]); }
-    if (has(L"--btsearch")) { LogInit(false); UiInit(); BtFindNew([](std::vector<BtDev> v) { for (auto& d : v) Log(L"bt search found: %s", d.name.c_str()); PostQuitMessage(0); }); MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m); Sleep(500); return 0; }   // dev: what Add device finds (in the log)
+    if (has(L"--btsearch")) { LogInit(false); UiInit(); BtFindNew([](std::vector<BtDev> v, bool done) { if (!done) return; for (auto& d : v) Log(L"bt search found: %s", d.name.c_str()); PostQuitMessage(0); }); MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m); Sleep(500); return 0; }   // dev: what Add device finds (in the log)
     if (has(L"--wallcolor")) { LogInit(false); CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); return WallpaperThemeId().empty() ? 1 : 0; }   // dev: which theme the wallpaper picks (in the log)
     if (has(L"--buildindex")) { LogInit(false); return FileIndexBuild(); }
     if (!val(L"--bugsend").empty()) { LogInit(false); return BugSendTest(val(L"--bugsend")); }   // dev: send one report through the real form code; exit 0 = Google took it
     if (!val(L"--updatetest").empty()) { LogInit(false); return UpdateTest(val(L"--updatetest")); }   // dev: check + download + verify against DESK_UPDATE_BASE, never installs
+    if (has(L"--wifilist")) { LogInit(false); return WifiDump(); }
     if (!val(L"--wifitest").empty()) { LogInit(false); return WifiTest(val(L"--wifitest"), has(L"--keep")); }
     if (!val(L"--indexquery").empty() && argc > 3) { LogInit(false); FileIndexQuery(val(L"--indexquery"), argv[argc - 1]); return 0; }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file

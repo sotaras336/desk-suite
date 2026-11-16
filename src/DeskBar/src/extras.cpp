@@ -37,20 +37,20 @@ ws WallpaperThemeId() {
 }
 
 // All Desk settings in one folder (Documents\Desk settings), to carry to another PC or keep before a reinstall. Returns what to tell the user.
-static ws SettingsBag() { return KnownFolder(FOLDERID_Documents) + L"\Desk settings"; }
+static ws SettingsBag() { return KnownFolder(FOLDERID_Documents) + L"\\Desk settings"; }
 static std::vector<std::pair<ws, ws>> SettingsFiles() {   // (file in the bag, where it lives)
     ws la = KnownFolder(FOLDERID_LocalAppData);
-    return {{L"DeskBar.json", DataPath(L"settings.json")}, {L"DeskBar-search-habits.txt", DataPath(L"searchhabits.txt")}, {L"DeskDrawer.json", la + L"\DeskDrawer\settings.json"}, {L"DeskTune.json", la + L"\DeskTune\settings.json"}};
+    return {{L"DeskBar.json", DataPath(L"settings.json")}, {L"DeskBar-search-habits.txt", DataPath(L"searchhabits.txt")}, {L"DeskDrawer.json", la + L"\\DeskDrawer\\settings.json"}, {L"DeskTune.json", la + L"\\DeskTune\\settings.json"}};
 }
 ws DeskSettingsExport() {
     SaveSettingsNow(); ws bag = SettingsBag(); SHCreateDirectoryExW(nullptr, bag.c_str(), nullptr); int n = 0;
     for (auto& [name, src] : SettingsFiles()) if (CopyFileW(src.c_str(), (bag + L"\\" + name).c_str(), FALSE)) n++;
-    return n ? Fmt(L"Saved %d file(s) to Documents\Desk settings.", n) : ws(L"Couldn't write to Documents\Desk settings.");
+    return n ? Fmt(L"Saved %d file(s) to Documents\\Desk settings.", n) : ws(L"Couldn't write to Documents\\Desk settings.");
 }
 ws DeskSettingsImport() {   // DeskBar restarts to load its own; DeskDrawer and DeskTune read theirs the next time they start
     ws bag = SettingsBag(); int n = 0;
     for (auto& [name, dst] : SettingsFiles()) { ws src = bag + L"\\" + name; if (!FileExists(src)) continue; SHCreateDirectoryExW(nullptr, DirOf(dst).c_str(), nullptr); if (CopyFileW(src.c_str(), dst.c_str(), FALSE)) n++; }
-    if (!n) return L"Nothing to bring back: Documents\Desk settings is empty.";
+    if (!n) return L"Nothing to bring back: Documents\\Desk settings is empty.";
     UiOnce(900, [] { AppQuit(true); }); return Fmt(L"Brought back %d file(s). DeskBar restarts now.", n);
 }
 

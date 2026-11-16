@@ -198,6 +198,99 @@ public partial class MainWindow
                 Check("...but an ordinary double-click later is not", !SwallowCardContinuation(2));
                 _cardClickAt = -10_000_000;
             }
+            if (Want("behind"))   // a press on a selected row while another window is in front must not bring this window forward (MainWindow.DragBehind.cs)
+            {
+                var dirB = Path.Combine(root, "behind"); Directory.CreateDirectory(dirB); for (int i = 0; i < 6; i++) File.WriteAllText(Path.Combine(dirB, $"b{i}.txt"), "");
+                Navigate(dirB); await Task.Delay(1800); UpdateLayout();
+                var rowsB = new List<ListViewItem>(); Realized(List, rowsB); rowsB = rowsB.OrderBy(x => x.TransformToAncestor(this).Transform(new Point(0, 0)).Y).ToList();
+                // another window, on its own thread like another app's, shown after ours and so above it
+                IntPtr front = IntPtr.Zero; System.Windows.Threading.Dispatcher? fd = null; var ready = new ManualResetEventSlim();
+                var th = new Thread(() => { var w = new Window { Width = 220, Height = 120, Left = -32000, Top = 300, ShowInTaskbar = false, Title = "in front (test)" }; w.Show(); front = new System.Windows.Interop.WindowInteropHelper(w).Handle; fd = System.Windows.Threading.Dispatcher.CurrentDispatcher; ready.Set(); System.Windows.Threading.Dispatcher.Run(); });
+                th.SetApartmentState(ApartmentState.STA); th.IsBackground = true; th.Start(); ready.Wait(5000); await Task.Delay(500);
+                bool Above(IntPtr top, IntPtr below) { for (IntPtr h = GetWindow(top, 2 /*GW_HWNDNEXT*/); h != IntPtr.Zero; h = GetWindow(h, 2)) if (h == below) return true; return false; }
+                if (rowsB.Count < 4 || front == IntPtr.Zero) Check("behind: test set up", false, $"(rows {rowsB.Count}, front {front})");
+                else
+                {
+                    List.SelectedItems.Clear(); List.SelectedItems.Add(rowsB[1].Content); List.SelectedItems.Add(rowsB[2].Content); UpdateLayout();
+                    Point Mid(ListViewItem r) => r.TransformToAncestor(this).Transform(new Point(r.ActualWidth / 2, r.ActualHeight / 2));
+                    IntPtr ask = (IntPtr)((0x201 << 16) | 1 /*HTCLIENT*/); IntPtr fg0 = GetForegroundWindow(); bool pre = fg0 != Hwnd && Above(front, Hwnd);
+                    Check("behind: the test window starts behind another one", pre, $"(foreground is ours {fg0 == Hwnd}, other window above {Above(front, Hwnd)}, active {IsActive})");
+
+                    // 1. a press on a row that is NOT selected, a right press, a press with the title bar: all answered the usual way (the window may come forward)
+                    TestPressAt = Mid(rowsB[4]); long plain = SendMessage(Hwnd, 0x21, Hwnd, ask).ToInt64(); bool lazy1 = _lazyPress;
+                    TestPressAt = Mid(rowsB[1]); long right = SendMessage(Hwnd, 0x21, Hwnd, (IntPtr)((0x204 << 16) | 1)).ToInt64(); bool lazy2 = _lazyPress;
+                    long caption = SendMessage(Hwnd, 0x21, Hwnd, (IntPtr)((0x201 << 16) | 2 /*HTCAPTION*/)).ToInt64(); bool lazy3 = _lazyPress;
+                    Check("behind: an unselected row, a right press and the title bar still activate as always", plain != 3 && right != 3 && !lazy1 && !lazy2 && !lazy3, $"({plain} {right} {caption})");
+
+                    // 2. the real thing: Windows' question, then the real button-down message, on a selected row
+                    var at = Mid(rowsB[1]); TestPressAt = at; long ans = SendMessage(Hwnd, 0x21, Hwnd, ask).ToInt64();
+                    Check("behind: a left press on a selected row is answered \"don't activate\"", ans == 3 && _lazyPress, $"(answer {ans}, lazy {_lazyPress})");
+                    // (WPF ignores a posted button message when the real pointer is elsewhere, so the press is raised the way the other tests here do it)
+                    TestTrace = ""; List.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = rowsB[1] }); await Task.Delay(300); sb.AppendLine("INFO behind: " + TestTrace);
+                    bool held = _dragItem == rowsB[1].Content && Sel().Count == 2;
+                    Check("behind: the press reached the list as a grab of the whole selection", held, $"(grabbed {_dragItem?.Name}, selected {Sel().Count})");
+                    Check("behind: the window did not come forward, did not become active and took no focus", GetForegroundWindow() == fg0 && Above(front, Hwnd) && !List.IsKeyboardFocusWithin, $"(foreground unchanged {GetForegroundWindow() == fg0}, still below {Above(front, Hwnd)}, active {IsActive}, focus {List.IsKeyboardFocusWithin})");
+
+                    // 3. the button comes up without a drag: it was a click, so now the window asks to come forward, and the click selects the one row
+                    RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent, Source = rowsB[1] }); await Task.Delay(400);
+                    Check("behind: letting go without dragging ends the press as a click", !_lazyPress && _dragItem == null && Sel().Count == 1 && Sel()[0] == rowsB[1].Content && !List.IsMouseCaptured, $"(lazy {_lazyPress}, selected {Sel().Count}, captured {List.IsMouseCaptured})");
+                    sb.AppendLine($"INFO behind: after the click the window is {(GetForegroundWindow() == Hwnd ? "in front" : "not in front (Windows only lets the app that was really clicked come forward; this test has no real mouse)")}");
+
+                    // 4. a rename being typed, and Ctrl held, are never lazy
+                    List.SelectedItems.Clear(); List.SelectedItems.Add(rowsB[1].Content); ((FileEntry)rowsB[1].Content).IsRenaming = true; TestPressAt = at;
+                    long ren = SendMessage(Hwnd, 0x21, Hwnd, ask).ToInt64(); ((FileEntry)rowsB[1].Content).IsRenaming = false;
+                    Check("behind: not while a name is being typed", ren != 3 && !_lazyPress, $"({ren})");
+                }
+                TestPressAt = null; _lazyPress = false; _dragItem = null; _pendingSingle = null; List.ReleaseMouseCapture();
+                fd?.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Normal);
+                Navigate(root); await Task.Delay(800);
+            }
+            if (Want("merge"))   // a change in the open folder is merged into the list on screen: rows that stay keep their objects, selection and place
+            {
+                var dirM = Path.Combine(root, "merge"); Directory.CreateDirectory(dirM); for (int i = 0; i < 5; i++) File.WriteAllText(Path.Combine(dirM, $"m{i}.txt"), "x"); Directory.CreateDirectory(Path.Combine(dirM, "sub"));
+                Navigate(dirM); await Task.Delay(1800);
+                var keep = _tab.Entries!.First(x => x.Name == "m1.txt"); var grow = _tab.Entries!.First(x => x.Name == "m2.txt"); var view0 = _tab.View; var list0 = _tab.Entries;
+                List.SelectedItems.Clear(); List.SelectedItems.Add(keep);
+                File.WriteAllText(Path.Combine(dirM, "new.txt"), "n"); File.Delete(Path.Combine(dirM, "m4.txt")); File.WriteAllText(Path.Combine(dirM, "m2.txt"), new string('y', 5000));
+                await Task.Delay(2500);   // the folder watcher sees it and merges
+                var now = _tab.Entries!;
+                Check("merge: the new file is listed and the deleted one is gone", now.Any(x => x.Name == "new.txt") && !now.Any(x => x.Name == "m4.txt"), "(" + string.Join(",", now.Select(x => x.Name)) + ")");
+                Check("merge: the list was not rebuilt (same list, same view, same row objects)", ReferenceEquals(now, list0) && ReferenceEquals(_tab.View, view0) && now.Contains(keep) && now.Contains(grow));
+                Check("merge: a file that grew shows its new size in place", grow.Size == 5000, $"({grow.Size})");
+                Check("merge: the selection survived", Sel().Count == 1 && ReferenceEquals(Sel()[0], keep));
+                var none = MergeListing(_tab, new DirectoryInfo(dirM).EnumerateFileSystemInfos().Select(fi => new FileEntry(fi)).ToList());
+                Check("merge: nothing changed = nothing done", none == (0, 0, 0), none.ToString());
+                Navigate(root); await Task.Delay(800);
+            }
+            if (Want("zip"))
+            {
+                var src = Path.Combine(root, "zsrc"); Directory.CreateDirectory(Path.Combine(src, "inner", "empty")); File.WriteAllText(Path.Combine(src, "a.txt"), "alpha"); File.WriteAllBytes(Path.Combine(src, "inner", "b.bin"), new byte[300_000]);
+                string zf = Path.Combine(root, "z.zip"), outDir = Path.Combine(root, "zout"); double seen = -1;
+                ZipTo(new List<string> { src }, zf, p => seen = p, CancellationToken.None); UnzipTo(zf, outDir, null, CancellationToken.None);
+                Check("zip: a folder goes in and comes out the same, empty folders included, with progress reported", File.ReadAllText(Path.Combine(outDir, "zsrc", "a.txt")) == "alpha" && new FileInfo(Path.Combine(outDir, "zsrc", "inner", "b.bin")).Length == 300_000 && Directory.Exists(Path.Combine(outDir, "zsrc", "inner", "empty")) && seen > 0.99, $"(progress {seen:0.00})");
+                string evil = Path.Combine(root, "evil.zip"); using (var z = System.IO.Compression.ZipFile.Open(evil, System.IO.Compression.ZipArchiveMode.Create)) { using var w = new StreamWriter(z.CreateEntry("../escaped.txt").Open()); w.Write("x"); }
+                bool refused = false; try { UnzipTo(evil, Path.Combine(root, "evilout"), null, CancellationToken.None); } catch (IOException) { refused = true; }
+                Check("zip: an entry that points outside its folder is refused and nothing lands there", refused && !File.Exists(Path.Combine(root, "escaped.txt")));
+                bool stopped = false; try { ZipTo(new List<string> { src }, Path.Combine(root, "c.zip"), null, new CancellationToken(true)); } catch (OperationCanceledException) { stopped = true; }
+                Check("zip: a stop request stops it", stopped);
+            }
+            if (Want("reach"))
+            {
+                var sw1 = Stopwatch.StartNew(); bool gone = Reach.Dir(@"\\192.0.2.1\nowhere\folder"); long first = sw1.ElapsedMilliseconds; sw1.Restart(); bool again = Reach.Dir(@"\\192.0.2.1\nowhere\other"); long second = sw1.ElapsedMilliseconds;
+                Check("reach: a place that does not answer costs at most ~1.5 s once, then nothing for a while", !gone && !again && first < 2500 && second < 100, $"({first} ms, then {second} ms)");
+                Check("reach: a local folder is simply there, a missing one is not", Reach.Dir(root) && !Reach.Dir(Path.Combine(root, "no-such-folder")) && Reach.IsLocalDisk(Environment.SystemDirectory));
+            }
+            if (Want("fileops"))   // the copy engine: a path longer than 260 characters, and an error said in words
+            {
+                string deep = root; while (deep.Length < 300) deep = Path.Combine(deep, "a-rather-long-folder-name-to-get-past-the-old-limit"); Directory.CreateDirectory(@"\\?\" + deep);
+                string lf = Path.Combine(deep, "long.txt"); File.WriteAllText(@"\\?\" + lf, "deep"); string dst = Path.Combine(root, "fo-dst"); Directory.CreateDirectory(dst);
+                bool okCopy = await Task.Run(() => ShellOps.Copy(new[] { lf }, dst, IntPtr.Zero)); bool arrived = File.Exists(Path.Combine(dst, "long.txt"));
+                if (okCopy && arrived) Check("fileops: a file on a path longer than 260 characters is copied", true, $"({lf.Length} characters)");
+                else sb.AppendLine($"INFO fileops: a {lf.Length}-character path was not copied on this PC ({ShellOps.LastError}); Windows' long-path setting decides this");
+                bool bad = await Task.Run(() => ShellOps.Copy(new[] { Path.Combine(root, "does-not-exist.txt") }, dst, IntPtr.Zero));
+                Check("fileops: a failure is explained in words, not a number", !bad && ShellOps.LastError is { } le && !le.Contains("0x"), $"({ShellOps.LastError})");
+                try { Directory.Delete(@"\\?\" + Path.Combine(root, "a-rather-long-folder-name-to-get-past-the-old-limit"), true); } catch { }
+            }
             if (Want("bench") && Environment.GetEnvironmentVariable("DD_SEARCHBENCH") is { Length: > 0 } bench && bench.Split('|') is { Length: 2 } bp)   // DD_SEARCHBENCH="folder|words": how long a live search takes there
             {
                 var sw = Stopwatch.StartNew(); r = await Search(bp[0], bp[1]); sw.Stop();

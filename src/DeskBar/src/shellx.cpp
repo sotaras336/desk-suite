@@ -143,9 +143,11 @@ void ToggleDesktop() {
     g_putAway = open;
     for (HWND h : open) ShowWindowAsync(h, SW_MINIMIZE);
 }
+// The keys carry our own mark (the same one the input helper puts on what it sends, see kTag in hooks.cpp): the helper's keyboard hook lets marked keys straight
+// through. Unmarked, a Windows-key shortcut we send (Win+K, Win+P, Win+X...) went through the hook's own Windows-key bookkeeping, as if you had pressed it.
 void SendKeys(std::initializer_list<WORD> vks) {
-    std::vector<INPUT> in; for (WORD v : vks) { INPUT i{}; i.type = INPUT_KEYBOARD; i.ki.wVk = v; in.push_back(i); }
-    for (auto it = vks.end(); it != vks.begin();) { --it; INPUT i{}; i.type = INPUT_KEYBOARD; i.ki.wVk = *it; i.ki.dwFlags = KEYEVENTF_KEYUP; in.push_back(i); }
+    std::vector<INPUT> in; for (WORD v : vks) { INPUT i{}; i.type = INPUT_KEYBOARD; i.ki.wVk = v; i.ki.dwExtraInfo = 0xDB3DB3; in.push_back(i); }
+    for (auto it = vks.end(); it != vks.begin();) { --it; INPUT i{}; i.type = INPUT_KEYBOARD; i.ki.wVk = *it; i.ki.dwFlags = KEYEVENTF_KEYUP; i.ki.dwExtraInfo = 0xDB3DB3; in.push_back(i); }
     SendInput((UINT)in.size(), in.data(), sizeof(INPUT));
 }
 void ForceForeground(HWND h) {

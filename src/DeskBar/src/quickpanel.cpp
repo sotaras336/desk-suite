@@ -35,7 +35,7 @@ struct Tile : View {
 struct QuickPanel::Impl {
     Tile *wifi, *bt, *studio, *air, *rot, *saver, *night, *hotspot, *cast;
     Scroll* tiles; View *grid1, *dot1, *dot2; Slider *vol, *bright = nullptr; Glyph* volG; View* brightRow; Glyph *batG, *batFill; Label* batT; Glyph* brightG;
-    ws brightFor; HMONITOR monitor = nullptr;
+    ws brightFor; HMONITOR monitor = nullptr; UINT_PTR brightTimer = 0;
     bool tune = false;   // DeskTune is installed: its memory tile sits where Studio effects was
 };
 
@@ -54,22 +54,27 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
 
     auto mk = [](wchar_t g, const ws& l, std::function<void()> t, std::function<void()> m = {}, bool mo = false) { return new Tile(g, l, std::move(t), std::move(m), mo); };
     auto closeAnd = [](const wchar_t* uri) { return [uri] { ClosePanels(); Launch(uri); }; };
-    auto win = [](std::initializer_list<WORD> k) { return [k] { ClosePanels(); UiOnce(150, [k] { SendKeys(k); }); }; };
+    // the keys are copied into the closure: an initializer_list only points at a temporary array, which is gone by the time the tile is pressed
+    auto win = [](std::initializer_list<WORD> k) { std::vector<WORD> keys(k); return [keys] { ClosePanels(); UiOnce(150, [keys] { if (keys.size() == 2) SendKeys({keys[0], keys[1]}); else if (keys.size() == 3) SendKeys({keys[0], keys[1], keys[2]}); }); }; };
+    // a switch that Windows refused must say so: a second and a half after the press the real state is read back, and a tile that did not change shows it for a moment
+    auto expect = [this](Tile** tile, bool want, std::function<int()> read, const wchar_t* what) {
+        UiOnce(1500, [this, tile, want, read, what] { int now = read(); if (now < 0 || (now == 1) == want) return; Log(L"quick settings: %s did not switch %s", what, want ? L"on" : L"off"); (*tile)->Set(now == 1, L"Couldn't change"); UiOnce(2500, [this, tile, what] { (*tile)->Set((*tile)->on, what); Refresh(); }); });
+    };
     d->wifi = mk(0xE701, L"Wi-Fi", [this] { NetSetWifi(!d->wifi->on); }, [this] { ShowDetail(MakeWifiPage(this)); });
     d->bt = mk(0xE702, L"Bluetooth", [this] { NetSetBt(!d->bt->on); }, [this] { ShowDetail(MakeBtPage(this)); });
     ws tuneExe = KnownFolder(FOLDERID_LocalAppData) + L"\\Programs\\DeskTune\\DeskTune.exe";
     d->tune = GetFileAttributesW(tuneExe.c_str()) != INVALID_FILE_ATTRIBUTES;
     d->studio = d->tune ? mk(0xE9D9, L"DeskTune", [tuneExe] { ClosePanels(); Launch(tuneExe); })
                         : mk(0xE714, L"Studio effects", closeAnd(L"ms-settings:camera"), closeAnd(L"ms-settings:camera"), true);
-    d->air = mk(0xE709, L"Airplane mode", [this] { bool on = !d->air->on; d->air->Set(on); NetSetAirplane(on); });
-    d->rot = mk(0xE7AD, L"Rotation lock", [this] { int l = RotationLocked(); if (l >= 0) RotationSetLocked(!l); Refresh(); });
-    d->saver = mk(0xEBB6, L"Energy saver", [this] { bool on = !d->saver->on; d->saver->Set(on); std::thread([on] { CoInitializeEx(nullptr, COINIT_MULTITHREADED); EnergySaverSet(on); SysPoke(); }).detach(); });
-    d->night = mk(0xE708, L"Night light", [this] { bool on = !d->night->on; if (NightLightSet(on)) d->night->Set(on); });
+    d->air = mk(0xE709, L"Airplane mode", [this, expect] { bool on = !d->air->on; d->air->Set(on); NetSetAirplane(on); expect(&d->air, on, [] { NetRefresh(); return (int)NetSnap().airplane; }, L"Airplane mode"); });
+    d->rot = mk(0xE7AD, L"Rotation lock", [this, expect] { int l = RotationLocked(); if (l >= 0) { RotationSetLocked(!l); expect(&d->rot, !l, [] { return RotationLocked(); }, L"Rotation lock"); } Refresh(); });
+    d->saver = mk(0xEBB6, L"Energy saver", [this, expect] { bool on = !d->saver->on; d->saver->Set(on); std::thread([on] { CoInitializeEx(nullptr, COINIT_MULTITHREADED); EnergySaverSet(on); SysPoke(); }).detach(); expect(&d->saver, on, [] { return (int)Battery().saver; }, L"Energy saver"); });
+    d->night = mk(0xE708, L"Night light", [this, expect] { bool on = !d->night->on; if (NightLightSet(on)) d->night->Set(on); expect(&d->night, on, [] { return NightLightIsOn(); }, L"Night light"); });
     d->hotspot = mk(0xE704, L"Mobile hotspot", [this] { bool on = !d->hotspot->on; d->hotspot->Set(on); NetHotspot(false, on, [this, on](int r) { if (r < 0) { d->hotspot->Set(!on); ClosePanels(); Launch(L"ms-settings:network-mobilehotspot"); } }); });
-    d->cast = mk(0xEC15, L"Cast", win({VK_LWIN, 'K'}));
+    d->cast = mk(0xEC15, L"Cast", win({VK_LWIN, 'K'}), win({VK_LWIN, 'K'}), true);   // these open something (a Windows panel or a Settings page): drawn with the arrow, not as a switch
     Tile* top[] = {d->wifi, d->bt, d->studio, d->air, d->rot, d->saver, d->night, d->hotspot, d->cast};
-    Tile* extra[] = {mk(0xE776, L"Accessibility", closeAnd(L"ms-settings:easeofaccess")), mk(0xE7F4, L"Project", win({VK_LWIN, 'P'})), mk(0xE72D, L"Nearby sharing", closeAnd(L"ms-settings:crossdevice")),
-                     mk(0xE705, L"VPN", closeAnd(L"ms-settings:network-vpn")), mk(0xE823, L"Focus", closeAnd(L"ms-settings:quietmomentshome")), mk(0xE7F0, L"Live captions", win({VK_LWIN, VK_CONTROL, 'L'}))};
+    Tile* extra[] = {mk(0xE776, L"Accessibility", closeAnd(L"ms-settings:easeofaccess"), closeAnd(L"ms-settings:easeofaccess"), true), mk(0xE7F4, L"Project", win({VK_LWIN, 'P'}), win({VK_LWIN, 'P'}), true), mk(0xE72D, L"Nearby sharing", closeAnd(L"ms-settings:crossdevice"), closeAnd(L"ms-settings:crossdevice"), true),
+                     mk(0xE705, L"VPN", closeAnd(L"ms-settings:network-vpn"), closeAnd(L"ms-settings:network-vpn"), true), mk(0xE823, L"Focus", closeAnd(L"ms-settings:quietmomentshome"), closeAnd(L"ms-settings:quietmomentshome"), true), mk(0xE7F0, L"Live captions", win({VK_LWIN, VK_CONTROL, 'L'}), win({VK_LWIN, VK_CONTROL, 'L'}), true)};
     d->tiles = main->Add(new Scroll()); auto* content = MkBox(nullptr, Lay::V); d->tiles->content = d->tiles->Add(content);
     d->grid1 = MkBox(content, Lay::Uniform); d->grid1->cols = 3; for (auto* t : top) d->grid1->Add(t);
     auto* grid2 = MkBox(content, Lay::Uniform); grid2->cols = 3; for (auto* t : extra) grid2->Add(t);
@@ -98,7 +103,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
 }
 
 void ThemePreviewEnd(QuickPanel* qp);
-void QuickPanel::OnClose() { Back(); ThemePreviewEnd(this); }   // a colour being tried on the Color page is put back
+void QuickPanel::OnClose() { Back(); ThemePreviewEnd(this); if (d->brightTimer) { UiKillTimer(d->brightTimer); d->brightTimer = 0; } }   // a colour being tried on the Color page is put back
 void QuickPanel::ShowDetail(View* p, bool ownHeight) {
     Back(); page = p; detail->content = detail->Add(p); detail->visible = true; main->visible = false; detail->ScrollTo(0, false);
     if (foot) foot->visible = !ownHeight;   // DeskMode's pages have no Quick Settings footer (it was a blue strip under the dark panel)
@@ -145,6 +150,8 @@ void QuickPanel::BuildBrightness() {
 }
 void QuickPanel::OnOpen() {
     Back(); BuildBrightness(); Refresh();
+    // while the panel is open the slider follows the screen: the brightness keys, automatic brightness and the charger all move it behind our back
+    if (!d->brightTimer) d->brightTimer = UiTimer(2500, [this] { if (!d->bright->dragging && !page) BuildBrightness(); });
     // exactly the nine tiles show; the rest is a scroll away
     d->tiles->fh = NAN; Sz g = d->grid1->Measure({320, INF}); d->tiles->fh = ceilf(g.h);
     d->tiles->ScrollTo(0, false);

@@ -33,7 +33,8 @@ bool IsBluetooth(const ws& id) {
     for (auto& b : BtCached()) if (b.connected && (EqI(inner, b.name) || EqI(inner, b.name + L" Hands-Free"))) return true;
     return false;
 }
-int Latency(const ws& id) { return IsBluetooth(id) ? 200 : 0; }
+std::atomic<int> g_btLag{200};   // S.btLagMs, for the audio thread
+int Latency(const ws& id) { return IsBluetooth(id) ? g_btLag.load() : 0; }
 
 void StopCapture() { if (g_capClient) g_capClient->Stop(); g_cap.Reset(); g_capClient.Reset(); if (g_fmt) CoTaskMemFree(g_fmt); g_fmt = nullptr; g_srcId.clear(); }
 void StopAll() { for (auto& l : g_legs) { if (l.client) l.client->Stop(); Log(L"Mirror off: %s", l.id.c_str()); } g_legs.clear(); StopCapture(); }
@@ -96,7 +97,7 @@ void Pump() {
     int64_t now = Qpc();
     for (auto& l : g_legs) {
         int64_t delay = l.delayMs * g_freq / 1000;
-        while (l.pendingBytes > (size_t)g_frameBytes * 48 * (400 + l.delayMs) && !l.pending.empty()) { l.pendingBytes -= l.pending.front().data.size(); g_pool.push_back(std::move(l.pending.front().data)); l.pending.pop_front(); }   // never fall far behind
+        while (l.pendingBytes > (size_t)g_frameBytes * (g_fmt ? g_fmt->nSamplesPerSec : 48000) / 1000 * (400 + l.delayMs) && !l.pending.empty()) { l.pendingBytes -= l.pending.front().data.size(); g_pool.push_back(std::move(l.pending.front().data)); l.pending.pop_front(); }   // never fall far behind
         UINT32 padding = 0; if (FAILED(l.client->GetCurrentPadding(&padding))) continue; UINT32 freeF = l.bufFrames - padding;
         while (freeF > 0 && !l.pending.empty()) {
             Chunk& c = l.pending.front(); if (now - c.at < delay) break;
@@ -119,7 +120,9 @@ void Loop() {
 void Push() { std::vector<ws> v = S.mirrorDevices; Post([v] { g_wanted = v; Rebuild(); }); }
 }
 
-void MirrorStart() { std::thread(Loop).detach(); Push(); AudioOnDefaultChanged([] { if (!g_wanted.empty()) Post([] { StopAll(); Rebuild(); }); }); }
+// How far Bluetooth runs behind, set by ear (the Sound page's slider): applies at once to what is playing.
+void MirrorSetLag(int ms) { ms = std::clamp(ms, 0, 500); S.btLagMs = ms; SaveSettingsSoon(); Post([ms] { g_btLag = ms; if (!g_wanted.empty()) Rebuild(); }); }
+void MirrorStart() { g_btLag = S.btLagMs; std::thread(Loop).detach(); Push(); AudioOnDefaultChanged([] { if (!g_wanted.empty()) Post([] { StopAll(); Rebuild(); }); }); }
 bool MirrorIsOn(const ws& id) { return std::find(S.mirrorDevices.begin(), S.mirrorDevices.end(), id) != S.mirrorDevices.end(); }
 void MirrorSet(const ws& id, bool on) {
     bool has = MirrorIsOn(id); if (on == has) return;

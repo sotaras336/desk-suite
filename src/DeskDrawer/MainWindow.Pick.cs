@@ -140,7 +140,7 @@ public partial class MainWindow
             return;
         }
         var full = names.Select(n => Path.IsPathRooted(n) ? n : Path.Combine(here!, n)).ToList();
-        if (full.Count == 1 && Directory.Exists(full[0])) { Navigate(full[0]); PickName.Clear(); return; }
+        if (full.Count == 1 && Reach.Dir(full[0])) { Navigate(full[0]); PickName.Clear(); return; }
         PickDone(full);
     }
 

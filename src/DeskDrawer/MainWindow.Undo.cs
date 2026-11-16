@@ -60,8 +60,8 @@ public partial class MainWindow
         if (!IsVisible) Wake(paths);   // waking from the background: the folders asked for, or the last session
         else foreach (var p in paths)
         {
-            if (!IsVirtual(p) && File.Exists(p) && Path.GetDirectoryName(p) is { } dir) { NewTab(dir); _tab.SelectAfterLoad.Add(p); }   // a file: its folder, the file selected
-            else if (IsVirtual(p) || Directory.Exists(p)) NewTab(p);
+            if (!IsVirtual(p) && Reach.File(p) && Path.GetDirectoryName(p) is { } dir) { NewTab(dir); _tab.SelectAfterLoad.Add(p); }   // a file: its folder, the file selected
+            else if (IsVirtual(p) || Reach.Dir(p)) NewTab(p);
         }
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate(); Topmost = true; Topmost = false; Focus();
@@ -72,7 +72,7 @@ public partial class MainWindow
     {
         var list = new List<string>();
         foreach (var p in new[] { _tab.Current }.Concat(_tabs.Select(t => t.Current)).Concat(_pinned))
-            if (p != null && !IsVirtual(p) && Directory.Exists(p) && !list.Contains(p, StringComparer.OrdinalIgnoreCase)) list.Add(p);
+            if (p != null && !IsVirtual(p) && Reach.Dir(p) && !list.Contains(p, StringComparer.OrdinalIgnoreCase)) list.Add(p);
         return list;
     }
 

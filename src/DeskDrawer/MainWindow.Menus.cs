@@ -50,7 +50,7 @@ public partial class MainWindow
         }
         var paths = sel.Select(x => x.FullPath).ToList();
         items.Add(MI("Compress to ZIP file", "", () => Zip(paths)));
-        if (sel.Count == 1 && sel[0].Ext == ".zip") items.Add(MI("Extract all", "", () => Unzip(paths[0])));
+        if (sel.Count == 1 && Archives.Contains(sel[0].Ext)) items.Add(MI("Extract all", "", () => Unzip(paths[0])));
     }
 
     // ---------- shared menu pieces (right-click menu and command bar) ----------
@@ -193,49 +193,4 @@ public partial class MainWindow
         }
     }
 
-    // ---------- ZIP ----------
-
-    private void Zip(List<string> paths)
-    {
-        if (paths.Count == 0 || Path.GetDirectoryName(paths[0].TrimEnd('\\')) is not { } dir) return;
-        string stem = paths.Count == 1 ? Path.GetFileNameWithoutExtension(paths[0].TrimEnd('\\')) : Path.GetFileName(dir.TrimEnd('\\'));
-        string target = ShellOps.Unique(dir, string.IsNullOrEmpty(stem) ? "Archive" : stem, ".zip");
-        Status.Text = "Compressing…";
-        RunZipJob(() =>
-        {
-            using var z = ZipFile.Open(target, ZipArchiveMode.Create);
-            foreach (var p in paths)
-            {
-                if (!Directory.Exists(p)) { z.CreateEntryFromFile(p, Path.GetFileName(p), CompressionLevel.Optimal); continue; }
-                string baseDir = Path.GetDirectoryName(p.TrimEnd('\\'))!;
-                foreach (var f in Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories)) z.CreateEntryFromFile(f, Path.GetRelativePath(baseDir, f).Replace('\\', '/'), CompressionLevel.Optimal);
-                foreach (var d in Directory.EnumerateDirectories(p, "*", SearchOption.AllDirectories).Prepend(p))   // keep empty folders too
-                    if (!Directory.EnumerateFileSystemEntries(d).Any()) z.CreateEntry(Path.GetRelativePath(baseDir, d).Replace('\\', '/') + "/");
-            }
-        }, dir, target, "Compressed to ");
-    }
-
-    private void Unzip(string zip)
-    {
-        if (Path.GetDirectoryName(zip) is not { } dir) return;
-        string target = ShellOps.Unique(dir, Path.GetFileNameWithoutExtension(zip), "");
-        Status.Text = "Extracting…";
-        RunZipJob(() => ZipFile.ExtractToDirectory(zip, target), dir, target, "Extracted to ");
-    }
-
-    /// Runs a zip / unzip off the UI thread; on failure removes the half-made result, on success shows and selects it.
-    private void RunZipJob(Action job, string dir, string target, string done)
-    {
-        Task.Run(job).ContinueWith(t => Dispatcher.BeginInvoke(() =>
-        {
-            if (t.Exception != null)
-            {
-                try { if (File.Exists(target)) File.Delete(target); else if (Directory.Exists(target)) Directory.Delete(target, true); } catch { }
-                MessageBox.Show(this, t.Exception.InnerException?.Message ?? "It didn't work.", "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); UpdateStatus(); return;
-            }
-            foreach (var tab in _tabs)
-                if (string.Equals(tab.Current, dir, StringComparison.OrdinalIgnoreCase)) { tab.SelectAfterLoad = new HashSet<string>(new[] { target }, StringComparer.OrdinalIgnoreCase); LoadTab(tab); }
-            Flash(done + Path.GetFileName(target));
-        }));
-    }
 }

@@ -64,6 +64,7 @@ struct Settings {
     bool winKeyOpensStart = true, mouseBridge = true; int edgeResistance = 2;
     bool snapOnRelease = true, keepSizeRatio = true, rescueWindows = true, popupsFollowOwner = true;
     bool dmAutoMax = true, dmRestore = true, dmGameLock = true, dmButton = true;
+    int btLagMs = 200;         // "Also play": how far a Bluetooth output runs behind a wired one. Windows does not report it, so it is set by ear on the Sound page (mirror.cpp)
     bool bugReports = false;   // "Report a bug" notepad (bugreport.cpp): only turned on by DeskBar-Setup-Bugs.exe   // DeskMode, now inside DeskBar
     int dmMaxLaptopHz = 0, dmMaxMonitorHz = 0, dmMaxMode = 2, dmEasyHz = 60, dmEasyMode = 0;   // 0 Hz = the highest the screen offers; modes 0 recommended, 1 better, 2 best
     bool dmMaxSaverOff = true, dmEasySaverOn = true;
