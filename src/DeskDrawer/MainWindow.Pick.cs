@@ -171,7 +171,7 @@ public partial class MainWindow
     }
     internal void TestAnswer(string path) => PickDone(new List<string> { path });   // the self-test answers the way a click on a file would
 
-    /// Over the dialog it replaces, kept inside that screen's work area (device pixels, so it lands on the right screen at any scaling).
+    /// In the top-left corner of the screen the dialog is on (device pixels, so it lands on the right screen at any scaling).
     private void PickCentre()
     {
         var h = new WindowInteropHelper(this).Handle; PickGetWindowRect(h, out var me);
@@ -182,7 +182,7 @@ public partial class MainWindow
         uint dpi = 96; try { PickGetDpiForMonitor(PickMonitorFromRect(ref dlg, 2), 0, out dpi, out _); } catch { } double k = Math.Max(1, dpi) / 96.0;
         int workW = mi.rcWork.R - mi.rcWork.L, workH = mi.rcWork.B - mi.rcWork.T;
         var (w, hh) = PickSize(workW, workH, k, dlg.R - dlg.L, dlg.B - dlg.T); int wl = mi.rcWork.L, wt = mi.rcWork.T;
-        int x = Math.Clamp((dlg.L + dlg.R) / 2 - w / 2, wl, Math.Max(wl, mi.rcWork.R - w)), y = Math.Clamp((dlg.T + dlg.B) / 2 - hh / 2, wt, Math.Max(wt, mi.rcWork.B - hh));
+        int gap = (int)(12 * k), x = wl + gap, y = wt + gap;   // the top-left corner of that screen's usable area (the user's choice), a small gap from the edges
         PickSetWindowPos(h, IntPtr.Zero, x, y, w, hh, 0x0004 | 0x0010);
     }
 

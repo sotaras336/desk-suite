@@ -1,8 +1,8 @@
-## Desk 3.2.2
+## Desk 3.2.3
 
 **DeskDrawer** (Save and Open windows)
 
-- **Smaller.** DeskDrawer's picker now opens at the size of the Save or Open window it replaces: no smaller than it needs for the folder tree and the file list, no larger than 800 × 520, and never more than half the screen's width.
+- **Always in the same place.** DeskDrawer's picker now opens in the top-left corner of the screen the app's Save or Open window is on. It used to open over the spot where that window would have been, which could put it in an odd place when an app had not finished placing its own window.
 
 DeskBar and DeskTune are the same as in 3.2.
 

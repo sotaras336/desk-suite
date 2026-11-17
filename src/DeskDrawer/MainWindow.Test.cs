@@ -315,6 +315,8 @@ public partial class MainWindow
                 {
                     var swp = Stopwatch.StartNew(); pw = ForPick(round == 0 ? root : pdir, "", "Save", new[] { "Text (*.txt)" }, 0, "Save As", 200, 200, 900, 700); long tA = swp.ElapsedMilliseconds; pw.Opacity = 0; pw.PickShow(); long tB = swp.ElapsedMilliseconds; await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render); sb.AppendLine($"INFO pick round {round}: request {tA} ms, show {tB} ms, first render {swp.ElapsedMilliseconds} ms");
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle); times.Add(swp.ElapsedMilliseconds);
+                    if (round == 0) { var ph = new System.Windows.Interop.WindowInteropHelper(pw).Handle; PickGetWindowRect(ph, out var pr); var pd = new PRECT { L = 200, T = 200, R = 900, B = 700 }; var pm = new PMONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<PMONITORINFO>() }; PickGetMonitorInfo(PickMonitorFromRect(ref pd, 2), ref pm);
+                        int gx = pr.L - pm.rcWork.L, gy = pr.T - pm.rcWork.T; Check("pick: opens in the top-left corner of the screen", gx >= 0 && gy >= 0 && gx <= 40 && gy <= 40, $"({gx}, {gy} px from the corner)"); }
                     if (round == 2) { Check("pick: a name that arrives late fills an untouched box", pw.PickLateName("", "report.docx") && pw.PickName.Text == "report.docx"); pw.PickName.Text = "mine.txt"; Check("pick: ...but never one you typed", !pw.PickLateName("", "other.docx") && pw.PickName.Text == "mine.txt"); }
                     pw.FinishPick(); pw.Opacity = 1; await Task.Delay(300);
                 }
