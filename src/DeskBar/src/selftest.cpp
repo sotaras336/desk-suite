@@ -25,6 +25,19 @@ int RunSelfTest(const ws& outFile) {
         check(L"partial relative path", found, r.empty() ? L"(no result)" : r[0].target);
         { ws d; bool ok = FileIndexSelfTest(d); check(L"file index rebuilds full paths", ok, d); }
         { ws d; bool ok = FileIndexScanSelfTest(d); check(L"file index saves a scan (the crash)", ok, d); }
+        { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
+        if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)
+            CatalogLoad(); int shown = 0; std::string rep; check(L"lookup: apps in the catalog", !CatalogApps().empty(), Fmt(L"%d", (int)CatalogApps().size()));
+            for (auto& a : CatalogApps()) {
+                ws exe = AppTargetPath(a.id), cmd, listed; bool store = a.id.find(L'!') != ws::npos, f = !store && FindUninstall(a.name, exe, cmd, listed);
+                rep += Narrow(Fmt(L"lookup %s: %s\n", a.name.c_str(), store ? L"Store app, its Settings page" : f ? (L"\"" + listed + L"\" -> " + cmd).c_str() : (L"not found (exe " + exe + L")").c_str()));
+                if (++shown >= 400) break;
+            } ws lp = DataPath(L"lookup.txt"); check(L"lookup: report written", WriteAtomic(lp, rep), Fmt(L"%d apps, %d bytes to %s", shown, (int)rep.size(), lp.c_str()));
+        }
+        {   // uninstall command lines as Windows keeps them
+            ws e1, a1, e2, a2, e3, a3; bool s1 = SplitCommand(L"\"C:\\Program Files\\App\\unins000.exe\" /SILENT", e1, a1), s2 = SplitCommand(L"MsiExec.exe /X{1234-ABCD}", e2, a2), s3 = SplitCommand(L"C:\\Users\\x\\AppData\\Local\\Discord\\Update.exe --uninstall", e3, a3);
+            check(L"uninstall: commands split into program and arguments", s1 && s2 && s3 && e1 == L"C:\\Program Files\\App\\unins000.exe" && a1 == L"/SILENT" && e2 == L"MsiExec.exe" && a2 == L"/X{1234-ABCD}" && e3 == L"C:\\Users\\x\\AppData\\Local\\Discord\\Update.exe" && a3 == L"--uninstall", e3 + L" | " + a3);
+        }
         DeleteFileW((base + L"\\inner\\a.txt").c_str()); RemoveDirectoryW((base + L"\\inner").c_str()); RemoveDirectoryW(base.c_str());
     }
     check(L"package family", PackageFamilyFromPath(L"C:\\Program Files\\WindowsApps\\Claude_2.3.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe") == L"Claude_pzs8sxrjxfjjc");

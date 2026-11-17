@@ -416,3 +416,71 @@ std::vector<Result> SearchLocal(const ws& query) {
     std::stable_sort(r.begin(), r.end(), [](const Result& a, const Result& b) { return a.score > b.score; });
     if (r.size() > 30) r.resize(30); return r;
 }
+
+// ======================================================= one app: where it is, and how to remove it
+// The file an app in Start opens ("" for Store apps and anything that is not a plain program on disk).
+ws AppTargetPath(const ws& id) {
+    if (id.empty() || id.find(L'!') != ws::npos) return {};
+    ComPtr<IShellItem2> it; ws out;
+    if (SUCCEEDED(SHCreateItemFromParsingName((L"shell:AppsFolder\\" + id).c_str(), nullptr, IID_PPV_ARGS(&it)))) { PWSTR p = nullptr; if (SUCCEEDED(it->GetString(PKEY_Link_TargetParsingPath, &p)) && p) out = p; CoTaskMemFree(p); }
+    if (out.empty() && id.size() > 38 && id[0] == L'{' && id[37] == L'}') {   // "{known folder}\rest": the id itself is the path
+        KNOWNFOLDERID kf; if (SUCCEEDED(CLSIDFromString(id.substr(0, 38).c_str(), &kf))) { ws base = KnownFolder(kf); if (!base.empty()) out = base + id.substr(38); }
+    }
+    if (out.empty() && id.size() > 3 && id[1] == L':') out = id;
+    return FileExists(out) ? out : ws();
+}
+// Which entry of Windows' installed-programs list is this app? Matched by what the entry says about itself, most certain first:
+//  1. its icon IS the app's file;  2. the same name;  3. its uninstaller sits in the app's folder, or in a folder inside it (Lunar Client, OneDrive, EA);
+//  4. its install folder holds the app's file (the deepest such folder; when several programs share it, as Quartus and ModelSim do, the one whose name
+//     starts like the app's);  5. a name that starts with the app's name ("Discord" -> "Discord Inc.", never "Dis").
+// Entries Windows hides from its own list (SystemComponent) are skipped, as Settings skips them. Fills cmd with the entry's uninstall command line.
+bool FindUninstall(const ws& appName, const ws& exe, ws& cmd, ws& listed) {
+    struct E { ws name, cmd, icon, loc, unDir; }; std::vector<E> all;
+    for (auto [hive, view] : {std::pair<HKEY, REGSAM>{HKEY_CURRENT_USER, 0}, {HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY}, {HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY}}) {
+        HKEY root; if (RegOpenKeyExW(hive, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", 0, KEY_READ | view, &root)) continue;
+        wchar_t name[256]; for (DWORD i = 0;; i++) {
+            DWORD nl = 256; if (RegEnumKeyExW(root, i, name, &nl, nullptr, nullptr, nullptr, nullptr)) break;
+            HKEY k; if (RegOpenKeyExW(root, name, 0, KEY_READ | view, &k)) continue;
+            auto str = [&](const wchar_t* v) { wchar_t b[2048]; DWORD sz = sizeof b; return RegGetValueW(k, nullptr, v, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr, b, &sz) == 0 ? ws(b) : ws(); };
+            DWORD sys = 0, ssz = 4; RegGetValueW(k, nullptr, L"SystemComponent", RRF_RT_DWORD, nullptr, &sys, &ssz);
+            E e{Trim(str(L"DisplayName")), Trim(str(L"UninstallString")), Trim(str(L"DisplayIcon")), Trim(str(L"InstallLocation")), L""};
+            RegCloseKey(k);
+            if (e.name.empty() || e.cmd.empty() || sys) continue;
+            if (!e.icon.empty() && e.icon[0] == L'"') e.icon = e.icon.substr(1, e.icon.find(L'"', 1) - 1);
+            size_t c = e.icon.rfind(L','); if (c != ws::npos && c > 3) e.icon = e.icon.substr(0, c);
+            if (!e.loc.empty() && e.loc[0] == L'"') e.loc = e.loc.substr(1, e.loc.find(L'"', 1) - 1);
+            while (!e.loc.empty() && e.loc.back() == L'\\') e.loc.pop_back();
+            ws prog, args; if (SplitCommand(e.cmd, prog, args)) { prog = ExpandEnv(prog); if (prog.find(L'\\') != ws::npos) e.unDir = DirOf(prog); }
+            all.push_back(e);
+        }
+        RegCloseKey(root);
+    }
+    auto take = [&](const E& e) { cmd = e.cmd; listed = e.name; return true; };
+    ws dir = exe.empty() ? ws() : DirOf(exe), an = Norm(appName), first = an.substr(0, an.find(L' '));
+    auto under = [](const ws& path, const ws& folder) { return folder.size() > 3 && (EqI(path, folder) || StartsI(path, folder + L"\\")); };
+    // folders that hold many programs: an uninstaller sitting right there says nothing about which program it belongs to
+    static const std::vector<ws> shared = [] { std::vector<ws> v; for (auto id : {FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86, FOLDERID_LocalAppData, FOLDERID_RoamingAppData, FOLDERID_UserProgramFiles, FOLDERID_Windows, FOLDERID_System, FOLDERID_SystemX86, FOLDERID_ProgramData}) { ws p = KnownFolder(id); if (!p.empty()) v.push_back(p); } return v; }();
+    auto isShared = [&](const ws& d) { for (auto& s : shared) if (EqI(d, s)) return true; return d.size() <= 3 || ContainsI(d, L"\\Package Cache"); };
+    if (!exe.empty()) for (auto& e : all) if (EqI(e.icon, exe)) return take(e);
+    for (auto& e : all) if (Norm(e.name) == an) return take(e);
+    if (!dir.empty()) for (auto& e : all) if (!e.unDir.empty() && !isShared(e.unDir) && !isShared(dir) && (under(e.unDir, dir) || under(dir, e.unDir))) return take(e);
+    if (!dir.empty()) {
+        const E* best = nullptr; int ties = 0;
+        for (auto& e : all) {
+            if (e.loc.size() <= 3 || isShared(e.loc) || !under(dir, e.loc)) continue;
+            bool named = !first.empty() && StartsI(Norm(e.name), first);
+            if (!best || e.loc.size() > best->loc.size()) { best = &e; ties = 0; }
+            else if (e.loc.size() == best->loc.size()) { bool bestNamed = !first.empty() && StartsI(Norm(best->name), first); if (named && !bestNamed) best = &e; else if (named == bestNamed) ties++; }
+        }
+        if (best && !ties) return take(*best);
+    }
+    for (auto& e : all) if (an.size() >= 4 && StartsI(Norm(e.name), an + L" ")) return take(e);
+    return false;
+}
+// An uninstall command line as Windows keeps it, split into the program and its arguments: "C:\x\unins000.exe" /SILENT, MsiExec.exe /X{...}, C:\x\Update.exe --uninstall
+bool SplitCommand(const ws& line, ws& exe, ws& args) {
+    ws s = Trim(line); if (s.empty()) return false;
+    if (s[0] == L'"') { size_t q = s.find(L'"', 1); if (q == ws::npos) return false; exe = s.substr(1, q - 1); args = Trim(s.substr(q + 1)); return !exe.empty(); }
+    ws low = Lower(s); size_t e = low.find(L".exe"); if (e == ws::npos) { size_t sp = s.find(L' '); exe = s.substr(0, sp); args = sp == ws::npos ? ws() : Trim(s.substr(sp + 1)); return true; }
+    exe = s.substr(0, e + 4); args = Trim(s.substr(e + 4)); return true;
+}

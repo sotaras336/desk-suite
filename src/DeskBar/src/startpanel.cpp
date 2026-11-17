@@ -228,8 +228,26 @@ struct StartPanel : Flyout {
         if (inStart && pinned && S.startPins[0] != id) m.push_back({L"Move to front", 0xE74A, [this, id] { std::erase(S.startPins, id); S.startPins.insert(S.startPins.begin(), id); SaveSettingsSoon(); RenderPinned(); }});
         bool onBar = TaskbarHasApp(id);
         m.push_back(onBar ? MenuItem{L"Unpin from taskbar", 0xE77A, [id] { TaskbarUnpinApp(id); }} : MenuItem{L"Pin to taskbar", 0xE718, [id] { TaskbarPinApp(id); }});
-        m.push_back({L"", 0, {}, true}); m.push_back({L"Uninstall…", 0xE74D, [this] { Launch(L"ms-settings:appsfeatures"); Close(); }});
+        ws exe = AppTargetPath(id); if (!exe.empty()) m.push_back({L"Open file location", 0xE838, [this, exe] { ShowInFolder(exe); Close(); }});
+        m.push_back({L"", 0, {}, true}); m.push_back({L"Uninstall…", 0xE74D, [this, id, name] { Close(); UninstallApp(id, name); }});
         return m;
+    }
+    // Uninstall goes straight to THIS app (it used to open the list of every app, to search through):
+    //  - a Store app: its own page in Settings, which has the Uninstall button;
+    //  - a program: its own uninstaller, the one Settings' Uninstall button starts, found in Windows' installed-programs list. Some uninstallers remove the
+    //    program without asking, so DeskBar asks first. Anything it can't place: the Installed apps page in Settings, as before.
+    static void UninstallApp(const ws& id, const ws& name, const ws& exeHint = {}) {
+        if (size_t bang = id.find(L'!'); bang != ws::npos) { Launch(L"ms-settings:appsfeatures-app?" + id.substr(0, bang)); return; }
+        std::thread([id, name, exeHint] {
+            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); ws exe = id.empty() ? exeHint : AppTargetPath(id), cmd, listed, prog, args; CoUninitialize();
+            bool found = FindUninstall(name, exe, cmd, listed) && SplitCommand(cmd, prog, args);
+            Log(L"uninstall %s: %s", name.c_str(), found ? (L"found \"" + listed + L"\": " + cmd).c_str() : L"not in the installed-programs list, opening Settings");
+            if (!found) { Launch(L"ms-settings:appsfeatures"); return; }
+            ws q = Fmt(L"Uninstall %s?\n\nIts own uninstaller will start (\"%s\" in Windows' list of installed programs).", name.c_str(), listed.c_str());
+            // Windows Installer programs often keep "MsiExec /I{...}", which opens a Change / Repair / Remove screen; Settings removes them with /X, and so do we
+            if (EqI(FileNameOf(prog), L"MsiExec.exe") || EqI(prog, L"MsiExec")) { ws a = Lower(args); size_t i = a.find(L"/i{"); if (i == ws::npos) i = a.find(L"/i "); if (i != ws::npos) args[i + 1] = L'X'; }
+            if (MessageBoxW(nullptr, q.c_str(), L"DeskBar", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND | MB_DEFBUTTON2) == IDYES) Launch(ExpandEnv(prog), args);
+        }).detach();
     }
     View* IconPic(View* parent, const ws& key, float sz) { auto* p = parent->Add(new Pic()); p->fw = p->fh = sz; p->provider = [key](int px) { return IconGet(key, px); }; return p; }
     void RenderPinned() {
@@ -395,12 +413,14 @@ struct StartPanel : Flyout {
             ws id = r.appId; Act(preview, 0xE8E5, L"Open", [this, id] { OpenApp(id); Close(); }); Act(preview, 0xE7EF, L"Run as administrator", [this, id] { OpenApp(id, true); Close(); });
             bool inStart = std::find(S.startPins.begin(), S.startPins.end(), id) != S.startPins.end();
             Act(preview, inStart ? 0xE77A : 0xE718, inStart ? L"Unpin from Start" : L"Pin to Start", [this, id, inStart, rc] { if (inStart) std::erase(S.startPins, id); else S.startPins.push_back(id); SaveSettingsSoon(); RenderPinned(); BuildPreview(rc); });
-            bool onBar = TaskbarHasApp(id); Act(preview, onBar ? 0xE77A : 0xE718, onBar ? L"Unpin from taskbar" : L"Pin to taskbar", [this, id, onBar, rc] { if (onBar) TaskbarUnpinApp(id); else TaskbarPinApp(id); BuildPreview(rc); }); break; }
+            bool onBar = TaskbarHasApp(id); Act(preview, onBar ? 0xE77A : 0xE718, onBar ? L"Unpin from taskbar" : L"Pin to taskbar", [this, id, onBar, rc] { if (onBar) TaskbarUnpinApp(id); else TaskbarPinApp(id); BuildPreview(rc); });
+            ws exe = AppTargetPath(id); if (!exe.empty()) Act(preview, 0xE838, L"Open file location", [this, exe] { ShowInFolder(exe); Close(); });
+            ws nm = r.title; Act(preview, 0xE74D, L"Uninstall", [this, id, nm] { Close(); UninstallApp(id, nm); }); break; }
         case RKind::File: { ws p = r.target; Act(preview, 0xE8E5, L"Open", [this, p] { Launch(p); Close(); }); Act(preview, 0xE838, L"Open file location", [this, p] { ShowInFolder(p); Close(); }); Act(preview, 0xE7AC, L"Open with…", [this, p] { Close(); OpenWith(p); });
             Act(preview, 0xE8C8, L"Copy path", [p] { ClipboardSetText(p); }); Act(preview, 0xE946, L"Properties", [this, p] { Close(); OpenProps(p); }); break; }
         case RKind::Folder: { ws p = r.target; Act(preview, 0xE8DA, L"Open", [this, p] { Launch(p); Close(); }); Act(preview, 0xE838, L"Open location", [this, p] { ShowInFolder(p); Close(); });
             Act(preview, 0xE710, L"Add to Start folders", [this, p] { if (std::none_of(S.quickFolders.begin(), S.quickFolders.end(), [&](const ws& f) { return EqI(f, p); })) { S.quickFolders.push_back(p); SaveSettingsSoon(); RenderFolders(); } }); break; }
-        case RKind::Program: { ws p = r.target; Act(preview, 0xE8E5, L"Open", [this, p] { Launch(p); Close(); }); Act(preview, 0xE838, L"Open location", [this, p] { ShowInFolder(p); Close(); }); break; }
+        case RKind::Program: { ws p = r.target; Act(preview, 0xE8E5, L"Open", [this, p] { Launch(p); Close(); }); Act(preview, 0xE838, L"Open location", [this, p] { ShowInFolder(p); Close(); }); ws nm = r.title; Act(preview, 0xE74D, L"Uninstall", [this, p, nm] { Close(); UninstallApp(L"", nm, p); }); break; }
         case RKind::Setting: Act(preview, 0xE8E5, L"Open", [this, rc] { OpenResult(rc); }); break;
         case RKind::Calc: Act(preview, 0xE8C8, L"Copy result", [this, rc] { OpenResult(rc); }); break;
         case RKind::Run: Act(preview, 0xE768, L"Run", [this, rc] { OpenResult(rc); }); if (!r.appId.empty()) Act(preview, 0xE7EF, L"Run as administrator", [this, rc] { RunCommand(rc, true); }); break;

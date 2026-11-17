@@ -94,6 +94,7 @@ struct Index {
 };
 
 std::shared_ptr<const Index> g_ix; std::mutex g_mu;
+std::atomic<uint64_t> g_scanStart{0}; void FreshPrune();   // when the last finished scan started, and the new files it now covers (below)
 ws IndexDir() { return DirOf(DataPath(L"fileindex.x")); }
 std::vector<ws> IndexFiles() {   // newest first (the name carries the time, fixed width)
     std::vector<ws> v; WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileExW((IndexDir() + L"\\fileindex.*.bin").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0);
@@ -170,20 +171,87 @@ int FileIndexBuildMain() {
 }
 void SpawnScan() {
     static std::atomic<bool> running{false}; if (running.exchange(true)) return;
-    std::thread([] {
+    uint64_t started = Now();
+    std::thread([started] {
         wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); ws cmd = L"\"" + ws(exe) + L"\" --buildindex";
         STARTUPINFOW si{sizeof si}; PROCESS_INFORMATION pi{}; DWORD code = (DWORD)-1;
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) {
             if (WaitForSingleObject(pi.hProcess, 40 * 60 * 1000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &code); else TerminateProcess(pi.hProcess, 1);   // our own child, by handle
             CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
         } else Log(L"file index: could not start the scan (%lu)", GetLastError());
-        if (code == 0) LoadNewest(); else Log(L"file index: the scan ended with %lu, keeping the old list", code);
+        if (code == 0) { LoadNewest(); g_scanStart = started; FreshPrune(); } else Log(L"file index: the scan ended with %lu, keeping the old list", code);
         running = false;
     }).detach();
 }
 
+// ---------------------------------------------------------------- what is new since the last scan
+// The full scan runs every few hours, so a file you saved a minute ago was not in the list and search could not find it. Windows tells us about every
+// file created or renamed under your own folders (and on other drives), and those names are kept here, in memory, until a scan that started after them
+// has them too. Only names that APPEAR are kept: something deleted or moved away is dropped by the existence check every result goes through anyway.
+struct Fresh { ws path; std::string name, dirs; bool dir; uint64_t t; };   // name and dirs folded, as the index has them
+std::vector<Fresh> g_fresh; std::mutex g_fmu;
+bool FreshSkip(const ws& p) {   // churn nobody searches for: app data, temp and build output (the index has them all anyway, from the next scan)
+    ws l = Lower(p);
+    for (const wchar_t* s : {L"\\appdata\\", L"\\$recycle.bin", L"\\system volume information", L"\\node_modules\\", L"\\.git\\", L"\\__pycache__\\", L"\\windows\\", L"\\programdata\\", L"\\program files"})
+        if (l.find(s) != ws::npos) return true;
+    ws n = FileNameOf(l); return n.empty() || n[0] == L'~' || n.ends_with(L".tmp") || n.ends_with(L".crdownload") || n.ends_with(L".part") || n.ends_with(L".partial");
+}
+void FreshAdd(const ws& path) {
+    if (FreshSkip(path)) return;
+    DWORD a = GetFileAttributesW(path.c_str()); if (a == INVALID_FILE_ATTRIBUTES) return;
+    ws n = FileNameOf(path), d = DirOf(path); Fresh f{path, FoldName(n.c_str(), n.size()), FoldName(d.c_str(), d.size()), (a & FILE_ATTRIBUTE_DIRECTORY) != 0, Now()};
+    std::lock_guard<std::mutex> l(g_fmu);
+    std::erase_if(g_fresh, [&](const Fresh& x) { return EqI(x.path, path); });
+    g_fresh.push_back(std::move(f)); if (g_fresh.size() > 20000) g_fresh.erase(g_fresh.begin(), g_fresh.begin() + 5000);   // a huge unzip: keep the newest
+}
+void WatchRoot(ws root) {
+    HANDLE h = CreateFileW(root.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE) { Log(L"file index: can't watch %s (%lu)", root.c_str(), GetLastError()); return; }
+    std::vector<BYTE> buf(64 * 1024); if (root.back() != L'\\') root += L'\\';
+    for (;;) {
+        DWORD got = 0;
+        if (!ReadDirectoryChangesW(h, buf.data(), (DWORD)buf.size(), TRUE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, &got, nullptr, nullptr)) { Log(L"file index: stopped watching %s (%lu)", root.c_str(), GetLastError()); break; }
+        if (!got) continue;   // too many at once and Windows dropped them: the next scan has them
+        for (auto* e = (FILE_NOTIFY_INFORMATION*)buf.data();; e = (FILE_NOTIFY_INFORMATION*)((BYTE*)e + e->NextEntryOffset)) {
+            if (e->Action == FILE_ACTION_ADDED || e->Action == FILE_ACTION_RENAMED_NEW_NAME) FreshAdd(root + ws(e->FileName, e->FileNameLength / sizeof(wchar_t)));
+            if (!e->NextEntryOffset) break;
+        }
+    }
+    CloseHandle(h);
+}
+// Your profile folder, and every other fixed or removable drive; the rest of the system drive (Windows, Program Files) changes all the time and holds nothing
+// you would look for by a name you just gave it.
+void FreshStart() {
+    ws sys = Lower(KnownFolder(FOLDERID_Windows).substr(0, 3)); std::vector<ws> roots{KnownFolder(FOLDERID_Profile)};
+    for (auto& r : Roots()) if (Lower(r.substr(0, 3)) != sys) roots.push_back(r);
+    for (auto& r : roots) if (!r.empty()) std::thread([r] { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); WatchRoot(r); }).detach();
+}
+void FreshPrune() {   // a scan that started at g_scanStart has everything older than that
+    uint64_t s = g_scanStart; if (!s) return; std::lock_guard<std::mutex> l(g_fmu); std::erase_if(g_fresh, [&](const Fresh& f) { return f.t < s; });
+}
+
 // ---------------------------------------------------------------- searching
 struct Hit { uint32_t i; double s; };
+std::vector<std::string> Tokens(const std::string& folded);
+bool WordStart(std::string_view n, const std::string& t);
+// The new files that fit a query, scored the way Rank scores the index (same words rule, same name scores, the same bonus for your own folders), best first.
+std::vector<std::pair<ws, double>> FreshFind(const std::string& folded) {
+    std::vector<std::pair<ws, double>> out; auto toks = Tokens(folded); size_t total = 0; for (auto& t : toks) total += t.size(); if (toks.empty() || total < 2) return out;
+    std::string qs; for (auto& t : toks) qs += (qs.empty() ? "" : " ") + t;
+    static const std::string mine = [] { ws p = KnownFolder(FOLDERID_Profile); return FoldName(p.c_str(), p.size()); }();
+    std::lock_guard<std::mutex> l(g_fmu);
+    for (auto& f : g_fresh) {
+        bool inName = true, ok = true;
+        for (auto& t : toks) if (f.name.find(t) == std::string::npos) { inName = false; if (f.dirs.find(t) == std::string::npos) { ok = false; break; } }
+        if (!ok || std::none_of(toks.begin(), toks.end(), [&](const std::string& t) { return f.name.find(t) != std::string::npos; })) continue;   // as in Rank: a word must be in the name itself, the others may be in a folder above
+        std::string_view stem = f.name; if (!f.dir) { size_t dot = stem.rfind('.'); if (dot != std::string_view::npos && dot > 0) stem = stem.substr(0, dot); }
+        double v = stem == qs ? 120 : f.name.compare(0, toks[0].size(), toks[0]) == 0 ? 100 : WordStart(f.name, toks[0]) ? 85 : f.name.find(toks[0]) != std::string::npos ? 55 : 45;
+        if (!inName) v -= 8; v += f.dir ? 3 : 0; v -= std::min(10.0, f.name.size() * 0.08);
+        v -= std::min(12.0, (double)std::count(f.path.begin(), f.path.end(), L'\\') * 0.8); if (f.dirs.compare(0, mine.size(), mine) == 0) v += 5;
+        out.push_back({f.path, v});
+    }
+    std::sort(out.begin(), out.end(), [](auto& a, auto& b) { return a.second > b.second; }); if (out.size() > 20) out.resize(20); return out;
+}
 std::vector<std::string> Tokens(const std::string& folded) {   // words; a path separator or a wildcard also separates ("docs\report", "*.pdf")
     std::vector<std::string> t; std::string cur;
     for (char c : folded) { if (c == ' ' || c == '\\' || c == '/' || c == '*' || c == '?' || c == '\t') { if (!cur.empty()) t.push_back(cur); cur.clear(); } else cur += c; }
@@ -249,12 +317,19 @@ void Worker() {
     for (;;) {
         Req r; { std::unique_lock<std::mutex> l(g_rmu); g_rcv.wait(l, [] { return g_haveReq; }); r = std::move(g_req); g_haveReq = false; }
         std::shared_ptr<const Index> ix; { std::lock_guard<std::mutex> l(g_mu); ix = g_ix; }
-        std::vector<Result> out; if (!ix) { UiPost([cb = r.cb] { cb({}); }); continue; }
-        ws q = Trim(r.q); auto hits = Rank(*ix, FoldName(q.c_str(), q.size()), 400, [&] { return r.id != g_latest; });
+        std::vector<Result> out; ws q = Trim(r.q); std::string fq = FoldName(q.c_str(), q.size());
+        for (auto& f : FreshFind(fq)) {   // files made since the last scan: checked first, so they are never crowded out of the 40
+            WIN32_FILE_ATTRIBUTE_DATA fa{}; if (!GetFileAttributesExW(f.first.c_str(), GetFileExInfoStandard, &fa)) continue;
+            bool d = fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY; ws sub = Shorten(DirOf(f.first)); if (!d) sub += L"  ·  " + Ago(fa.ftLastWriteTime);
+            out.push_back({d ? RKind::Folder : RKind::File, FileNameOf(f.first), sub, f.first, f.second * 0.7});
+        }
+        if (!ix) { if (r.id == g_latest) UiPost([cb = r.cb, out = std::move(out)]() mutable { cb(std::move(out)); }); continue; }
+        auto hits = Rank(*ix, fq, 400, [&] { return r.id != g_latest; });
         if (r.id != g_latest) continue;
+        std::set<ws> have; for (auto& o : out) have.insert(Lower(o.target));
         for (auto& h : hits) {   // the ones that are still there, with their real names
             if (out.size() >= 40) break;
-            ws path = Widen(ix->Path(h.i)); bool d = ix->dir[h.i]; WIN32_FILE_ATTRIBUTE_DATA fa{};
+            ws path = Widen(ix->Path(h.i)); bool d = ix->dir[h.i]; WIN32_FILE_ATTRIBUTE_DATA fa{}; if (have.count(Lower(path))) continue;
             if (!GetFileAttributesExW((path.size() >= 248 ? L"\\\\?\\" + path : path).c_str(), GetFileExInfoStandard, &fa)) continue;   // deleted since the scan
             ws sub = Shorten(DirOf(path)); if (!d) sub += L"  ·  " + Ago(fa.ftLastWriteTime);
             out.push_back({d ? RKind::Folder : RKind::File, FileNameOf(path), sub, path, h.s * 0.7});
@@ -271,6 +346,7 @@ void SearchFiles(const ws& q, std::function<void(std::vector<Result>)> cb) {
     uint64_t id = ++g_latest; { std::lock_guard<std::mutex> l(g_rmu); g_req = {q, id, std::move(cb)}; g_haveReq = true; } g_rcv.notify_one();
 }
 void FileIndexStart() {
+    FreshStart();   // from now on, new files are searchable at once (see "what is new since the last scan")
     std::thread([] { Sleep(10000); SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); LoadNewest(); }).detach();   // mapping is cheap, but not during the boot rush
     bool fresh = false; auto files = IndexFiles();
     if (!files.empty()) { WIN32_FILE_ATTRIBUTE_DATA fa{}; if (GetFileAttributesExW((IndexDir() + L"\\" + files[0]).c_str(), GetFileExInfoStandard, &fa)) { FILETIME n; GetSystemTimeAsFileTime(&n); ULARGE_INTEGER a, b; a.LowPart = n.dwLowDateTime; a.HighPart = n.dwHighDateTime; b.LowPart = fa.ftLastWriteTime.dwLowDateTime; b.HighPart = fa.ftLastWriteTime.dwHighDateTime; fresh = (a.QuadPart - b.QuadPart) < 6ull * 3600 * 10000000; } }
@@ -315,6 +391,17 @@ bool FileIndexSelfTest(ws& detail) {
 
 // A real scan of a small folder, saved and mapped exactly as a rescan does it: the path that crashed the bar after every rescan. Everything is indexed now
 // (a .dll, a hidden system file); only the Recycle Bin / System Volume Information folders are left out.
+// A file made in a watched folder is found by search within a second, long before any scan; one in AppData is not kept; a deleted one goes.
+bool FreshSelfTest(ws& detail) {
+    ws root = KnownFolder(FOLDERID_Profile) + Fmt(L"\\db3-selftest-fresh-%lu", GetCurrentProcessId()); CreateDirectoryW(root.c_str(), nullptr);
+    std::thread([root] { WatchRoot(root); }).detach(); Sleep(300);   // the watch has to be in place before the file appears
+    ws file = root + L"\\zqxv brand new notes.txt"; HANDLE h = CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr); if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    int ms = 0; bool found = false;
+    for (; ms < 3000 && !found; ms += 50) { Sleep(50); for (auto& f : FreshFind("zqxv notes")) if (EqI(f.first, file)) found = true; }
+    bool skipped = FreshSkip(KnownFolder(FOLDERID_LocalAppData) + L"\\x\\new.txt") && FreshSkip(root + L"\\report.docx.crdownload") && !FreshSkip(file);
+    DeleteFileW(file.c_str()); RemoveDirectoryW(root.c_str());
+    detail = Fmt(L"found after %d ms: %d, app data and downloads in progress left out: %d", ms, (int)found, (int)skipped); return found && skipped;
+}
 bool FileIndexScanSelfTest(ws& detail) {
     ws root = KnownFolder(FOLDERID_Profile) + L"\\db3-index-scan";
     SHCreateDirectoryExW(nullptr, (root + L"\\a\\b").c_str(), nullptr); SHCreateDirectoryExW(nullptr, (root + L"\\$Recycle.Bin").c_str(), nullptr);

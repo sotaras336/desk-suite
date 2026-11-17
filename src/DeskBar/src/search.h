@@ -37,3 +37,7 @@ int FileIndexBuild();                        // --buildindex: scans the drives a
 bool FileIndexScanSelfTest(ws& detail);   // scans a small temp folder and saves it the way a rescan does
 void FileIndexQuery(const ws& query, const ws& file);   // --indexquery "words" file: one search on the saved index, best matches written to the file
 void FileIndexMemReport(const ws& file);   // --indexmem: how much memory the saved index takes once loaded   // builds a tiny index in memory and checks that full paths and depths come back exactly
+ws AppTargetPath(const ws& appId);                  // the program an app in Start opens ("" for Store apps)
+bool FindUninstall(const ws& appName, const ws& exe, ws& cmd, ws& listedName);   // the app's entry in Windows' installed-programs list
+bool SplitCommand(const ws& line, ws& exe, ws& args);
+bool FreshSelfTest(ws& detail);                      // a file made just now is searchable before the next scan
