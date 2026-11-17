@@ -173,9 +173,10 @@ bool Slider::OnKey(UINT, bool, bool) { return false; }
 void Slider::PaintContent(Gfx& g) {
     float a = rc.l + 10, b = rc.r - 10, cy = rc.cy(), x = a + (b - a) * std::clamp(value, 0.f, 100.f) / 100;
     float op = enabled ? 1 : 0.5f; float oa = g.alpha; g.alpha *= op;
-    g.FillC({a, cy - 2, b, cy + 2}, Col(K::White, 0x5C), 2);
-    if (x > a) g.Fill({a, cy - 2, x, cy + 2}, SolidB(K::Accent), 2);
-    g.Circle(x, cy, 10, Col(K::White, 0xE6));
+    float t = thick ? 3.f : 2.f;
+    g.FillC({a, cy - t, b, cy + t}, Col(K::White, thick ? 0x40 : 0x5C), t);
+    if (x > a) g.Fill({a, cy - t, x, cy + t}, SolidB(K::Accent), t);
+    g.Circle(x, cy, thick ? 11.f : 10.f, Col(K::White, 0xE6));
     g.Circle(x, cy, pressed ? 5.f : hovered ? 7.f : 6.f, Col(K::Accent));
     g.alpha = oa;
 }

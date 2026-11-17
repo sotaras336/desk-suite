@@ -146,6 +146,7 @@ struct Pic : View {
 };
 struct Slider : View {
     float value = 0; bool dragging = false; std::function<void(float, bool)> onChange;   // (value, final)
+    bool thick = false;   // Quick Settings' brightness and volume: a fuller track, easier to grab with a finger
     Slider() { hit = true; fh = 32; }
     void Set(float v) { if (!dragging && v != value) { value = v; Invalidate(); } }
     Sz MeasureContent(Sz) override { return {60, 32}; } void PaintContent(Gfx& g) override;

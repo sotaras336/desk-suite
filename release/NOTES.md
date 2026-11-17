@@ -1,14 +1,12 @@
-## Desk 3.3
+## Desk 3.4
 
-**DeskBar: a new Start**
+**DeskBar: new Quick Settings**
 
-- **Lighter.** The boxes around Pinned, Folders and Recent are gone: apps sit straight on the panel, and the sections are set apart by space and one faint line.
-- **Bigger app icons**, with softer, rounder highlights.
-- **Recent comes second** and shows eight files in full (it used to be cut off at the bottom). App filters show friendly names ("Quartus", not "quartus.exe").
-- **Folders are tiles**, like the apps, with an Add tile at the end.
-- The avatar ring now takes the colour of your theme.
-
-Search, All apps, the right-click menus and the footer work as before.
+- **Now playing.** When music or a video plays, a card at the top shows the cover, title and artist, with previous, play / pause and next. Clicking the title opens the app that is playing. (On short screens, such as 1080p at 150%, it is left out so the panel still fits.)
+- **Wi-Fi and Bluetooth** are two rows of one block, with the full network and device name. The round icon switches each on or off; the rest of the row opens its page.
+- **Round switches**, four to a row, filled with your theme's colour when on. Shortcuts that only open something are drawn as an outline.
+- **Brightness and volume** are thick bars that fill as you drag, with the icon and the value inside; the mouse wheel works over them, and tapping the speaker mutes. A Display button beside brightness opens the display page; the sound button beside volume opens outputs and the mixer.
+- Every colour follows your theme, the White theme included.
 
 DeskDrawer is the same as in 3.2.3, DeskTune as in 3.2.
 
