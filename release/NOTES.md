@@ -1,13 +1,14 @@
-## Desk 3.2.4
+## Desk 3.3
 
-**DeskBar** (Start search)
+**DeskBar: a new Start**
 
-- **New files show up at once.** DeskBar's list of every file is rebuilt every few hours, so a file you had just saved could not be found until then. Now Windows tells DeskBar about new and renamed files in your folders and on your other drives, and they are searchable within a second.
-- **Open file location** for apps: in a search result and in the right-click menu, it shows the program's file in its folder.
-- **Uninstall goes straight to that app**, instead of opening the list of every app:
-  - Store apps open their own page in Settings, which has the Uninstall button.
-  - Other programs: DeskBar finds the program in Windows' list of installed programs and starts its own uninstaller (what Settings' Uninstall button does), after asking you first.
-  - Anything it can't place opens the Installed apps page in Settings, as before.
+- **Lighter.** The boxes around Pinned, Folders and Recent are gone: apps sit straight on the panel, and the sections are set apart by space and one faint line.
+- **Bigger app icons**, with softer, rounder highlights.
+- **Recent comes second** and shows eight files in full (it used to be cut off at the bottom). App filters show friendly names ("Quartus", not "quartus.exe").
+- **Folders are tiles**, like the apps, with an Add tile at the end.
+- The avatar ring now takes the colour of your theme.
+
+Search, All apps, the right-click menus and the footer work as before.
 
 DeskDrawer is the same as in 3.2.3, DeskTune as in 3.2.
 

@@ -348,6 +348,7 @@ ws FriendlyAppFor(const ws& ext) {
     auto it = cache.find(ext); if (it != cache.end()) return it->second;
     wchar_t b[520]; DWORD n = 520; ws r = SUCCEEDED(AssocQueryStringW(0, ASSOCSTR_FRIENDLYAPPNAME, ext.c_str(), nullptr, b, &n)) ? ws(b) : (ext.size() > 1 ? ext.substr(1) : ext) + L" file";
     if (StartsI(r, L"Microsoft ") && r.size() > 10) r = r.substr(10);   // keep group names short: "Microsoft Word" -> "Word"
+    if (r.size() > 4 && EqI(r.substr(r.size() - 4), L".exe")) { r = r.substr(0, r.size() - 4); if (!r.empty()) r[0] = (wchar_t)towupper(r[0]); }   // no friendly name registered: "quartus.exe" -> "Quartus"
     return cache[ext] = r;
 }
 ws ExecutableFor(const ws& ext) {

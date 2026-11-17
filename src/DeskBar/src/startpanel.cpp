@@ -10,7 +10,7 @@
 
 // The Start menu: greeting, instant local search, pinned apps, folders, recent files, all apps, footer.
 namespace {
-const float kBodyH = 610, kMinBodyH = 200, kTileH = 84, kPageH = kTileH * 3;
+const float kBodyH = 610, kMinBodyH = 200, kTileH = 88, kPageH = kTileH * 3;
 
 struct SearchBox : TextBox { std::function<void(bool)> onFocusChange; void OnFocus(bool f) override { TextBox::OnFocus(f); if (onFocusChange) onFocusChange(f); } };
 struct PagedScroll : Scroll {       // the pinned grid moves a page (three rows) per wheel notch
@@ -86,7 +86,7 @@ struct StartPanel : Flyout {
         auto* row = MkBox(f, Lay::H); row->pad = Thick(34, 0, 30, 0);
         { auto* line = MkBox(f); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, K::CardLine); }
         auto* user = MkBox(row, Lay::H); user->ha = Al::Start; user->star = 0; user->va = Al::Center; user->pad = Thick(8, 6, 12, 6); user->hit = true; user->radius = 8; user->bgHover = SolidB(K::White, 0x16);
-        auto* ring = MkBox(user); ring->fw = ring->fh = 40; ring->radius = 20; ring->pad = Thick(2); ring->bg = LinearB(0, 0, 1, 1, {{0, Col(0x7FDCFF)}, {1, Col(0x8A6CFF)}}); ring->va = Al::Center;
+        auto* ring = MkBox(user); ring->fw = ring->fh = 40; ring->radius = 20; ring->pad = Thick(2); ring->bg = LinearB(0, 0, 1, 1, {{0, Col(K::Accent)}, {1, Col(K::Accent, 0x70)}}); ring->va = Al::Center;
         auto* av = MkBox(ring); av->radius = 17; av->bg = SolidB(0xE8ECF2); { auto* g = MkGlyph(av, 0xE77B, 16, Col(0x5A6370)); g->ha = g->va = Al::Center; }
         userL = MkLabel(user, UserDisplayName(), FText(13)); userL->margin = Thick(14, 0, 4, 0); userL->va = Al::Center;
         user->onClick = [this, user] { MenuShow({{L"Change account settings", 0xE77B, [] { Launch(L"ms-settings:yourinfo"); }}, {L"Lock", 0xE72E, [] { Launch(L"rundll32.exe", L"user32.dll,LockWorkStation"); }}, {L"Sign out", 0xF3B1, [] { Launch(L"shutdown.exe", L"/l"); }}}, ScreenRect(user), true, scale); };
@@ -102,9 +102,14 @@ struct StartPanel : Flyout {
             MenuShow(std::move(m), ScreenRect(pw), true, scale);
         };
     }
-    View* SectionCard(View* parent) { auto* c = MkBox(parent, Lay::V); c->margin = Thick(20, 0, 20, 12); c->pad = Thick(0, 4, 0, 10); c->radius = 12; c->bg = SolidB(K::White, 0x14); c->borderW = 1; c->border = Col(K::White, K::CardLine); return c; }
+    // Sections sit straight on the panel (the glow shows through): no boxes around them, a faint line between them. The three equal boxed cards it used to have
+    // made Start heavy, and pushed Recent below the fold.
+    View* SectionCard(View* parent) {
+        if (!parent->kids.empty()) Divider(parent, Thick(40, 6, 40, 6));
+        auto* c = MkBox(parent, Lay::V); c->margin = Thick(14, 0, 14, 4); c->pad = Thick(0, 2, 0, 6); return c;
+    }
     View* SectionHeader(View* parent, const ws& title, const ws& btn = L"", wchar_t glyph = 0, std::function<void()> fn = {}, bool iconFirst = false) {
-        auto* h = MkBox(parent, Lay::H); h->margin = Thick(20, 8, 14, 6); h->fh = 30; auto* t = MkLabel(h, title, FText(14, 600)); t->star = 1; t->va = Al::Center;
+        auto* h = MkBox(parent, Lay::H); h->margin = Thick(22, 6, 12, 4); h->fh = 30; auto* t = MkLabel(h, title, FText(13, 600), Col(K::White, K::Dim)); t->star = 1; t->va = Al::Center;
         if (!btn.empty()) {
             auto* b = MkBox(h, Lay::H); b->pad = Thick(10, 4); b->gap = 8; b->radius = 8; b->hit = true; b->bgHover = SolidB(K::White, K::CardHover); b->va = Al::Center; b->onClick = std::move(fn);
             if (iconFirst) { auto* g = MkGlyph(b, glyph, 10); g->va = Al::Center; auto* l = MkLabel(b, btn, FText(12)); l->va = Al::Center; } else { auto* l = MkLabel(b, btn, FText(12)); l->va = Al::Center; auto* g = MkGlyph(b, glyph, 10); g->va = Al::Center; }
@@ -117,9 +122,9 @@ struct StartPanel : Flyout {
         pinScroll = pc->Add(new PagedScroll()); pinScroll->fh = kPageH; pinScroll->margin = Thick(11, 0, 11, 0);
         pinGrid = MkBox(nullptr, Lay::Uniform); pinGrid->cols = 6; pinGrid->cellH = kTileH; pinScroll->content = pinScroll->Add(pinGrid);
         pinDots = MkBox(pc, Lay::H); pinDots->ha = Al::Center; pinDots->gap = 2; pinDots->margin = Thick(0, 4, 0, 2);
-        auto* fc = SectionCard(home); SectionHeader(fc, L"Folders"); folders = MkBox(fc, Lay::Wrap); folders->gap = 8; folders->margin = Thick(18, 0, 14, 0);
-        auto* rc = SectionCard(home); SectionHeader(rc, L"Recent"); recentFilters = MkBox(rc, Lay::Wrap); recentFilters->gap = 6; recentFilters->margin = Thick(18, 0, 14, 8);
+        auto* rc = SectionCard(home); SectionHeader(rc, L"Recent"); recentFilters = MkBox(rc, Lay::Wrap); recentFilters->gap = 6; recentFilters->margin = Thick(20, 0, 14, 8);
         recentGrid = MkBox(rc, Lay::Uniform); recentGrid->cols = 2; recentGrid->margin = Thick(12, 0, 12, 0); recentGrid->cellH = 52;
+        auto* fc = SectionCard(home); SectionHeader(fc, L"Folders"); folders = MkBox(fc, Lay::Uniform); folders->cols = 6; folders->cellH = 80; folders->margin = Thick(11, 0, 11, 0);
     }
     void BuildAll() {
         auto* h = SectionHeader(allApps, L"All apps", L"Back", 0xE76B, [this] { ShowHome(); }, true); h->margin = Thick(36, 4, 30, 6);
@@ -138,6 +143,7 @@ struct StartPanel : Flyout {
         ws key; for (auto& p : S.startPins) key += p + L"|"; key += L"#"; for (auto& f : S.quickFolders) key += f + L"|"; key += Fmt(L"#%d", (int)CatalogApps().size());
         if (key != homeKey) { homeKey = key; RenderPinned(); RenderFolders(); } else Relayout();
         homeScroll->ScrollTo(0, false); SetFocus(search);
+        if (GetEnvironmentVariableW(L"DB3_START_SCROLLED", nullptr, 0)) UiOnce(1500, [this] { homeScroll->ScrollTo(homeScroll->MaxOff(), false); Invalidate(); });   // dev: a snapshot of the bottom of Start
         std::thread([this] { CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); auto items = RecentLoad(60); UiPost([this, items] { recents = items; RenderRecent(); }); }).detach();
         driftT0 = Now(); drift = UiTimer(66, [this] {
             double t = (Now() - driftT0) / 1000.0; struct D { float dx, dy, secs; }; static const D ds[3] = {{70, 55, 9}, {-60, 80, 11}, {80, -50, 13}};
@@ -254,8 +260,8 @@ struct StartPanel : Flyout {
         pinGrid->Clear(); int n = 0;
         for (auto& id : std::vector<ws>(S.startPins)) {
             auto* a = CatalogFindById(id); if (!a && !CatalogApps().empty()) continue; ws name = a ? a->name : id; n++;
-            auto* t = MkBox(pinGrid, Lay::V); t->fw = 94; t->fh = kTileH; t->radius = 8; t->hit = true; t->ha = Al::Center; t->bgHover = SolidB(K::White, K::CardHover); t->tip = name;
-            auto* ic = IconPic(t, L"aum:" + id, 32); ic->margin = Thick(0, 10, 0, 8); ic->ha = Al::Center;
+            auto* t = MkBox(pinGrid, Lay::V); t->fw = 94; t->fh = kTileH; t->radius = 12; t->hit = true; t->ha = Al::Center; t->bgHover = SolidB(K::White, K::CardHover); t->tip = name;
+            auto* ic = IconPic(t, L"aum:" + id, 36); ic->margin = Thick(0, 10, 0, 7); ic->ha = Al::Center;
             auto* lb = MkLabel(t, name, FText(12)); lb->ta = TA::Center; lb->maxW = 88; lb->ha = Al::Center;
             t->onHover = [this, ic](bool in) { if (!touchLast) Anim(ic, &ic->scale, in ? 1.12f : 1.f, 100); };
             t->onClick = [this, id] { OpenApp(id); Close(); };
@@ -273,12 +279,17 @@ struct StartPanel : Flyout {
         folders->Clear();
         for (auto& path : std::vector<ws>(S.quickFolders)) {
             if (!DirExists(path)) continue; ws name = FileNameOf(path.back() == L'\\' ? path.substr(0, path.size() - 1) : path); if (name.empty()) name = path;
-            auto* c = Chip(folders); IconPic(c, L"file:" + path, 20); auto* l = MkLabel(c, name, FText(12.5f)); l->va = Al::Center; c->tip = path;
+            auto* c = MkBox(folders, Lay::V); c->fw = 94; c->fh = 80; c->radius = 12; c->hit = true; c->ha = Al::Center; c->bgHover = SolidB(K::White, K::CardHover); c->tip = path;
+            auto* ic = IconPic(c, L"file:" + path, 30); ic->margin = Thick(0, 10, 0, 7); ic->ha = Al::Center;
+            auto* l = MkLabel(c, name, FText(12)); l->ta = TA::Center; l->maxW = 88; l->ha = Al::Center;
             c->onClick = [this, path] { Launch(path); Close(); };
             auto menu = [this, c, path] { MenuShow({{L"Open", 0xE8DA, [this, path] { Launch(path); Close(); }}, {L"Remove from Start", 0xE711, [this, path] { std::erase(S.quickFolders, path); SaveSettingsSoon(); RenderFolders(); }}}, ScreenRect(c), false, scale); };
             c->onRight = menu; c->onLong = menu;
         }
-        auto* add = Chip(folders); auto* g = MkGlyph(add, 0xE710, 12); g->va = Al::Center; auto* l = MkLabel(add, L"Add folder", FText(12.5f)); l->va = Al::Center; add->onClick = [this] { AddFolder(); };
+        auto* add = MkBox(folders, Lay::V); add->fw = 94; add->fh = 80; add->radius = 12; add->hit = true; add->ha = Al::Center; add->bgHover = SolidB(K::White, K::CardHover); add->tip = L"Add a folder to Start"; add->onClick = [this] { AddFolder(); };
+        auto* ring = MkBox(add); ring->fw = ring->fh = 30; ring->radius = 15; ring->borderW = 1.2f; ring->border = Col(K::White, K::Faint); ring->ha = Al::Center; ring->margin = Thick(0, 10, 0, 7);
+        { auto* g = MkGlyph(ring, 0xE710, 12, Col(K::White, K::Dim)); g->ha = g->va = Al::Center; }
+        auto* l = MkLabel(add, L"Add", FText(12), Col(K::White, K::Dim)); l->ha = Al::Center;
         Relayout();
     }
     void AddFolder() {
@@ -307,10 +318,10 @@ struct StartPanel : Flyout {
         std::stable_sort(g.begin(), g.end(), [](auto& a, auto& b) { return a.second > b.second; }); std::vector<ws> groups; for (size_t i = 0; i < g.size() && i < 5; i++) groups.push_back(g[i].first);
         if (recentFilter != L"All" && std::find(groups.begin(), groups.end(), recentFilter) == groups.end()) recentFilter = L"All";
         recentFilters->Clear(); groups.insert(groups.begin(), L"All");
-        for (auto& n : groups) { bool on = n == recentFilter; auto* c = Chip(recentFilters, on); c->pad = Thick(12, 4); auto* l = MkLabel(c, n, FText(12), on ? Col(K::Black) : Col(K::White)); l->va = Al::Center; c->onClick = [this, n] { recentFilter = n; RenderRecent(); }; }
+        for (auto& n : groups) { bool on = n == recentFilter; auto* c = Chip(recentFilters, on); c->pad = Thick(11, 3); c->radius = 12; auto* l = MkLabel(c, n, FText(12), on ? Col(K::Black) : Col(K::White)); l->va = Al::Center; c->onClick = [this, n] { recentFilter = n; RenderRecent(); }; }
         recentGrid->Clear(); int shown = 0;
         for (auto& r : all) {
-            if (recentFilter != L"All" && r.appName != recentFilter) continue; if (shown++ >= 12) break;
+            if (recentFilter != L"All" && r.appName != recentFilter) continue; if (shown++ >= 8) break;
             RecentRow(r, in(pinned, r.path));
         }
         if (!shown) { auto* l = MkLabel(recentGrid, L"Files you open will show up here.", FText(12.5f), Col(K::White, K::Dim)); l->margin = Thick(8, 0, 0, 0); }
