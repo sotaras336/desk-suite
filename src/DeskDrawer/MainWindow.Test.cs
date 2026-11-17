@@ -293,8 +293,8 @@ public partial class MainWindow
             }
             if (Want("pick"))   // the Save / Open picker: its size, its tooltip font, a file name that arrives late, and how fast it comes up (invisible: Opacity 0)
             {
-                var (sw1, sh1) = PickSize(2880, 1824, 2.0); var (sw2, sh2) = PickSize(1920, 1032, 1.0);
-                Check("pick: 860 x 560 at the screen's scaling, at most 60% x 66% of it", sw1 == 1720 && sh1 == 1120 && sw2 == 860 && sh2 == 560, $"({sw1}x{sh1}, {sw2}x{sh2})");
+                var (sw1, sh1) = PickSize(2880, 1824, 2.0, 1440, 960); var (sw2, sh2) = PickSize(1920, 1032, 1.0, 1920, 1080); var (sw3, sh3) = PickSize(2880, 1824, 2.0, 625, 541);
+                Check("pick: the dialog's own size, 640x420 to 800x520 at the screen's scaling, at most half the screen", sw1 == 1440 && sh1 == 960 && sw2 == 800 && sh2 == 520 && sw3 == 1280 && sh3 == 840, $"(PowerPoint on the Surface {sw1}x{sh1}, full-screen app on 1080p {sw2}x{sh2}, small Chrome dialog {sw3}x{sh3})");
                 // a tooltip on a round toolbar button (icon font) must be written in the text font
                 var tool = FindDesc<Button>(this) is { } any ? Descend2<Button>(this).FirstOrDefault(b => b.FontFamily.Source.Contains("Icons")) : null;
                 if (tool != null)

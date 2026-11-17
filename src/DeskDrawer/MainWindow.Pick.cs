@@ -178,15 +178,21 @@ public partial class MainWindow
         var dlg = new PRECT { L = _pick!.L, T = _pick.T, R = _pick.R, B = _pick.B }; var mi = new PMONITORINFO { cbSize = Marshal.SizeOf<PMONITORINFO>() };
         PickGetMonitorInfo(PickMonitorFromRect(ref dlg, 2), ref mi);
         // The size is worked out here, for the screen the dialog is on, in that screen's own pixels. It used to be 1040 x 680 measured on the MAIN screen: about three
-        // quarters of the Surface, and wrong on a second screen with another scaling. Now: 860 x 560 at that screen's scaling, never more than 60% x 66% of it.
+        // quarters of the Surface, and wrong on a second screen with another scaling. Now: about the size of the dialog it replaces (see PickSize).
         uint dpi = 96; try { PickGetDpiForMonitor(PickMonitorFromRect(ref dlg, 2), 0, out dpi, out _); } catch { } double k = Math.Max(1, dpi) / 96.0;
         int workW = mi.rcWork.R - mi.rcWork.L, workH = mi.rcWork.B - mi.rcWork.T;
-        var (w, hh) = PickSize(workW, workH, k); int wl = mi.rcWork.L, wt = mi.rcWork.T;
+        var (w, hh) = PickSize(workW, workH, k, dlg.R - dlg.L, dlg.B - dlg.T); int wl = mi.rcWork.L, wt = mi.rcWork.T;
         int x = Math.Clamp((dlg.L + dlg.R) / 2 - w / 2, wl, Math.Max(wl, mi.rcWork.R - w)), y = Math.Clamp((dlg.T + dlg.B) / 2 - hh / 2, wt, Math.Max(wt, mi.rcWork.B - hh));
         PickSetWindowPos(h, IntPtr.Zero, x, y, w, hh, 0x0004 | 0x0010);
     }
 
-    internal static (int W, int H) PickSize(int workW, int workH, double scale) => ((int)Math.Min(860 * scale, workW * 0.60), (int)Math.Min(560 * scale, workH * 0.66));
+    // The size of the dialog it stands in for (that is what the app and Windows chose), kept between 640 x 420 and 800 x 520 at the screen's scaling so the tree and
+    // the list still fit, and never more than half the screen's width or 55% of its height.
+    internal static (int W, int H) PickSize(int workW, int workH, double scale, int dlgW, int dlgH)
+    {
+        int maxW = (int)Math.Min(800 * scale, workW * 0.50), maxH = (int)Math.Min(520 * scale, workH * 0.55);
+        return (Math.Min(Math.Max(dlgW, (int)(640 * scale)), maxW), Math.Min(Math.Max(dlgH, (int)(420 * scale)), maxH));
+    }
     [DllImport("shcore.dll", EntryPoint = "GetDpiForMonitor")] private static extern int PickGetDpiForMonitor(IntPtr m, int type, out uint x, out uint y);
     [StructLayout(LayoutKind.Sequential)] private struct PRECT { public int L, T, R, B; }
     [StructLayout(LayoutKind.Sequential)] private struct PMONITORINFO { public int cbSize; public PRECT rcMonitor, rcWork; public uint dwFlags; }
