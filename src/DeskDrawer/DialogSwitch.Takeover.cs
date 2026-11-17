@@ -38,7 +38,7 @@ public static partial class DialogSwitch
             ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             p.OnAnswer = pw => Answer(dlg, pw);
             long built = sw0.ElapsedMilliseconds;
-            p.PickShow(); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
+            p.PickShow(); LateName(dlg, p, d.Name, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
         catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); return false; }
@@ -62,6 +62,17 @@ public static partial class DialogSwitch
     private static void WaitGone(IntPtr dlg, IntPtr owner, int n, Action gone, Action still) => After(30, () => { if (!IsWindow(dlg) || (n > 3 && owner != IntPtr.Zero && IsWindowEnabled(owner) && !IsWindowVisible(dlg))) gone(); else if (n >= 80) still(); else WaitGone(dlg, owner, n + 1, gone, still); });
 
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr h);
+
+    /// The dialog is taken over the moment it appears, often before the app has put the file name in it (Chrome, Office and WinForms fill it in a moment later):
+    /// the picker then opened with an empty name. For two seconds the hidden dialog's name box is read again, and a name that turns up is put in the picker,
+    /// unless you have already typed or picked something there yourself.
+    private static void LateName(IntPtr dlg, MainWindow pw, string shown, int n) => After(n == 0 ? 60 : 100, () =>
+    {
+        if (_picker != pw || !IsWindow(dlg) || n >= 20) return;
+        IntPtr edit = FindNameBox(dlg); string now = edit == IntPtr.Zero ? "" : TextOf(edit);
+        if (now.Length > 0 && now != shown) { if (pw.PickLateName(shown, now)) Note(dlg, $"the app filled in the name {(n + 1) * 100} ms after the dialog appeared"); return; }
+        LateName(dlg, pw, shown, n + 1);
+    });
 
     /// Some apps show their dialog again by themselves (Word does, now and then): while the picker is open it is put away again.
     private static void KeepHidden(IntPtr dlg) => After(250, () => { if (_picker == null || !IsWindow(dlg)) return; if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg); });

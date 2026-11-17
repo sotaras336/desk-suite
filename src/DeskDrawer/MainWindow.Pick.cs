@@ -47,12 +47,12 @@ public partial class MainWindow
     {
         if (new WindowInteropHelper(this).Handle != IntPtr.Zero) PickCentre(); else { Left = -32000; Top = -32000; }   // drawn before: put it in place first, then show it (no step off screen)
         Show(); Activate();
-        Dispatcher.BeginInvoke(() => { PickCentre(); PickCentre(); PickName.Focus(); PickName.SelectAll(); Activate(); }, System.Windows.Threading.DispatcherPriority.Loaded);   // twice: the first move can change the scale (another screen)
+        Dispatcher.BeginInvoke(() => { PickCentre(); PickCentre(); PickName.Focus(); PickSelectStem(); Activate(); }, System.Windows.Threading.DispatcherPriority.Loaded);   // twice: the first move can change the scale (another screen)
     }
 
     private void PickInit()
     {
-        var wa = SystemParameters.WorkArea; Width = Math.Min(1040, wa.Width - 24); Height = Math.Min(680, wa.Height - 24); WindowState = WindowState.Normal;   // your own window size and maximised state stay yours
+        WindowState = WindowState.Normal;   // your own window size and maximised state stay yours
         Topmost = true; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.Manual; Left = -32000; Top = -32000; PickBar.Visibility = Visibility.Visible;
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && (Keyboard.FocusedElement is not TextBox || Keyboard.FocusedElement == PickName) && !InSearch) { Close(); e.Handled = true; } };
     }
@@ -62,11 +62,14 @@ public partial class MainWindow
     {
         _pick = req; var p = req; Result = null; _pickAnswered = false; _pickAll = false; OnAnswer = null;
         RefreshPins();   // the picker is built ahead of time and reused: read the pins again, or folders pinned since then are missing
-        if (_tabs.Count > 0) { foreach (var t in _tabs.Skip(1).ToList()) _tabs.Remove(t); Activate(_tabs[0]); Search.Text = ""; _tab.Filter = ""; NavigateTab(_tab, p.Folder, push: false); }
+        if (_tabs.Count > 0) { foreach (var t in _tabs.Skip(1).ToList()) _tabs.Remove(t); Activate(_tabs[0]); Search.Text = ""; _tab.Filter = "";
+            // the same folder as last time (the usual case: every Save goes to Downloads): keep the list that is already built and only bring it up to date, instead of reading and drawing it all again
+            if (string.Equals(_tab.Current, p.Folder, StringComparison.OrdinalIgnoreCase) && _tab.Entries != null && !_tab.Loading) { List.SelectedItems.Clear(); RefreshActive(); }
+            else NavigateTab(_tab, p.Folder, push: false); }
         _pickType = p.TypeIndex; _pickSave = p.Button.Contains("Save", StringComparison.OrdinalIgnoreCase);
         _pickPatterns = _pickType >= 0 && _pickType < p.Types.Length ? DialogSwitch.PatternsOf(p.Types[_pickType]) : Array.Empty<string>();
         Title = "DeskDrawer · " + (string.IsNullOrWhiteSpace(p.Title) ? p.Button : p.Title);
-        var wa = SystemParameters.WorkArea; Width = Math.Min(1040, wa.Width - 24); Height = Math.Min(680, wa.Height - 24); WindowState = WindowState.Normal;
+        WindowState = WindowState.Normal;
         _pickFolder = p.Button.Contains("Folder", StringComparison.OrdinalIgnoreCase);   // a folder picker (Quartus' "Select Folder"): the answer is a folder
         PickOk.Content = p.Button; PickName.Text = _pickFolder ? "" : p.Name; PickLabel.Text = _pickFolder ? "Folder" : "File name";
         PickName.ToolTip = _pickFolder ? "Leave it empty to choose the folder that is open, or type a path" : null;
@@ -114,6 +117,15 @@ public partial class MainWindow
         var f = Sel().Where(x => !x.IsDir).ToList();
         if (f.Count > 0) PickName.Text = string.Join(" ", f.Select(x => f.Count > 1 ? "\"" + x.Name + "\"" : x.Name));
     }
+
+    /// The dialog's file name arrived late (see DialogSwitch.LateName): shown only if the box still holds what it was opened with. True = taken.
+    internal bool PickLateName(string openedWith, string name)
+    {
+        if (_pickFolder || PickName.Text != openedWith) return false;
+        PickName.Text = name; if (PickName.IsKeyboardFocusWithin) PickSelectStem(); return true;
+    }
+    /// Like Windows' dialog: the name is selected without its extension, so typing replaces "report" and keeps ".docx".
+    private void PickSelectStem() { var t = PickName.Text; int dot = t.LastIndexOf('.'); PickName.Select(0, dot > 0 && !t.Contains('"') ? dot : t.Length); }
 
     private void PickName_KeyDown(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { PickCommit(); e.Handled = true; } }
     private void PickOk_Click(object s, RoutedEventArgs e) => PickCommit();
@@ -165,11 +177,17 @@ public partial class MainWindow
         var h = new WindowInteropHelper(this).Handle; PickGetWindowRect(h, out var me);
         var dlg = new PRECT { L = _pick!.L, T = _pick.T, R = _pick.R, B = _pick.B }; var mi = new PMONITORINFO { cbSize = Marshal.SizeOf<PMONITORINFO>() };
         PickGetMonitorInfo(PickMonitorFromRect(ref dlg, 2), ref mi);
-        int w = me.R - me.L, hh = me.B - me.T, wl = mi.rcWork.L, wt = mi.rcWork.T;
+        // The size is worked out here, for the screen the dialog is on, in that screen's own pixels. It used to be 1040 x 680 measured on the MAIN screen: about three
+        // quarters of the Surface, and wrong on a second screen with another scaling. Now: 860 x 560 at that screen's scaling, never more than 60% x 66% of it.
+        uint dpi = 96; try { PickGetDpiForMonitor(PickMonitorFromRect(ref dlg, 2), 0, out dpi, out _); } catch { } double k = Math.Max(1, dpi) / 96.0;
+        int workW = mi.rcWork.R - mi.rcWork.L, workH = mi.rcWork.B - mi.rcWork.T;
+        var (w, hh) = PickSize(workW, workH, k); int wl = mi.rcWork.L, wt = mi.rcWork.T;
         int x = Math.Clamp((dlg.L + dlg.R) / 2 - w / 2, wl, Math.Max(wl, mi.rcWork.R - w)), y = Math.Clamp((dlg.T + dlg.B) / 2 - hh / 2, wt, Math.Max(wt, mi.rcWork.B - hh));
-        PickSetWindowPos(h, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010);
+        PickSetWindowPos(h, IntPtr.Zero, x, y, w, hh, 0x0004 | 0x0010);
     }
 
+    internal static (int W, int H) PickSize(int workW, int workH, double scale) => ((int)Math.Min(860 * scale, workW * 0.60), (int)Math.Min(560 * scale, workH * 0.66));
+    [DllImport("shcore.dll", EntryPoint = "GetDpiForMonitor")] private static extern int PickGetDpiForMonitor(IntPtr m, int type, out uint x, out uint y);
     [StructLayout(LayoutKind.Sequential)] private struct PRECT { public int L, T, R, B; }
     [StructLayout(LayoutKind.Sequential)] private struct PMONITORINFO { public int cbSize; public PRECT rcMonitor, rcWork; public uint dwFlags; }
     [DllImport("user32.dll", EntryPoint = "MonitorFromRect")] private static extern IntPtr PickMonitorFromRect(ref PRECT r, uint flags);

@@ -277,7 +277,15 @@
 
         <!-- Right-click menu -->
         <SolidColorBrush x:Key="MenuBg" Color="#FF0A4096"/>
+        <!-- Tooltips and menus take their font from the control they belong to. The round toolbar and caption buttons use the icon font, so their tooltips
+             ("Maximise", "Refresh"...) and menus came out as boxes instead of letters. Both always use the text font. -->
+        <Style TargetType="ToolTip">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
         <Style TargetType="ContextMenu">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
             <Setter Property="HasDropShadow" Value="False"/>
             <Setter Property="Template">

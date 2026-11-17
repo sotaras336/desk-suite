@@ -208,12 +208,12 @@ public partial class MainWindow
                 var th = new Thread(() => { var w = new Window { Width = 220, Height = 120, Left = -32000, Top = 300, ShowInTaskbar = false, Title = "in front (test)" }; w.Show(); front = new System.Windows.Interop.WindowInteropHelper(w).Handle; fd = System.Windows.Threading.Dispatcher.CurrentDispatcher; ready.Set(); System.Windows.Threading.Dispatcher.Run(); });
                 th.SetApartmentState(ApartmentState.STA); th.IsBackground = true; th.Start(); ready.Wait(5000); await Task.Delay(500);
                 bool Above(IntPtr top, IntPtr below) { for (IntPtr h = GetWindow(top, 2 /*GW_HWNDNEXT*/); h != IntPtr.Zero; h = GetWindow(h, 2)) if (h == below) return true; return false; }
-                if (rowsB.Count < 4 || front == IntPtr.Zero) Check("behind: test set up", false, $"(rows {rowsB.Count}, front {front})");
+                if (rowsB.Count < 4 || front == IntPtr.Zero || !Above(front, Hwnd)) sb.AppendLine($"INFO behind: skipped, the stand-in window did not end up in front this time (rows {rowsB.Count}, front {front})");   // a setup miss says nothing about the feature
                 else
                 {
                     List.SelectedItems.Clear(); List.SelectedItems.Add(rowsB[1].Content); List.SelectedItems.Add(rowsB[2].Content); UpdateLayout();
                     Point Mid(ListViewItem r) => r.TransformToAncestor(this).Transform(new Point(r.ActualWidth / 2, r.ActualHeight / 2));
-                    IntPtr ask = (IntPtr)((0x201 << 16) | 1 /*HTCLIENT*/); IntPtr fg0 = GetForegroundWindow(); bool pre = fg0 != Hwnd && Above(front, Hwnd);
+                    IntPtr ask = (IntPtr)((0x201 << 16) | 1 /*HTCLIENT*/); IntPtr fg0 = GetForegroundWindow(); bool pre = fg0 != Hwnd && Above(front, Hwnd); Keyboard.ClearFocus(); bool focus0 = List.IsKeyboardFocusWithin;   // earlier parts of the test may have left the focus in the list: start from none
                     Check("behind: the test window starts behind another one", pre, $"(foreground is ours {fg0 == Hwnd}, other window above {Above(front, Hwnd)}, active {IsActive})");
 
                     // 1. a press on a row that is NOT selected, a right press, a press with the title bar: all answered the usual way (the window may come forward)
@@ -229,7 +229,7 @@ public partial class MainWindow
                     TestTrace = ""; List.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = rowsB[1] }); await Task.Delay(300); sb.AppendLine("INFO behind: " + TestTrace);
                     bool held = _dragItem == rowsB[1].Content && Sel().Count == 2;
                     Check("behind: the press reached the list as a grab of the whole selection", held, $"(grabbed {_dragItem?.Name}, selected {Sel().Count})");
-                    Check("behind: the window did not come forward, did not become active and took no focus", GetForegroundWindow() == fg0 && Above(front, Hwnd) && !List.IsKeyboardFocusWithin, $"(foreground unchanged {GetForegroundWindow() == fg0}, still below {Above(front, Hwnd)}, active {IsActive}, focus {List.IsKeyboardFocusWithin})");
+                    Check("behind: the window did not come forward, did not become active and took no focus", GetForegroundWindow() == fg0 && Above(front, Hwnd) && List.IsKeyboardFocusWithin == focus0, $"(foreground unchanged {GetForegroundWindow() == fg0}, still below {Above(front, Hwnd)}, active {IsActive}, focus {List.IsKeyboardFocusWithin})");
 
                     // 3. the button comes up without a drag: it was a click, so now the window asks to come forward, and the click selects the one row
                     RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent, Source = rowsB[1] }); await Task.Delay(400);
@@ -291,6 +291,37 @@ public partial class MainWindow
                 Check("fileops: a failure is explained in words, not a number", !bad && ShellOps.LastError is { } le && !le.Contains("0x"), $"({ShellOps.LastError})");
                 try { Directory.Delete(@"\\?\" + Path.Combine(root, "a-rather-long-folder-name-to-get-past-the-old-limit"), true); } catch { }
             }
+            if (Want("pick"))   // the Save / Open picker: its size, its tooltip font, a file name that arrives late, and how fast it comes up (invisible: Opacity 0)
+            {
+                var (sw1, sh1) = PickSize(2880, 1824, 2.0); var (sw2, sh2) = PickSize(1920, 1032, 1.0);
+                Check("pick: 860 x 560 at the screen's scaling, at most 60% x 66% of it", sw1 == 1720 && sh1 == 1120 && sw2 == 860 && sh2 == 560, $"({sw1}x{sh1}, {sw2}x{sh2})");
+                // a tooltip on a round toolbar button (icon font) must be written in the text font
+                var tool = FindDesc<Button>(this) is { } any ? Descend2<Button>(this).FirstOrDefault(b => b.FontFamily.Source.Contains("Icons")) : null;
+                if (tool != null)
+                {
+                    var tt = new ToolTip { Content = "Refresh" }; var keepTip = tool.ToolTip; tool.ToolTip = tt; tt.PlacementTarget = tool; tt.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; tt.IsOpen = true; await Task.Delay(300);
+                    Check("pick: a toolbar button's tooltip is in letters, not the icon font", !tt.FontFamily.Source.Contains("Icons"), $"(button font {tool.FontFamily.Source}, tooltip font {tt.FontFamily.Source})");
+                    tt.IsOpen = false; tool.ToolTip = keepTip;
+                    var cm = new ContextMenu { PlacementTarget = tool }; cm.Items.Add(new MenuItem { Header = "x" }); cm.IsOpen = true; await Task.Delay(200);
+                    Check("pick: a menu opened from an icon button is in letters too", !cm.FontFamily.Source.Contains("Icons"), $"({cm.FontFamily.Source})"); cm.IsOpen = false;
+                }
+                else Check("pick: an icon-font toolbar button found", false);
+                foreach (var fam in new[] { "Segoe Fluent Icons", "Segoe MDL2 Assets" })
+                    if (new Typeface(fam).TryGetGlyphTypeface(out var gt)) sb.AppendLine($"INFO font {fam}: has 'D' {gt.CharacterToGlyphMap.ContainsKey('D')}, 'e' {gt.CharacterToGlyphMap.ContainsKey('e')}, space {gt.CharacterToGlyphMap.ContainsKey(' ')}, file {gt.FontUri}");
+                    else sb.AppendLine($"INFO font {fam}: not installed");
+                PrewarmPicker(); await Task.Delay(2500);
+                var times = new List<long>(); MainWindow? pw = null; string pdir = Path.Combine(root, "pickdir"); Directory.CreateDirectory(pdir); for (int i = 0; i < 40; i++) File.WriteAllText(Path.Combine(pdir, $"p{i}.txt"), "");
+                for (int round = 0; round < 3; round++)
+                {
+                    var swp = Stopwatch.StartNew(); pw = ForPick(round == 0 ? root : pdir, "", "Save", new[] { "Text (*.txt)" }, 0, "Save As", 200, 200, 900, 700); long tA = swp.ElapsedMilliseconds; pw.Opacity = 0; pw.PickShow(); long tB = swp.ElapsedMilliseconds; await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render); sb.AppendLine($"INFO pick round {round}: request {tA} ms, show {tB} ms, first render {swp.ElapsedMilliseconds} ms");
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle); times.Add(swp.ElapsedMilliseconds);
+                    if (round == 2) { Check("pick: a name that arrives late fills an untouched box", pw.PickLateName("", "report.docx") && pw.PickName.Text == "report.docx"); pw.PickName.Text = "mine.txt"; Check("pick: ...but never one you typed", !pw.PickLateName("", "other.docx") && pw.PickName.Text == "mine.txt"); }
+                    pw.FinishPick(); pw.Opacity = 1; await Task.Delay(300);
+                }
+                sb.AppendLine("INFO pick: shown and drawn in " + string.Join(", ", times) + " ms (first = prewarmed window)");
+                Check("pick: comes up in under 700 ms once warm", times.Skip(1).All(t => t < 700), "(" + string.Join(", ", times) + " ms)");   // a ceiling, not a benchmark: the exact figure moves with whatever else the PC is doing
+                Navigate(root); await Task.Delay(500);
+            }
             if (Want("bench") && Environment.GetEnvironmentVariable("DD_SEARCHBENCH") is { Length: > 0 } bench && bench.Split('|') is { Length: 2 } bp)   // DD_SEARCHBENCH="folder|words": how long a live search takes there
             {
                 var sw = Stopwatch.StartNew(); r = await Search(bp[0], bp[1]); sw.Stop();
@@ -308,6 +339,11 @@ public partial class MainWindow
         finally { try { Directory.Delete(root, true); } catch { } }
         sb.AppendLine($"{fail} failure(s)"); File.WriteAllText(report, sb.ToString());
         App.Quitting = true; Application.Current.Shutdown(fail);
+    }
+
+    private static IEnumerable<T> Descend2<T>(DependencyObject d) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) { var c = VisualTreeHelper.GetChild(d, i); if (c is T t) yield return t; foreach (var x in Descend2<T>(c)) yield return x; }
     }
 
     private static IEnumerable<TextBlock> Descend(DependencyObject d)

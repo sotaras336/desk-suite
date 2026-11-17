@@ -192,7 +192,7 @@ public partial class MainWindow : Window
         _watch?.Dispose(); _watch = null; _reload.Stop(); _previewTimer.Stop();
         // The lists are freed, but the working set is NOT emptied any more: that pushed every page of WPF and of our own code out too, and when Windows had since
         // reused that memory the next open read it all back from disk (the "sometimes takes a few seconds"). Windows trims a hidden app by itself if it needs the room.
-        Dispatcher.BeginInvoke(() => GC.Collect(2, GCCollectionMode.Aggressive, true, true), DispatcherPriority.ApplicationIdle);
+        Dispatcher.BeginInvoke(() => GC.Collect(2, GCCollectionMode.Forced, true, true), DispatcherPriority.ApplicationIdle);   // not Aggressive: that also handed the freed memory back to Windows, and the next Save / Open picker (same process) paid to fetch it again
     }
 
     /// Sign-in start: the window draws once while cloaked (so WPF and our code are loaded and compiled), lets the file list draw too, then waits hidden.

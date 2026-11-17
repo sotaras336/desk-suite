@@ -65,7 +65,7 @@ public static partial class DialogSwitch
     {
         if (_chip == null)
         {
-            var label = new TextBlock { Text = "  DeskDrawer folders  ", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = "  DeskDrawer folders  ", FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
             label.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
             var pill = new Border { Child = label, Padding = new Thickness(14, 7, 14, 7), CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand };
             pill.SetResourceReference(Border.BackgroundProperty, "MenuBg"); pill.SetResourceReference(Border.BorderBrushProperty, "Accent");
