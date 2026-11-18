@@ -152,6 +152,7 @@ struct Slider : View {
     Sz MeasureContent(Sz) override { return {60, 32}; } void PaintContent(Gfx& g) override;
     bool OnDown(float x, float y, bool touch) override; void OnDrag(float x, float y) override; void OnUp(float x, float y) override;
     bool OnKey(UINT vk, bool ctrl, bool shift) override;
+    bool OnWheel(float d, float, float) override;
     bool Focusable() const override { return false; }
     void From(float x, bool fin);
 };
@@ -178,6 +179,7 @@ struct TextBox : View {
     void Changed();
     void EnsureVisible();
 };
+float WheelPercent(float d);   // % to move a slider for this wheel delta: 1 per notch, more the faster you scroll
 int WheelStep(float d);   // -1 / 0 / +1: one step per wheel notch or touchpad swipe (see ui_view.cpp)
 struct Scroll : View {
     View* content = nullptr; float off = 0, target = 0, contentH = 0; bool panning = false;

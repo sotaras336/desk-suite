@@ -1,8 +1,8 @@
-## Desk 3.4.2
+## Desk 3.4.3
 
-**DeskBar: touching the bar under a maximized window works**
+**DeskBar: the mouse wheel changes sliders**
 
-- A fingertip is wider than the bar's edge, so a touch could land a few pixels above the bar, on the maximized window's bottom edge, and start resizing that window instead of pressing the bar. DeskBar now treats that strip as part of the bar when the window above is maximized, so the tap goes through.
+- Scroll the wheel (or swipe a touchpad) over a volume or brightness slider, in Quick Settings or on the sound and display pages, and it moves: 2% per notch, rising to 10% per notch when you scroll very fast.
 
 DeskDrawer is the same as in 3.2.3, DeskTune as in 3.2.
 

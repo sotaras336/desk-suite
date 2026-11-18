@@ -170,6 +170,7 @@ bool Slider::OnDown(float x, float, bool) { if (!enabled) return false; dragging
 void Slider::OnDrag(float x, float) { if (dragging) From(x, false); }
 void Slider::OnUp(float x, float) { if (dragging) { dragging = false; From(x, true); } }
 bool Slider::OnKey(UINT, bool, bool) { return false; }
+bool Slider::OnWheel(float d, float, float) { if (!enabled) return false; value = std::clamp(value + WheelPercent(d), 0.f, 100.f); Invalidate(); if (onChange) onChange(value, true); return true; }
 void Slider::PaintContent(Gfx& g) {
     float a = rc.l + 10, b = rc.r - 10, cy = rc.cy(), x = a + (b - a) * std::clamp(value, 0.f, 100.f) / 100;
     float op = enabled ? 1 : 0.5f; float oa = g.alpha; g.alpha *= op;
@@ -299,6 +300,16 @@ static float WheelPx() {
     return 16.f * (lines == 0 || lines > 20 ? 3u : lines);   // 0 = off, WHEEL_PAGESCROLL = a page: both fall back to 3
 }
 // A step per notch for lists that move in whole steps: a touchpad sends dozens of small deltas plus an inertia tail, which should be one step, not a dozen.
+float WheelPercent(float d) {
+    // Speed = notches per second over a short sliding window, so a touchpad's burst of tiny messages and a mouse's single clicks read the same.
+    // Slow or single notches: 2% each. Past ~8 notches/s each one counts for more, up to 10%, reached at ~24/s.
+    static ULONGLONG last = 0; static float sum = 0; ULONGLONG now = GetTickCount64(); float dt = (now - last) / 1000.f; last = now;
+    constexpr float tau = 0.25f;
+    sum = dt > 0.6f ? 0.f : sum * std::exp(-dt / tau);
+    sum += std::fabs(d);
+    float speed = sum / tau;
+    return d * std::clamp(2 + (speed - 8) * 0.5f, 2.f, 10.f);
+}
 int WheelStep(float d) {
     static float acc = 0; static ULONGLONG last = 0, lastStep = 0; ULONGLONG now = GetTickCount64();
     if (now - last > 400 || (acc != 0 && (acc < 0) != (d < 0))) acc = 0;

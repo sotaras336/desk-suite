@@ -51,7 +51,7 @@ struct FatSlider : View {
     bool OnDown(float x, float, bool) override { if (!enabled) return false; pressed = true; if (OnIcon(x)) { iconDown = true; return true; } dragging = true; From(x); return true; }
     void OnDrag(float x, float) override { if (dragging) From(x); }
     void OnUp(float x, float) override { pressed = false; if (iconDown) { iconDown = false; if (OnIcon(x) && onIcon) onIcon(); Invalidate(); return; } if (dragging) { From(x); dragging = false; } }
-    bool OnWheel(float d, float, float) override { if (!enabled) return false; int s = WheelStep(d); if (s) { value = std::clamp(value + s * 4.f, 0.f, 100.f); Invalidate(); if (onChange) onChange(value); } return true; }
+    bool OnWheel(float d, float, float) override { if (!enabled) return false; value = std::clamp(value + WheelPercent(d), 0.f, 100.f); Invalidate(); if (onChange) onChange(value); return true; }
     void PaintContent(Gfx& g) override {
         float h = rc.h(), r = h / 2, fill = Fill(); float oa = g.alpha; if (!enabled) g.alpha *= 0.5f;
         g.FillC(rc, Col(K::White, hovered ? 0x26 : 0x1C), r);
