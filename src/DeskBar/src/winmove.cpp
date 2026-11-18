@@ -48,8 +48,12 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         // A finger on the bar's top edge gets re-targeted by Windows to the window above (its bottom resize edge). Cancel that resize (Esc puts the size back) and replay the tap onto the bar.
         POINT p; HMONITOR pm; MONITORINFO pi{sizeof pi};
         { RECT wr = VisibleRect(h); GetCursorPos(&p); Log(L"movesize start: %s win=%d,%d,%d,%d cursor=%d,%d", ClassOf(h).c_str(), (int)wr.left, (int)wr.top, (int)wr.right, (int)wr.bottom, (int)p.x, (int)p.y); }
-        if (GetCursorPos(&p) &&(pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom) {
-            HWND bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
+        // Find the bar under the finger by its own rect: Windows' work area can lose the bar's strip (a full-screen window), and then the old
+        // "below the work area" test missed, so the tap became a cancelled resize of the maximized window instead of reaching the bar.
+        HWND bar = nullptr; GetCursorPos(&p);
+        for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && PtInRect(&br, p)) { bar = w; break; } }
+        if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
+            if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
         }
