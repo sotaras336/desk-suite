@@ -50,11 +50,13 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         { RECT wr = VisibleRect(h); GetCursorPos(&p); Log(L"movesize start: %s win=%d,%d,%d,%d cursor=%d,%d", ClassOf(h).c_str(), (int)wr.left, (int)wr.top, (int)wr.right, (int)wr.bottom, (int)p.x, (int)p.y); }
         // Find the bar under the finger by its own rect: Windows' work area can lose the bar's strip (a full-screen window), and then the old
         // "below the work area" test missed, so the tap became a cancelled resize of the maximized window instead of reaching the bar.
-        HWND bar = nullptr; GetCursorPos(&p);
-        for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && PtInRect(&br, p)) { bar = w; break; } }
+        // A finger is wider than the bar's edge: its touch point can land a few px ABOVE the bar, in the maximized window's bottom resize band. For a maximized
+        // window that band is never a real resize target, so the bar's rect is grown upward by the band there.
+        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h)) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
+        for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && (br.top -= up, PtInRect(&br, p))) { bar = w; break; } }
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
-            if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
+            if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
         }
         if (IsZoomed(h)) {   // a maximized window is not resized from its left, right or bottom edge (dragging the title bar off still works): cancel that resize

@@ -1,9 +1,8 @@
-## Desk 3.4.1
+## Desk 3.4.2
 
-**DeskBar: taps on the bar work over full-screen windows**
+**DeskBar: touching the bar under a maximized window works**
 
-- With a window filling the screen, touching the bar could grab that window's bottom edge instead of pressing the button under your finger. The window jumped back to full screen and the tap was lost. DeskBar now checks whether the touch is on the bar itself, so the tap goes through.
-- The built-in self-test no longer leaves test pins in your settings.
+- A fingertip is wider than the bar's edge, so a touch could land a few pixels above the bar, on the maximized window's bottom edge, and start resizing that window instead of pressing the bar. DeskBar now treats that strip as part of the bar when the window above is maximized, so the tap goes through.
 
 DeskDrawer is the same as in 3.2.3, DeskTune as in 3.2.
 
