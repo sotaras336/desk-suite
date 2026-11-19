@@ -154,7 +154,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     { auto* a = MkGlyph(mx, 0xE9E9, 15); a->ha = a->va = Al::Center; }
     mx->onClick = [this] { ShowDetail(MakeSoundPage(this)); };
     // footer
-    auto* footBox = MkBox(root); footBox->fh = 48; footBox->bg = SolidB(0x001030, 0x30); this->foot = footBox;
+    auto* footBox = MkBox(root); footBox->fh = 48; this->foot = footBox;
     auto* foot = MkBox(footBox, Lay::H); foot->pad = Thick(20, 0, 12, 0);
     { auto* line = MkBox(footBox); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, K::CardLine); }
     auto* bat = MkBox(foot, Lay::H); bat->star = 1; bat->ha = Al::Start; bat->fh = 36; bat->va = Al::Center; bat->hit = true; bat->radius = 4; bat->pad = Thick(6, 0, 8, 0); bat->gap = 8; bat->bgHover = SolidB(K::White, 0x16);

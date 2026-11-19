@@ -40,7 +40,7 @@ struct StartPanel : Flyout {
         root->lay = Lay::Overlay; root->hit = true;
         // soft drifting colour glows behind everything (only while open)
         auto* gl = MkBox(root); struct G { float x, y, sz; uint32_t c; }; G gs[3] = {{-120, -140, 520, K::Accent}, {380, 180, 460, 0x8A6CFF}, {-80, 420, 420, 0x357BF5}};
-        for (int i = 0; i < 3; i++) { auto* e = MkBox(gl); e->fw = e->fh = gs[i].sz; e->ha = e->va = Al::Start; e->margin = Thick(gs[i].x, gs[i].y, 0, 0); e->radius = gs[i].sz / 2; e->bg = RadialB(0.5f, 0.5f, gs[i].sz / 2, gs[i].sz / 2, {{0, Col(gs[i].c, 0x55)}, {1, Col(gs[i].c, 0)}}); glow[i] = e; }
+        for (int i = 0; i < 3; i++) { auto* e = MkBox(gl); e->fw = e->fh = gs[i].sz; e->ha = e->va = Al::Start; e->margin = Thick(gs[i].x, gs[i].y, 0, 0); e->radius = gs[i].sz / 2; e->bg = RadialB(0.5f, 0.5f, gs[i].sz / 2, gs[i].sz / 2, {{0, Col(gs[i].c, i == 2 ? 0x18 : 0x38)}, {1, Col(gs[i].c, 0)}}); glow[i] = e; }   // softer: the glows were washing out the panel's bottom-to-top gradient
         col = MkBox(root, Lay::V);
         BuildGreeting(col); BuildSearch(col);
         body = MkBox(col); body->fh = kBodyH; body->clip = true;
@@ -82,7 +82,7 @@ struct StartPanel : Flyout {
         ((Glyph*)clearBtn->kids[0])->col = Col(K::White, K::Dim);
     }
     void BuildFooter(View* col) {
-        auto* f = MkBox(col); f->fh = 66; f->bg = SolidB(0x001030, 0x30);
+        auto* f = MkBox(col); f->fh = 66;
         auto* row = MkBox(f, Lay::H); row->pad = Thick(34, 0, 30, 0);
         { auto* line = MkBox(f); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, K::CardLine); }
         auto* user = MkBox(row, Lay::H); user->ha = Al::Start; user->star = 0; user->va = Al::Center; user->pad = Thick(8, 6, 12, 6); user->hit = true; user->radius = 8; user->bgHover = SolidB(K::White, 0x16);

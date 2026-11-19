@@ -1,16 +1,21 @@
 #include "pch.h"
 #include "flyout.h"
 
-Brush PanelBrush() {
-    auto top = Col(0x1257B8); if (ThemeGrad() > 0 && CurrentTheme().kind == 0) top = ShiftColor(top, -0.5f * ThemeGrad(), 0.002f * ThemeGrad());   // the fade: the panel's light corner turns toward a lighter shade
-    return LinearB(0, 0, 0.55f, 1, {{0, top}, {0.5f, Col(0x0A4096)}, {1, Col(0x072C70)}});
+Brush PanelBrush(bool right) {
+    float g = ThemeGrad() > 0 && CurrentTheme().kind == 0 ? ThemeGrad() : 0;
+    auto top = Col(0x1257B8), bar = Col(K::Bar);
+    if (g > 0) top = ShiftColor(top, -0.5f * g, 0.002f * g);   // the fade: the panel's light corner turns toward a lighter shade
+    if (g > 0 && right) bar = ShiftColor(bar, -0.5f * g, 0.0015f * g);   // the bar fades left to right (FadeB): the panel's bottom ends on the bar colour right under it
+    // Start (left): light top fading down to the bar colour. Side panels (right): the bar's right-end colour at the bottom, darkest at the top.
+    if (right) top = ShiftColor(bar, 0, -0.12f);
+    return LinearB(0, 0, 0, 1, {{0, top}, {1, bar}});
 }
 
 void Flyout::Build() {
     bool glass = ThemeIsGlass(CurrentTheme()); transparent = glass;   // glass: translucent and not layered (a layered window cannot show the acrylic backdrop)
     Create(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | (glass ? 0 : WS_EX_LAYERED), WS_POPUP, -30000, -30000, 100, 100);
     StyleFlyout(hwnd, true); if (glass) ApplyGlass(hwnd); else SetAlpha(0);
-    root->bg = PanelBrush(); root->hit = true;
+    root->bg = PanelBrush(anchorRight); root->hit = true;
     onKeyDown = [this](UINT vk, bool c, bool s) { if (OnKey(vk, c, s)) return true; if (vk == VK_ESCAPE) { if (!OnEsc()) Close(); return true; } return false; };
     onDeactivate = [this] { if (shown && !hiding && !keepOpen) Close(); };
 }

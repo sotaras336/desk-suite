@@ -476,22 +476,22 @@ struct ThemePage : PageBase {
             auto* card = MkBox(this, Lay::V); card->bg = SolidB(K::White, 0x10); card->radius = 14; card->pad = Thick(14, 12); card->gap = 10; card->margin = Thick(0, 0, 0, 12);
             MkLabel(card, L"Pick a colour", FText(14, 600));
             MkLabel(card, L"The panel changes as you slide. The bar follows when you press Use.", FText(11.5f), Col(K::White, K::Dim))->wrap = true;
-            // the three dots open a second bar: its colour is the far end of the gradient ("custom:<hue>:<hue2>")
-            bool grad0 = ThemeGrad() > 0 && CurrentTheme().kind == 0; auto g2 = std::make_shared<float>(ThemeGrad() > 0 ? ThemeGrad() : 0.f); auto on = std::make_shared<bool>(grad0);
+            // the second bar's colour is the far end of the gradient ("custom:<hue>:<fade>"); 0 = no fade
+            bool grad0 = ThemeGrad() > 0 && CurrentTheme().kind == 0; auto g2 = std::make_shared<float>(ThemeGrad() > 0 ? ThemeGrad() : 0.f); auto on = std::make_shared<bool>(true);
             // a ready-made colour keeps its exact look until the colour bar is moved; the fade then rides on top of it ("blue:40")
             ws baseId = CurrentTheme().kind == 0 && !EqI(CurrentTheme().id, L"custom") ? ws(CurrentTheme().id) : ws(); auto moved = std::make_shared<bool>(false);
-            QuickPanel* qp = q;
-            auto* top = MkBox(card, Lay::H); top->gap = 6;
-            auto* bar = top->Add(new HueBar()); bar->value = h0; bar->star = 1; bar->special = CurrentTheme().kind == 1 ? 1 : CurrentTheme().kind == 2 ? 2 : 0;
-            auto* bar2 = card->Add(new HueBar()); bar2->value = *g2 * 359.f / 100.f; bar2->strength = true; bar2->visible = grad0;
+            QuickPanel* qp = q; (void)grad0;
+            auto* hl = MkBox(card, Lay::H); MkLabel(hl, L"Colour", FText(12.5f, 600)); auto* hh = MkLabel(hl, L"left end black, right end white", FText(11), Col(K::White, K::Dim)); hh->ha = Al::End; hh->star = 1;
+            auto* bar = card->Add(new HueBar()); bar->value = h0; bar->special = CurrentTheme().kind == 1 ? 1 : CurrentTheme().kind == 2 ? 2 : 0;
+            auto* fadeBox = MkBox(card, Lay::V); fadeBox->gap = 0; fadeBox->visible = !bar->special;
+            auto* fl = MkBox(fadeBox, Lay::H); MkLabel(fl, L"Fade", FText(12.5f, 600)); auto* fv = MkLabel(fl, *g2 > 0 ? Fmt(L"%d%% lighter on the right", (int)lroundf(*g2)) : ws(L"off"), FText(11), Col(K::White, K::Dim)); fv->ha = Al::End; fv->star = 1;
+            auto* bar2 = fadeBox->Add(new HueBar()); bar2->value = *g2 * 359.f / 100.f; bar2->strength = true;
             auto id = [hue, g2, on, baseId, moved, bar] {
                 if (bar->special) return ws(bar->special == 1 ? L"black" : L"white");   // black and white: no fade
                 return (!baseId.empty() && !*moved ? baseId : Fmt(L"custom:%d", (int)lroundf(*hue))) + Fmt(L":%d", *on ? (int)lroundf(*g2) : 0);
             };
-            auto* dots = top->Add(new DotsBtn()); dots->tip = L"Add a fade"; dots->va = Al::Center;
-            dots->onClick = [on, bar, bar2, qp, id] { if (bar->special) return; *on = !*on; bar2->Show(*on); ThemeRepaintLive(qp, id()); };
-            bar->onChange = [hue, qp, id, moved, bar, bar2, on](float h) { *hue = h; *moved = true; bar2->Show(!bar->special && *on); ThemeRepaintLive(qp, id()); };   // while dragging: the bar and the panel take the colour at once
-            bar2->onChange = [g2, qp, id](float h) { *g2 = h * 100.f / 359.f; ThemeRepaintLive(qp, id()); };
+            bar->onChange = [hue, qp, id, moved, bar, fadeBox](float h) { *hue = h; *moved = true; fadeBox->Show(!bar->special); ThemeRepaintLive(qp, id()); };   // while dragging: the bar and the panel take the colour at once
+            bar2->onChange = [g2, qp, id, fv](float h) { *g2 = h * 100.f / 359.f; fv->Set(*g2 >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(*g2)) : ws(L"off")); ThemeRepaintLive(qp, id()); };
             auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End;
             auto pill = [&](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };
             if (previewing) pill(L"Cancel", false, [qp] { SetTheme(S.theme); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); });
