@@ -145,9 +145,11 @@ public static class Theme
         var win = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0.55, 1) };
         win.GradientStops.Add(new GradientStop(Current.Kind == 0 && Grad > 0 ? Shift(Col(0x1257B8), Grad, 0.002) : Col(0x1257B8), 0)); win.GradientStops.Add(new GradientStop(Col(0x0A4096), 0.5)); win.GradientStops.Add(new GradientStop(Col(0x072C70), 1));
         win.Freeze();
-        r["WinBg"] = win;
+        bool fade = Current.Kind == 0 && Grad > 0;   // the fade runs left to right in the window, the toolbar and the title strip alike, so no band is darker than its neighbours
+        r["WinBg"] = fade ? Fade(Col(0x0A4096), Shift(Col(0x0A4096), Grad, 0.0015)) : win;
         r["BarBg"] = Current.Kind == 0 && Grad > 0 ? Fade(Col(0x003D91), Shift(Col(0x003D91), Grad, 0.0015)) : Solid(0x003D91, 0xFF); r["BarLine"] = Solid(0xFFFFFF, 0x18);
-        r["StripBg"] = Solid(0x002A6A, 0xFF);   // title bar + tab strip: a step darker, so the active tab (BarBg) reads as part of the toolbar below
+        r["TabBg"] = r["BarBg"] is LinearGradientBrush tg ? new SolidColorBrush(tg.GradientStops[0].Color) : r["BarBg"];   // the active tab is a small piece of the toolbar: a fade squeezed into it would run blue to violet in 200 px
+        r["StripBg"] = fade ? Fade(Col(0x002A6A), Shift(Col(0x002A6A), Grad, 0.0015)) : Solid(0x002A6A, 0xFF);   // title bar + tab strip: a step darker, so the active tab (BarBg) reads as part of the toolbar below
         r["PaneBg"] = Solid(0x001030, 0x30);
         r["Fg"] = Solid(0xFFFFFF); r["FgDim"] = Solid(0xFFFFFF, 0xB8); r["FgFaint"] = Solid(0xFFFFFF, 0x80);
         r["Accent"] = Duo(); r["OnAccent"] = Solid(0x000000);
@@ -159,7 +161,7 @@ public static class Theme
         if (Current.Kind == 1)
         {   // black = Windows' dark mode: flat greys and a neutral grey selection (the blue accent is only for focus rings and small touches)
             SolidColorBrush Raw(uint rgb, byte a = 255) { var b = new SolidColorBrush(Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)); b.Freeze(); return b; }
-            r["WinBg"] = Raw(0x1F1F1F); r["BarBg"] = Raw(0x2A2A2A); r["StripBg"] = Raw(0x1A1A1A); r["BarLine"] = Raw(0xFFFFFF, 0x12); r["PaneBg"] = Raw(0x191919); r["MenuBg"] = Raw(0x2B2B2B);
+            r["WinBg"] = Raw(0x1F1F1F); r["BarBg"] = Raw(0x2A2A2A); r["TabBg"] = Raw(0x2A2A2A); r["StripBg"] = Raw(0x1A1A1A); r["BarLine"] = Raw(0xFFFFFF, 0x12); r["PaneBg"] = Raw(0x191919); r["MenuBg"] = Raw(0x2B2B2B);
             r["Card"] = Raw(0xFFFFFF, 0x0F); r["CardHover"] = Raw(0xFFFFFF, 0x1C); r["CardLine"] = Raw(0xFFFFFF, 0x16);
             r["Select"] = Raw(0xFFFFFF, 0x20); r["SelectLine"] = Raw(0xFFFFFF, 0x2E);
         }

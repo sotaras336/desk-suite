@@ -97,8 +97,8 @@ public partial class MainWindow : Window
                 var none = new MARGINS(); DwmExtendFrameIntoClientArea(h, ref none);
                 int off = 1; DwmSetWindowAttribute(h, 38, ref off, 4); HwndSource.FromHwnd(h)!.CompositionTarget.BackgroundColor = Colors.Black; _glassOn = false;
             }
-            int cap = ColorRef(((SolidColorBrush)FindResource("StripBg")).Color), txt = ColorRef(((SolidColorBrush)FindResource("Fg")).Color);
-            DwmSetWindowAttribute(h, 35, ref cap, 4); DwmSetWindowAttribute(h, 36, ref txt, 4); int edge = ColorRef(Lighter(((SolidColorBrush)FindResource("StripBg")).Color)); DwmSetWindowAttribute(h, 34, ref edge, 4);   // a visible outline: same colour as the strip made the window edge vanish into dark backgrounds
+            int cap = ColorRef(StripColour()), txt = ColorRef(((SolidColorBrush)FindResource("Fg")).Color);
+            DwmSetWindowAttribute(h, 35, ref cap, 4); DwmSetWindowAttribute(h, 36, ref txt, 4); int edge = ColorRef(Lighter(StripColour())); DwmSetWindowAttribute(h, 34, ref edge, 4);   // a visible outline: same colour as the strip made the window edge vanish into dark backgrounds
         }
     }
 
@@ -151,6 +151,9 @@ public partial class MainWindow : Window
     }
 
     // ---------- start / session ----------
+
+    /// The title bar can only be one colour: the strip's own, or the left end of its fade.
+    private Color StripColour() => FindResource("StripBg") is LinearGradientBrush g ? g.GradientStops[0].Color : ((SolidColorBrush)FindResource("StripBg")).Color;
 
     private void Start()
     {

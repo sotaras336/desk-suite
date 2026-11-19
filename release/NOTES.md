@@ -1,9 +1,9 @@
-## Desk 3.6
+## Desk 3.7
 
-**Easier colour sliders, and popups that match the bar**
+**A fresh colour picker, and no dark band in faded colours**
 
-- DeskBar and DeskDrawer: the colour picker has two clearly labelled sliders, "Colour" and "Fade". The fade slider is always there (no hidden three dots) and says how much it is doing, for example "40% lighter on the right".
-- Bigger, rounder handles on a thicker bar. In DeskDrawer you can also click anywhere on a bar to jump there.
-- DeskBar: the side panel (Quick Settings, clock, tray) now runs from the darkest blue at the top to the bar's own colour at the bottom, so it sits on the bar. Start fades from light at the top down to the bar colour. The dark strip behind the footers is gone.
+- DeskBar: the Color page is rebuilt. A live preview strip at the top shows the colour you would get while you slide. Colour and Fade sliders sit together with Cancel and Use this colour, then the ready-made colours, then Windows accent and Match my wallpaper side by side.
+- DeskDrawer: the Custom colour window is rebuilt the same way: a live preview strip, then a Colour bar and a Fade bar whose round handles wear the colour they point at. Click or drag anywhere on a bar.
+- DeskDrawer: with a faded colour, the title strip, toolbar and window now fade left to right together. Before, the strip stayed dark between lighter parts, and the active tab showed a squeezed-in fade of its own.
 
 **What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. With 2.2 or later installed, each app offers this update itself. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.

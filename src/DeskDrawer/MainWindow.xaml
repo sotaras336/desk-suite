@@ -110,7 +110,7 @@
                             </Border>
                             <DataTemplate.Triggers>
                                 <Trigger SourceName="T" Property="IsMouseOver" Value="True"><Setter TargetName="T" Property="Background" Value="{DynamicResource Card}"/></Trigger>
-                                <DataTrigger Binding="{Binding IsActive}" Value="True"><Setter TargetName="T" Property="Background" Value="{DynamicResource BarBg}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding IsActive}" Value="True"><Setter TargetName="T" Property="Background" Value="{DynamicResource TabBg}"/></DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

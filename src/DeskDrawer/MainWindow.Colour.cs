@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using static DeskDrawer.Native;
 
 namespace DeskDrawer;
@@ -19,6 +20,24 @@ public partial class MainWindow
 
     private void PreviewTheme(string id) { Theme.Load(id); Theme.Apply(); ApplyChrome(); }
 
+    /// A coloured bar with one round handle that wears the colour it points at; click or drag anywhere on it.
+    private sealed class GradBar : Grid
+    {
+        private readonly Border track = new() { Height = 20, CornerRadius = new CornerRadius(10), Margin = new Thickness(15, 0, 15, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        private readonly Ellipse dot = new() { Width = 30, Height = 30, Stroke = Brushes.White, StrokeThickness = 3, HorizontalAlignment = HorizontalAlignment.Left, IsHitTestVisible = false, Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 8, ShadowDepth = 1, Opacity = 0.45 } };
+        private readonly double max; private double v;
+        public Func<double, Color> Sample = _ => Colors.Gray;
+        public event Action? Changed;
+        public GradBar(double max, double value) { this.max = max; v = value; Height = 34; Background = Brushes.Transparent; Cursor = System.Windows.Input.Cursors.Hand; Children.Add(track); Children.Add(dot); SizeChanged += (_, _) => Place(); }
+        public Brush Track { set => track.Background = value; }
+        public double Value { get => v; set { v = Math.Clamp(value, 0, max); Place(); } }
+        public void Place() { dot.Margin = new Thickness(max > 0 ? v / max * Math.Max(0, ActualWidth - 30) : 0, 0, 0, 0); dot.Fill = new SolidColorBrush(Sample(v)); }
+        private void From(System.Windows.Input.MouseEventArgs e) { double w = Math.Max(1, ActualWidth - 30); Value = (e.GetPosition(this).X - 15) / w * max; Changed?.Invoke(); }
+        protected override void OnMouseLeftButtonDown(System.Windows.Input.MouseButtonEventArgs e) { CaptureMouse(); From(e); }
+        protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e) { if (IsMouseCaptured) From(e); }
+        protected override void OnMouseLeftButtonUp(System.Windows.Input.MouseButtonEventArgs e) { if (IsMouseCaptured) { From(e); ReleaseMouseCapture(); } }
+    }
+
     private void PickColour()
     {
         string before = Theme.FullId; bool ok = false;
@@ -29,41 +48,48 @@ public partial class MainWindow
         win.SetResourceReference(BackgroundProperty, "MenuBg");
         win.SourceInitialized += (_, _) => { int dark = Theme.IsLight ? 0 : 1; DwmSetWindowAttribute(new WindowInteropHelper(win).Handle, 20, ref dark, 4); };
 
-        var sp = new StackPanel { Margin = new Thickness(22, 18, 22, 18) };
-        sp.Children.Add(Label("Pick a colour", 16, "Fg", FontWeights.SemiBold));
-        sp.Children.Add(Label("Everything updates as you slide", 12, "FgDim", margin: new Thickness(0, 2, 0, 14)));
-        LinearGradientBrush Rainbow() { var r = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) }; var dark = Color.FromRgb(10, 10, 10); r.GradientStops.Add(new GradientStop(dark, 0)); r.GradientStops.Add(new GradientStop(dark, 20 / 400.0)); for (int h = 0; h <= 360; h += 20) r.GradientStops.Add(new GradientStop(Theme.ColFor(new ThemeDef("", "", h % 360, false, 0), 0x4CC2FF), (20 + h) / 400.0)); r.GradientStops.Add(new GradientStop(Colors.White, 380 / 400.0)); r.GradientStops.Add(new GradientStop(Colors.White, 1)); return r; }
-        Brush FadeFill() { var a = Theme.Ui(0x1167C4); return new LinearGradientBrush(a, Theme.Shift(a, 100, 0.002), 0); }   // what the fade slider will do to the colour above
-        // a plain track (the coloured bar behind it) with one big round handle; a click anywhere on the bar jumps there
-        var sliderT = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Slider'><Grid Background='Transparent' Height='28'><Track x:Name='PART_Track'><Track.Thumb><Thumb Width='26' Height='26' Cursor='Hand'><Thumb.Template><ControlTemplate TargetType='Thumb'><Ellipse Fill='White' Stroke='#66000000' StrokeThickness='1'><Ellipse.Effect><DropShadowEffect BlurRadius='6' ShadowDepth='1' Opacity='0.5'/></Ellipse.Effect></Ellipse></ControlTemplate></Thumb.Template></Thumb></Track.Thumb></Track></Grid></ControlTemplate>");
-        Slider Bar(int value, StackPanel host, UIElement? side = null, double max = 359, Brush? fill = null)
-        {
-            var track = new Grid { Height = 28, ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition { Width = GridLength.Auto } } };
-            var cell = new Grid(); var fillBar = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = fill ?? Rainbow(), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0) }; cell.Children.Add(fillBar);
-            var sl = new Slider { Minimum = 0, Maximum = max, Value = value, VerticalAlignment = VerticalAlignment.Center, Focusable = true, Tag = fillBar, Template = sliderT, IsMoveToPointEnabled = true };
-            cell.Children.Add(sl); track.Children.Add(cell);
-            if (side != null) { Grid.SetColumn(side, 1); track.Children.Add(side); }
-            host.Children.Add(track); return sl;
-        }
-        sp.Children.Add(Label("Colour", 13, "Fg", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 2)));
-        sp.Children.Add(Label("Far left is black, far right is white", 11.5, "FgDim", margin: new Thickness(0, 0, 0, 6)));
-        var slider = Bar(Theme.Current.Kind == 1 ? 10 : Theme.Current.Kind == 2 ? 390 : hue + 20, sp, null, 399);   // the ends of the bar are Black and White
-        var gradHost = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
-        var fadeVal = Label(Theme.Grad > 0 ? (int)Theme.Grad + "% lighter on the right" : "Fade: off", 11.5, "FgDim", margin: new Thickness(0, 0, 0, 6));
-        gradHost.Children.Add(Label("Fade", 13, "Fg", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 2))); gradHost.Children.Add(fadeVal);
-        var slider2 = Bar((int)(Theme.Grad > 0 ? Theme.Grad : 0), gradHost, max: 100, fill: FadeFill());
-        sp.Children.Add(gradHost);
-        string Id() => slider.Value < 20 ? "black" : slider.Value >= 380 ? "white" : (baseId != null && !moved ? baseId : "custom:" + ((int)slider.Value - 20)) + ":" + (int)slider2.Value;
-        slider.ValueChanged += (_, _) => { moved = true; PreviewTheme(Id()); ((Border)slider2.Tag).Background = FadeFill(); }; slider2.ValueChanged += (_, _) => { fadeVal.Text = slider2.Value >= 1 ? (int)slider2.Value + "% lighter on the right" : "Fade: off"; PreviewTheme(Id()); };
+        // the colour bar runs 0..399: the first 20 are black, the last 20 white, the 360 between are the hues
+        Color HueCol(double x) => x < 20 ? Color.FromRgb(10, 10, 10) : x >= 380 ? Colors.White : Theme.ColFor(new ThemeDef("", "", x - 20, false, 0), 0x4CC2FF);
+        var rainbow = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        for (int x = 0; x <= 400; x += 10) rainbow.GradientStops.Add(new GradientStop(HueCol(x < 20 ? 0 : x > 380 ? 399 : x), x / 400.0));
+        Color Base() => Theme.Col(0x1257B8);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+        var sp = new StackPanel { Margin = new Thickness(22, 18, 22, 18) };
+        sp.Children.Add(Label("Pick a colour", 16, "Fg", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 12)));
+        var preview = new Border { Height = 56, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 0, 12) };
+        sp.Children.Add(preview);
+
+        var card = new StackPanel(); sp.Children.Add(new Border { CornerRadius = new CornerRadius(14), Padding = new Thickness(16, 12, 16, 14), Background = new SolidColorBrush(Color.FromArgb(0x14, 255, 255, 255)), Child = card });
+        Grid Head(string name, out TextBlock hint) { var g = new Grid { Margin = new Thickness(0, 0, 0, 4) }; g.Children.Add(Label(name, 13, "Fg", FontWeights.SemiBold)); hint = Label("", 11.5, "FgDim"); hint.HorizontalAlignment = HorizontalAlignment.Right; hint.VerticalAlignment = VerticalAlignment.Center; g.Children.Add(hint); return g; }
+        card.Children.Add(Head("Colour", out var hueHint)); hueHint.Text = "far left black, far right white";
+        var hueBar = new GradBar(399, Theme.Current.Kind == 1 ? 10 : Theme.Current.Kind == 2 ? 390 : hue + 20) { Track = rainbow, Sample = HueCol };
+        card.Children.Add(hueBar);
+        var fadeBox = new StackPanel { Margin = new Thickness(0, 12, 0, 0) }; card.Children.Add(fadeBox);
+        fadeBox.Children.Add(Head("Fade", out var fadeHint));
+        var fadeBar = new GradBar(100, Theme.Grad > 0 ? Theme.Grad : 0) { Sample = f => f < 1 ? Base() : Theme.Shift(Base(), f, 0.002) };
+        fadeBox.Children.Add(fadeBar);
+
+        string Id() => hueBar.Value < 20 ? "black" : hueBar.Value >= 380 ? "white" : (baseId != null && !moved ? baseId : "custom:" + ((int)hueBar.Value - 20)) + ":" + (int)fadeBar.Value;
+        void Refresh()
+        {
+            double f = fadeBar.Value; bool plain = hueBar.Value < 20 || hueBar.Value >= 380;
+            fadeBox.Visibility = plain ? Visibility.Collapsed : Visibility.Visible;
+            fadeHint.Text = f >= 1 ? (int)f + "% lighter on the right" : "off";
+            preview.Background = new LinearGradientBrush(Base(), f >= 1 && !plain ? Theme.Shift(Base(), f, 0.002) : Base(), 0);
+            fadeBar.Track = new LinearGradientBrush(Base(), Theme.Shift(Base(), 100, 0.002), 0);
+            hueBar.Place(); fadeBar.Place();
+        }
+        hueBar.Changed += () => { moved = true; PreviewTheme(Id()); Refresh(); };
+        fadeBar.Changed += () => { PreviewTheme(Id()); Refresh(); };
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         Button Btn(string text, Action act) { var b = new Button { Content = new TextBlock { Text = text, Margin = new Thickness(6, 0, 6, 0) }, Style = (Style)FindResource("Cmd"), Margin = new Thickness(6, 0, 0, 0) }; b.Click += (_, _) => act(); return b; }
         buttons.Children.Add(Btn("Cancel", () => win.Close()));
         buttons.Children.Add(Btn("Use this colour", () => { ok = true; win.Close(); }));
         sp.Children.Add(buttons);
         win.Content = sp;
         win.Closed += (_, _) => { if (ok) SetTheme(Id()); else PreviewTheme(before); };
-        PreviewTheme(Id());
+        PreviewTheme(Id()); Refresh();
         win.ShowDialog();
     }
 

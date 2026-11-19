@@ -5,6 +5,7 @@
         <!-- Brushes: replaced at start-up from the DeskBar colour theme (Theme.Apply) -->
         <SolidColorBrush x:Key="WinBg" Color="#FF0A4096"/>
         <SolidColorBrush x:Key="BarBg" Color="#FF003D91"/>
+        <SolidColorBrush x:Key="TabBg" Color="#FF003D91"/>
         <SolidColorBrush x:Key="BarLine" Color="#18FFFFFF"/>
         <SolidColorBrush x:Key="PaneBg" Color="#30001030"/>
         <SolidColorBrush x:Key="Fg" Color="#FFFFFFFF"/>
