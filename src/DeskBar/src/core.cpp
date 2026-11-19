@@ -325,22 +325,34 @@ static const ThemeDef* g_theme = &kThemes[0];
 static const ThemeDef* g_theme = &kThemes[1];
 #endif
 const ThemeDef& CurrentTheme() { return *g_theme; }
+static float g_grad = -1;   // how far a custom colour fades to a lighter shade ("custom:<hue>:<0-100>"): 0 = flat, -1 = not set (DeskMode's own fade)
+float ThemeGrad() { return g_grad; }
+static ws g_themeId; ws ThemeIdNow() { return g_themeId; }   // the full id in use, fade included ("blue:40", "custom:200:40")
+D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl) {   // hue turned by dh degrees, lightness raised by dl
+    float h, s, l; ToHsl(c.r, c.g, c.b, h, s, l); h = fmodf(h + dh + 360, 360); l = std::min(0.9f, l + dl);
+    float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, x = h / 360;
+    return D2D1_COLOR_F{Hue2(p, q, x + 1.f / 3), Hue2(p, q, x), Hue2(p, q, x - 1.f / 3), c.a};
+}
 void SetTheme(const ws& id) {
+    g_grad = -1; g_themeId = id;
+    bool isCustom = id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7);
+    ws name = id; size_t cp = id.find(L':');   // a ready-made colour with a fade: "blue:40"
+    if (!isCustom && cp != ws::npos) { name = id.substr(0, cp); g_grad = std::clamp((float)_wtof(id.c_str() + cp + 1), 0.f, 100.f); }
 #ifdef PINK
     const ThemeDef* d = &kThemes[0];
 #else
     const ThemeDef* d = &kThemes[1];
 #endif
-    for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, id)) d = &kThemes[i];
+    for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, name)) d = &kThemes[i];
     static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>": any colour; DeskDrawer and DeskTune read the same id
-    if (EqI(id, L"accent")) {   // Windows' accent colour (Settings > Personalisation > Colours), as DeskDrawer and DeskTune read it
+    if (EqI(name, L"accent")) {   // Windows' accent colour (Settings > Personalisation > Colours), as DeskDrawer and DeskTune read it
         DWORD abgr = 0, n = sizeof abgr;
         if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &abgr, &n) == 0) {
             float h, s, l; ToHsl((abgr & 255) / 255.f, ((abgr >> 8) & 255) / 255.f, ((abgr >> 16) & 255) / 255.f, h, s, l);
             if (s >= 0.1f) { custom = {L"accent", L"Windows accent", h, false, 0}; d = &custom; }
         }
     }
-    if (id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7)) { custom.id = L"custom"; custom.name = L"Custom"; float h = (float)_wtof(id.c_str() + 7); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
+    if (isCustom) { custom.id = L"custom"; custom.name = L"Custom"; float h = (float)_wtof(id.c_str() + 7); if (auto* c2 = wcschr(id.c_str() + 7, L':')) g_grad = std::clamp((float)_wtof(c2 + 1), 0.f, 100.f); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
     g_theme = d;
 }
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {

@@ -429,28 +429,38 @@ static bool WinAccentAvailable() { DWORD v = 0, n = sizeof v; return RegGetValue
 // Paints the bars and the panel's background in a theme without rebuilding anything (a rebuild mid-drag would end the drag). Text and cards follow on release.
 void ThemeRepaintLive(QuickPanel* qp, const ws& id) {
     SetTheme(id); if (qp) qp->root->bg = PanelBrush();
-    for (auto* b : AllBars()) b->root->bg = SolidB(K::Bar);
+    for (auto* b : AllBars()) b->root->bg = FadeB(K::Bar);
     InvalidateAllWnds();
 }
 // The panel closed without Use: everything goes back to the colour that is saved.
-} void ThemePreviewEnd(QuickPanel* qp) { ws cur = CurrentTheme().id; SetTheme(S.theme); if (CurrentTheme().id != cur || EqI(cur, L"custom")) ThemeRepaintLive(qp, S.theme); } namespace {
+} void ThemePreviewEnd(QuickPanel* qp) { ws cur = ThemeIdNow(); SetTheme(S.theme); if (ThemeIdNow() != cur) ThemeRepaintLive(qp, S.theme); } namespace {
 // a bar of every colour a custom theme can take (each spot drawn in the accent that hue gives), with a thumb wearing the picked one
+// the three dots, drawn as circles so they sit exactly in the middle
+struct DotsBtn : View {
+    DotsBtn() { hit = true; fw = fh = 34; radius = 10; bgHover = SolidB(K::White, 0x22); }
+    void PaintContent(Gfx& g) override { for (int i = -1; i <= 1; i++) g.Circle(rc.cx() + i * 8, rc.cy(), 2.2f, Col(K::White)); }
+};
 struct HueBar : View {
-    float value = 300; bool drag = false; std::function<void(float)> onChange; std::function<void()> onRelease;
+    float value = 300; int special = 0; bool drag = false, strength = false; std::function<void(float)> onChange; std::function<void()> onRelease;   // special: 1 = the black end of the bar, 2 = the white end
+    static constexpr float Z = 0.07f;   // share of the track each end takes
     HueBar() { hit = true; fh = 34; }
     Sz MeasureContent(Sz) override { return {120, 34}; }
-    void From(float x) { float a = rc.l + 14, b = rc.r - 14; value = b > a ? std::clamp((x - a) / (b - a), 0.f, 1.f) * 359.f : 0; Invalidate(); if (onChange) onChange(value); }
+    void From(float x) { float a = rc.l + 14, b = rc.r - 14; float pos = b > a ? std::clamp((x - a) / (b - a), 0.f, 1.f) : 0;
+        if (strength) value = pos * 359.f; else if (pos < Z) special = 1; else if (pos > 1 - Z) special = 2; else { special = 0; value = (pos - Z) / (1 - 2 * Z) * 359.f; }
+        if (onChange) onChange(value); Invalidate(); }   // colours first, then the paint
     bool OnDown(float x, float, bool) override { drag = true; From(x); return true; }
     void OnDrag(float x, float) override { if (drag) From(x); }
     void OnUp(float x, float) override { if (drag) { drag = false; From(x); if (onRelease) UiOnce(1, onRelease); } }   // after the press: the page, this bar included, is rebuilt in the new colour
     void PaintContent(Gfx& g) override {
         float a = rc.l + 14, b = rc.r - 14, cy = rc.cy();
-        auto acc = [](float h) { ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
+        auto acc = [this](float h) { if (strength) { auto c = ColFor(CurrentTheme(), K::Accent); return h <= 0 ? c : ShiftColor(c, -0.5f * h * 100.f / 359.f, 0.002f * h * 100.f / 359.f); } ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
         Rf track{rc.l, cy - 9, rc.r, cy + 9}; g.PushClip(track, 9); const int n = 36;   // brushes take 3 stops: the rainbow is drawn in slices
-        for (int i = 0; i < n; i++) { float x0 = track.l + track.w() * i / n, x1 = track.l + track.w() * (i + 1) / n + 0.5f; g.Fill({x0, track.t, x1, track.b}, LinearB(0, 0.5f, 1, 0.5f, {{0, acc(359.f * i / n)}, {1, acc(359.f * (i + 1) / n)}})); }
+        float z = strength ? 0.f : Z, w = track.w();
+        if (!strength) { g.Fill({track.l, track.t, track.l + w * z + 0.5f, track.b}, SolidC(D2D1::ColorF(0.04f, 0.04f, 0.04f))); g.Fill({track.r - w * z, track.t, track.r, track.b}, SolidC(D2D1::ColorF(1, 1, 1))); }   // black and white at the ends
+        for (int i = 0; i < n; i++) { float x0 = track.l + w * (z + (1 - 2 * z) * i / n), x1 = track.l + w * (z + (1 - 2 * z) * (i + 1) / n) + 0.5f; g.Fill({x0, track.t, x1, track.b}, LinearB(0, 0.5f, 1, 0.5f, {{0, acc(359.f * i / n)}, {1, acc(359.f * (i + 1) / n)}})); }
         g.PopClip();
-        float x = a + (b - a) * value / 359.f; ThemeDef t{L"custom", L"Custom", value, false, 0};
-        g.Circle(x, cy, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, cy, 11, ColFor(t, K::Accent));
+        float pos = strength ? value / 359.f : special == 1 ? Z / 2 : special == 2 ? 1 - Z / 2 : Z + (1 - 2 * Z) * value / 359.f, x = a + (b - a) * pos; ThemeDef t{L"custom", L"Custom", value, false, 0};
+        g.Circle(x, cy, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, cy, 11, strength ? acc(value) : special == 1 ? D2D1::ColorF(0.04f, 0.04f, 0.04f) : special == 2 ? D2D1::ColorF(0.85f, 0.85f, 0.85f) : ColFor(t, K::Accent));
     }
 };
 
@@ -460,20 +470,32 @@ struct ThemePage : PageBase {
         PageHeader(this, L"Color", [p] { p->Back(); });
         auto* sub = MkLabel(this, L"Pick the color of the bar and the panels. DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 14);
         {   // your own colour, the way DeskDrawer does it: the panel itself shows the colour as you slide, Cancel puts yours back, Use keeps it
-            bool mine = EqI(CurrentTheme().id, L"custom") || EqI(CurrentTheme().id, L"accent");
-            float h0 = mine && CurrentTheme().hue >= 0 ? CurrentTheme().hue : 300.f; auto hue = std::make_shared<float>(h0);
-            bool previewing = EqI(CurrentTheme().id, L"custom") && !StartsI(S.theme, L"custom:" + std::to_wstring((int)lroundf(h0)));
+            float h0 = CurrentTheme().kind != 0 ? 300.f : CurrentTheme().hue >= 0 ? CurrentTheme().hue : 205.f;   // the bar sits on the colour in use (Blue is the unshifted original, about 205)
+            auto hue = std::make_shared<float>(h0);
+            bool previewing = !EqI(ThemeIdNow(), S.theme);
             auto* card = MkBox(this, Lay::V); card->bg = SolidB(K::White, 0x10); card->radius = 14; card->pad = Thick(14, 12); card->gap = 10; card->margin = Thick(0, 0, 0, 12);
             MkLabel(card, L"Pick a colour", FText(14, 600));
             MkLabel(card, L"The panel changes as you slide. The bar follows when you press Use.", FText(11.5f), Col(K::White, K::Dim))->wrap = true;
-            auto* bar = card->Add(new HueBar()); bar->value = h0;
+            // the three dots open a second bar: its colour is the far end of the gradient ("custom:<hue>:<hue2>")
+            bool grad0 = ThemeGrad() > 0 && CurrentTheme().kind == 0; auto g2 = std::make_shared<float>(ThemeGrad() > 0 ? ThemeGrad() : 0.f); auto on = std::make_shared<bool>(grad0);
+            // a ready-made colour keeps its exact look until the colour bar is moved; the fade then rides on top of it ("blue:40")
+            ws baseId = CurrentTheme().kind == 0 && !EqI(CurrentTheme().id, L"custom") ? ws(CurrentTheme().id) : ws(); auto moved = std::make_shared<bool>(false);
             QuickPanel* qp = q;
-            bar->onChange = [hue, qp](float h) { *hue = h; ThemeRepaintLive(qp, Fmt(L"custom:%d", (int)lroundf(h))); };   // while dragging: the bar and the panel take the colour at once
-            bar->onRelease = [hue, qp] { SetTheme(Fmt(L"custom:%d", (int)lroundf(*hue))); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); };
+            auto* top = MkBox(card, Lay::H); top->gap = 6;
+            auto* bar = top->Add(new HueBar()); bar->value = h0; bar->star = 1; bar->special = CurrentTheme().kind == 1 ? 1 : CurrentTheme().kind == 2 ? 2 : 0;
+            auto* bar2 = card->Add(new HueBar()); bar2->value = *g2 * 359.f / 100.f; bar2->strength = true; bar2->visible = grad0;
+            auto id = [hue, g2, on, baseId, moved, bar] {
+                if (bar->special) return ws(bar->special == 1 ? L"black" : L"white");   // black and white: no fade
+                return (!baseId.empty() && !*moved ? baseId : Fmt(L"custom:%d", (int)lroundf(*hue))) + Fmt(L":%d", *on ? (int)lroundf(*g2) : 0);
+            };
+            auto* dots = top->Add(new DotsBtn()); dots->tip = L"Add a fade"; dots->va = Al::Center;
+            dots->onClick = [on, bar, bar2, qp, id] { if (bar->special) return; *on = !*on; bar2->Show(*on); ThemeRepaintLive(qp, id()); };
+            bar->onChange = [hue, qp, id, moved, bar, bar2, on](float h) { *hue = h; *moved = true; bar2->Show(!bar->special && *on); ThemeRepaintLive(qp, id()); };   // while dragging: the bar and the panel take the colour at once
+            bar2->onChange = [g2, qp, id](float h) { *g2 = h * 100.f / 359.f; ThemeRepaintLive(qp, id()); };
             auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End;
             auto pill = [&](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };
             if (previewing) pill(L"Cancel", false, [qp] { SetTheme(S.theme); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); });
-            pill(L"Use this colour", true, [hue] { S.theme = Fmt(L"custom:%d", (int)lroundf(*hue)); SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); });
+            pill(L"Use this colour", true, [id] { S.theme = id(); SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); });
         }
         if (WinAccentAvailable()) {
             auto* ac = ClickCard(this, [] { S.theme = L"accent"; SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }, EqI(CurrentTheme().id, L"accent"));
@@ -609,7 +631,11 @@ D2D1_COLOR_F Raw(uint32_t rgb, int a) {
     float s = mx == mn ? 0 : l > 0.5f ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn);
     return s > 0.5f && l < 0.5f ? D2D1::ColorF(rgb, a / 255.f) : Col(rgb, a);
 }   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
-Brush Glow() { return CurrentTheme().soft ? SolidB(K::Accent) : LinearB(0, 0, 1, 1, {{0, Raw(0x1167C4)}, {1, Raw(0x1FA7B9)}}); }   // DeskMode's accent gradient
+Brush Glow() {
+    if (CurrentTheme().soft) return SolidB(K::Accent);
+    float g = ThemeGrad(); auto a = Raw(0x1167C4);
+    return LinearB(0, 0, 1, 1, {{0, a}, {1, g < 0 ? Raw(0x1FA7B9) : g == 0 ? a : ShiftColor(a, -0.5f * g, 0.002f * g)}});
+}   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
 View* Title(View* parent, const ws& t) { auto* l = MkLabel(parent, t, FText(13.5f), Col(K::White, 0xD8)); l->margin = Thick(4, 6, 0, 8); return l; }

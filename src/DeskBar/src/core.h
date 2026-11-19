@@ -92,6 +92,9 @@ bool SettingsFileChanged();            // for the input helper: re-read when the
 struct ThemeDef { const wchar_t* id; const wchar_t* name; float hue; bool soft; int kind; };
 extern const ThemeDef kThemes[]; extern const int kThemeCount;
 const ThemeDef& CurrentTheme();
+D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl);
+ws ThemeIdNow();
+float ThemeGrad();                                  // >= 0: the custom colour's second hue (gradient), -1 = none
 inline bool ThemeIsGlass(const ThemeDef& t) { return t.kind == 3; }
 void SetTheme(const ws& id);                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a = 255);   // for swatches that show a theme other than the current one

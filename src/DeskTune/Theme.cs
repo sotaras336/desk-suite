@@ -23,13 +23,47 @@ public static class Theme
     public static bool IsLight => Current.Kind == 2;
     public static bool IsGlass => Current.Kind == 3;
 
+    /// How far a custom colour fades to a lighter shade ("custom:<hue>:<0-100>"): 0 = flat, -1 = not set (DeskMode's own fade).
+    public static double Grad = -1;
+    /// The id to save: Current.Id plus the fade of a ready-made colour ("blue:40").
+    public static string FullId = "black";
+
+    /// The colour turned toward a lighter, hue-shifted shade as far as the gradient strength g (0-100) says; k = how much lighter per point.
+    public static Color Shift(Color c, double g, double k)
+    {
+        ToHsl(c.R / 255.0, c.G / 255.0, c.B / 255.0, out double h, out double s, out double l);
+        FromHsl((h - 0.5 * g + 360) % 360, s, Math.Min(0.9, l + k * g), out double r, out double gr, out double bl);
+        return Color.FromArgb(c.A, (byte)Math.Round(r * 255), (byte)Math.Round(gr * 255), (byte)Math.Round(bl * 255));
+    }
+
+    /// DeskMode's accent fade, blue to teal: the colour it starts from, fading toward a lighter, hue-shifted shade as far as the custom colour's gradient says.
+    public static Brush Glow()
+    {
+        if (Current.Soft) return Duo();
+        var a = Ui(0x1167C4); Color b;
+        if (Grad < 0) b = Ui(0x1FA7B9);
+        else if (Grad == 0) b = a;
+        else b = Shift(a, Grad, 0.002);
+        var br = new LinearGradientBrush(a, b, 45); br.Freeze(); return br;
+    }
+
     /// Black, like Windows' own dark mode, unless the settings (or --theme) say otherwise.
     public static void Load(string? id)
     {
-        if (id != null && id.StartsWith("custom:") && double.TryParse(id[7..], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var hue))
-            Current = new ThemeDef(id, "Custom", ((hue % 360) + 360) % 360, false, 0);
-        else if (id == "accent" && WindowsAccentHue() is { } ah) Current = new ThemeDef("accent", "Windows accent", ah, false, 0);
-        else Current = All.FirstOrDefault(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == "black");
+        Grad = -1;
+        var inv = System.Globalization.CultureInfo.InvariantCulture; var parts = (id ?? "").Split(':');
+        if (parts.Length > 1 && parts[0] == "custom" && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var hue))
+        {
+            Current = new ThemeDef(id!, "Custom", ((hue % 360) + 360) % 360, false, 0);
+            if (parts.Length > 2 && double.TryParse(parts[2], System.Globalization.NumberStyles.Float, inv, out var h2)) Grad = Math.Clamp(h2, 0, 100);
+        }
+        else
+        {   // a ready-made colour, optionally with a fade: "blue:40"
+            if (parts.Length > 1 && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var gs)) Grad = Math.Clamp(gs, 0, 100);
+            if (parts[0] == "accent" && WindowsAccentHue() is { } ah) Current = new ThemeDef("accent", "Windows accent", ah, false, 0);
+            else Current = All.FirstOrDefault(t => string.Equals(t.Id, parts[0], StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == "black");
+        }
+        FullId = Current.Kind == 0 && Grad >= 0 && !Current.Id.StartsWith("custom:") ? Current.Id + ":" + (int)Grad : Current.Id;
     }
 
     /// The hue of the accent colour picked in Windows Settings > Personalisation > Colours (stored by DWM as 0xAABBGGRR).

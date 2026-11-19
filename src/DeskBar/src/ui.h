@@ -37,6 +37,7 @@ struct Brush {
     bool none() const { return k == None; }
 };
 Brush SolidB(uint32_t rgb, int a = 255);
+Brush FadeB(uint32_t rgb, float k = 0.0015f);   // SolidB, but a custom colour with a fade set runs left to right into a lighter shade (k = lightness per fade point)
 Brush SolidC(D2D1_COLOR_F c);
 Brush LinearB(float x0, float y0, float x1, float y1, std::initializer_list<Stop> s);
 Brush RadialB(float cx, float cy, float rx, float ry, std::initializer_list<Stop> s);
@@ -152,7 +153,6 @@ struct Slider : View {
     Sz MeasureContent(Sz) override { return {60, 32}; } void PaintContent(Gfx& g) override;
     bool OnDown(float x, float y, bool touch) override; void OnDrag(float x, float y) override; void OnUp(float x, float y) override;
     bool OnKey(UINT vk, bool ctrl, bool shift) override;
-    bool OnWheel(float d, float, float) override;
     bool Focusable() const override { return false; }
     void From(float x, bool fin);
 };
@@ -179,7 +179,6 @@ struct TextBox : View {
     void Changed();
     void EnsureVisible();
 };
-float WheelPercent(float d);   // % to move a slider for this wheel delta: 1 per notch, more the faster you scroll
 int WheelStep(float d);   // -1 / 0 / +1: one step per wheel notch or touchpad swipe (see ui_view.cpp)
 struct Scroll : View {
     View* content = nullptr; float off = 0, target = 0, contentH = 0; bool panning = false;

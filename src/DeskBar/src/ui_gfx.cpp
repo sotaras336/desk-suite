@@ -42,6 +42,10 @@ Brush SolidB(uint32_t rgb, int a) {
     }
     Brush b; b.k = Brush::Solid; b.c = Col(rgb, a); return b;
 }
+Brush FadeB(uint32_t rgb, float k) {
+    float g = ThemeGrad(); if (g <= 0 || CurrentTheme().kind != 0) return SolidB(rgb);
+    auto a = Col(rgb); return LinearB(0, 0, 1, 0, {{0, a}, {1, ShiftColor(a, -0.5f * g, k * g)}});
+}
 Brush SolidC(D2D1_COLOR_F c) { Brush b; b.k = Brush::Solid; b.c = c; return b; }
 Brush LinearB(float x0, float y0, float x1, float y1, std::initializer_list<Stop> s) {
     Brush b; b.k = Brush::Linear; b.x0 = x0; b.y0 = y0; b.x1 = x1; b.y1 = y1; for (auto& e : s) if (b.ns < 3) b.st[b.ns++] = e; return b;

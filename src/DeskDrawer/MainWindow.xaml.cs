@@ -227,7 +227,7 @@ public partial class MainWindow : Window
         _settings.Tabs = _tabs.Select(t => t.Current).Where(p => p != null).Select(p => p!).ToList(); _settings.ActiveTab = Math.Max(0, _tabs.IndexOf(_tab));
         _settings.Maximized = WindowState == WindowState.Maximized;
         _settings.PreviewOpen = _previewOpen; if (_previewOpen && PreviewCol.ActualWidth > 120) _settings.PreviewWidth = PreviewCol.ActualWidth;
-        _settings.Theme = Theme.Current.Id;   // sort and view are saved per folder (Folders)
+        _settings.Theme = Theme.FullId;   // sort and view are saved per folder (Folders)
         var b = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds; _settings.Width = b.Width; _settings.Height = b.Height;
         _settings.Save();
     }

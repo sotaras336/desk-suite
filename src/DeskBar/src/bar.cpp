@@ -192,7 +192,7 @@ bool Bar::Init() {
     // born inside its own monitor so Windows gives it that monitor's DPI
     if (!Create(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, WS_POPUP, mon.left + 10, g_dev ? mon.top + 10 : mon.bottom - 60, 100, 40)) return false;
     if (transparent) ApplyGlass(hwnd);
-    View* r = root; r->bg = SolidB(K::Bar); r->lay = Lay::Overlay; r->hit = true;
+    View* r = root; r->bg = FadeB(K::Bar); r->lay = Lay::Overlay; r->hit = true;
     r->onRight = [this] {
         std::vector<MenuItem> m;
         if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});

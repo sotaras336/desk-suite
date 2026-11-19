@@ -1,7 +1,10 @@
 #include "pch.h"
 #include "flyout.h"
 
-Brush PanelBrush() { return LinearB(0, 0, 0.55f, 1, {{0, Col(0x1257B8)}, {0.5f, Col(0x0A4096)}, {1, Col(0x072C70)}}); }
+Brush PanelBrush() {
+    auto top = Col(0x1257B8); if (ThemeGrad() > 0 && CurrentTheme().kind == 0) top = ShiftColor(top, -0.5f * ThemeGrad(), 0.002f * ThemeGrad());   // the fade: the panel's light corner turns toward a lighter shade
+    return LinearB(0, 0, 0.55f, 1, {{0, top}, {0.5f, Col(0x0A4096)}, {1, Col(0x072C70)}});
+}
 
 void Flyout::Build() {
     bool glass = ThemeIsGlass(CurrentTheme()); transparent = glass;   // glass: translucent and not layered (a layered window cannot show the acrylic backdrop)
