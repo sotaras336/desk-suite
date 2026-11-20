@@ -89,7 +89,7 @@ bool SettingsFileChanged();            // for the input helper: re-read when the
 // Every blue in the UI is written as the original blue and mapped through the current theme at use. hue < 0: leave the blues alone (the original look).
 // soft: the calm light look of the pink edition; the other themes rotate the hue and keep each colour's saturation and lightness.
 // kind: 0 = a hue theme (above), 1 = black (neutral dark), 2 = white (light: text and fills invert), 3 = glass (dark and translucent over a blurred backdrop).
-struct ThemeDef { const wchar_t* id; const wchar_t* name; float hue; bool soft; int kind; };
+struct ThemeDef { const wchar_t* id; const wchar_t* name; float hue; bool soft; int kind; float sat = 1, val = 1; };   // sat/val (0-1): how vivid a custom colour is, how bright its backgrounds are
 extern const ThemeDef kThemes[]; extern const int kThemeCount;
 const ThemeDef& CurrentTheme();
 D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl);

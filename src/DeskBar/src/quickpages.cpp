@@ -464,17 +464,64 @@ struct HueBar : View {
     }
 };
 
+// The colour pad: every colour across (the hue), how vivid it is down (grey at the bottom); the light bar beside it runs white, the colour, black.
+// Light bar position t (0 top .. 1 bottom): under 0.10 = the White theme, over 0.92 = Black, between 0.20 and 0.30 the colour as it is, darker below.
+struct PadState { float hue = 300, sat = 100, t = 0.25f; };
+static int LightZone(float t) { return t < 0.10f ? 2 : t > 0.92f ? 1 : 0; }   // the theme kind it lands on: 2 = white, 1 = black, 0 = a colour
+static float LightVal(float t) { return t <= 0.30f ? 1.f : std::clamp((0.92f - t) / 0.62f, 0.f, 1.f); }
+static D2D1_COLOR_F PadColor(const PadState& s, bool accent, bool bright) {   // the colour a custom theme gives at this spot (accent = the bright one, else a surface)
+    ThemeDef d{L"custom", L"Custom", s.hue, false, 0, s.sat / 100, bright ? 1.f : LightVal(s.t)}; return ColFor(d, accent ? K::Accent : 0x1257B8);
+}
+struct ColorPad : View {
+    PadState* s; bool drag = false; std::function<void()> onChange;
+    ColorPad(PadState* st) : s(st) { hit = true; fh = 150; }
+    Sz MeasureContent(Sz) override { return {120, 150}; }
+    Rf Pad() const { return {rc.l + 11, rc.t + 11, rc.r - 11, rc.b - 11}; }
+    void From(float x, float y) { Rf p = Pad(); s->hue = std::clamp((x - p.l) / p.w(), 0.f, 1.f) * 359.f; s->sat = (1 - std::clamp((y - p.t) / (p.b - p.t), 0.f, 1.f)) * 100.f; if (onChange) onChange(); Invalidate(); }
+    bool OnDown(float x, float y, bool) override { drag = true; From(x, y); return true; }
+    void OnDrag(float x, float y) override { if (drag) From(x, y); }
+    void OnUp(float x, float y) override { if (drag) { drag = false; From(x, y); } }
+    void PaintContent(Gfx& g) override {
+        Rf p = Pad(); g.PushClip(p, 12); const int n = 36;   // brushes take 3 stops: the spectrum is drawn in slices
+        for (int i = 0; i < n; i++) { PadState a{359.f * i / n, 100, 0}, b{359.f * (i + 1) / n, 100, 0}; g.Fill({p.l + p.w() * i / n, p.t, p.l + p.w() * (i + 1) / n + 0.5f, p.b}, LinearB(0, 0.5f, 1, 0.5f, {{0, PadColor(a, true, true)}, {1, PadColor(b, true, true)}})); }
+        PadState grey{0, 0, 0}; auto gc = PadColor(grey, true, true); g.Fill(p, LinearB(0, 0, 0, 1, {{0, D2D1::ColorF(gc.r, gc.g, gc.b, 0)}, {1, gc}}));   // vivid at the top, grey at the bottom
+        g.PopClip();
+        float x = p.l + p.w() * s->hue / 359.f, y = p.t + (p.b - p.t) * (1 - s->sat / 100.f);
+        g.Circle(x, y, 11, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, y, 8, PadColor(*s, false, true));
+    }
+};
+struct LightBar : View {
+    PadState* s; bool drag = false; std::function<void()> onChange;
+    LightBar(PadState* st) : s(st) { hit = true; fw = 34; fh = 150; }
+    Sz MeasureContent(Sz) override { return {34, 150}; }
+    Rf Track() const { return {rc.cx() - 11, rc.t + 14, rc.cx() + 11, rc.b - 14}; }
+    void From(float y) { Rf t = Track(); s->t = std::clamp((y - t.t) / (t.b - t.t), 0.f, 1.f); if (onChange) onChange(); Invalidate(); }
+    bool OnDown(float, float y, bool) override { drag = true; From(y); return true; }
+    void OnDrag(float, float y) override { if (drag) From(y); }
+    void OnUp(float, float y) override { if (drag) { drag = false; From(y); } }
+    void PaintContent(Gfx& g) override {
+        Rf t = Track(); float h = t.b - t.t; auto c = PadColor(*s, true, true); auto white = D2D1::ColorF(1, 1, 1), black = D2D1::ColorF(0.04f, 0.04f, 0.04f);
+        g.PushClip(t, 11);
+        auto seg = [&](float a, float b, D2D1_COLOR_F ca, D2D1_COLOR_F cb) { g.Fill({t.l, t.t + h * a, t.r, t.t + h * b + 0.5f}, LinearB(0.5f, 0, 0.5f, 1, {{0, ca}, {1, cb}})); };
+        seg(0, 0.2f, white, c); seg(0.2f, 0.3f, c, c); seg(0.3f, 1, c, black);
+        g.PopClip();
+        float y = t.t + h * s->t; int z = LightZone(s->t);
+        g.Circle(rc.cx(), y, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(rc.cx(), y, 11, z == 2 ? white : z == 1 ? black : PadColor(*s, false, false));
+    }
+};
+
 // ======================================================= Color
 // Top to bottom: what you get (live), the two sliders with Cancel / Use, ready-made colours, then two shortcuts. Every way of picking ends in the same restart.
 struct ThemePage : PageBase {
     static void Apply(const ws& id) { S.theme = id; SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }
-    struct St { float hue, fade; bool moved = false; ws base; HueBar* hueBar = nullptr; };
+    struct St { PadState pad; float fade; bool moved = false; ws base; };
     ThemePage(QuickPanel* p) : PageBase(p) {
         PageHeader(this, L"Color", [p] { p->Back(); });
         auto* sub = MkLabel(this, L"Pick the color of the bar and the panels. DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 12);
         QuickPanel* qp = q; const ThemeDef& cur = CurrentTheme();
         auto st = std::make_shared<St>();
-        st->hue = cur.kind != 0 ? 300.f : cur.hue >= 0 ? cur.hue : 205.f;   // the bar sits on the colour in use (Blue is the unshifted original, about 205)
+        st->pad.hue = cur.kind != 0 ? 300.f : cur.hue >= 0 ? cur.hue : 205.f;   // the pad sits on the colour in use (Blue is the unshifted original, about 205)
+        st->pad.sat = cur.sat * 100; st->pad.t = cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f;
         st->fade = ThemeGrad() > 0 ? ThemeGrad() : 0.f;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
         st->base = cur.kind == 0 && !EqI(cur.id, L"custom") ? ws(cur.id) : ws();   // a ready-made colour keeps its exact look until the colour bar is moved ("blue:40")
         bool previewing = !EqI(ThemeIdNow(), S.theme);
@@ -490,16 +537,19 @@ struct ThemePage : PageBase {
         // 2. the sliders
         auto* card = MkBox(this, Lay::V); card->bg = SolidB(K::White, 0x10); card->radius = 14; card->pad = Thick(14, 12); card->gap = 8; card->margin = Thick(0, 0, 0, 12);
         auto head = [](View* c, const wchar_t* t, ws hint) { auto* r = MkBox(c, Lay::H); MkLabel(r, t, FText(12.5f, 600)); auto* h = MkLabel(r, hint, FText(11), Col(K::White, K::Dim)); h->ha = Al::End; h->star = 1; return h; };
-        head(card, L"Colour", L"left end black, right end white");
-        auto* bar = card->Add(new HueBar()); st->hueBar = bar; bar->value = st->hue; bar->special = cur.kind == 1 ? 1 : cur.kind == 2 ? 2 : 0;
-        auto* fadeBox = MkBox(card, Lay::V); fadeBox->gap = 8; fadeBox->visible = !bar->special;
+        head(card, L"Colour", L"colour, vividness, light");
+        auto* both = MkBox(card, Lay::H); both->gap = 10;
+        auto* pad = both->Add(new ColorPad(&st->pad)); pad->star = 1; auto* lite = both->Add(new LightBar(&st->pad));
+        auto* fadeBox = MkBox(card, Lay::V); fadeBox->gap = 8; fadeBox->visible = !LightZone(st->pad.t);
         auto* fv = head(fadeBox, L"Fade", st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off"));
         auto* bar2 = fadeBox->Add(new HueBar()); bar2->value = st->fade * 359.f / 100.f; bar2->strength = true;
         auto id = [st]() -> ws {
-            if (st->hueBar->special) return st->hueBar->special == 1 ? L"black" : L"white";   // black and white: no fade
-            return (!st->base.empty() && !st->moved ? st->base : Fmt(L"custom:%d", (int)lroundf(st->hue))) + Fmt(L":%d", (int)lroundf(st->fade)); };
-        auto paint = [qp, id, show] { ThemeRepaintLive(qp, id()); show(CurrentTheme()); };   // while dragging: the bars, the panel and the preview take the colour at once
-        bar->onChange = [st, fadeBox, bar, paint](float h) { st->hue = h; st->moved = true; fadeBox->Show(!bar->special); paint(); };
+            if (int z = LightZone(st->pad.t)) return z == 1 ? L"black" : L"white";   // black and white: no fade
+            ws fade = Fmt(L":%d", (int)lroundf(st->fade)); int sat = (int)lroundf(st->pad.sat), val = (int)lroundf(LightVal(st->pad.t) * 100);
+            if (!st->base.empty() && !st->moved) return st->base + fade;
+            return Fmt(L"custom:%d", (int)lroundf(st->pad.hue)) + fade + (sat < 100 || val < 100 ? Fmt(L":%d:%d", sat, val) : ws()); };
+        auto paint = [qp, id, show, lite, pad, fadeBox, st] { fadeBox->Show(!LightZone(st->pad.t)); ThemeRepaintLive(qp, id()); show(CurrentTheme()); lite->Invalidate(); pad->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
+        pad->onChange = lite->onChange = [st, paint] { st->moved = true; paint(); };
         bar2->onChange = [st, fv, paint](float h) { st->fade = h * 100.f / 359.f; fv->Set(st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off")); paint(); };
         auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End; row->margin = Thick(0, 4, 0, 0);
         auto pill = [row](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };

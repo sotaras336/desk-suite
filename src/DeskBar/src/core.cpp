@@ -344,7 +344,8 @@ void SetTheme(const ws& id) {
     const ThemeDef* d = &kThemes[1];
 #endif
     for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, name)) d = &kThemes[i];
-    static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>": any colour; DeskDrawer and DeskTune read the same id
+    static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>:<fade>:<sat>:<val>": any colour; DeskDrawer and DeskTune read the same id
+    custom.sat = custom.val = 1;
     if (EqI(name, L"accent")) {   // Windows' accent colour (Settings > Personalisation > Colours), as DeskDrawer and DeskTune read it
         DWORD abgr = 0, n = sizeof abgr;
         if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &abgr, &n) == 0) {
@@ -352,7 +353,12 @@ void SetTheme(const ws& id) {
             if (s >= 0.1f) { custom = {L"accent", L"Windows accent", h, false, 0}; d = &custom; }
         }
     }
-    if (isCustom) { custom.id = L"custom"; custom.name = L"Custom"; float h = (float)_wtof(id.c_str() + 7); if (auto* c2 = wcschr(id.c_str() + 7, L':')) g_grad = std::clamp((float)_wtof(c2 + 1), 0.f, 100.f); custom.hue = fmodf(fmodf(h, 360) + 360, 360); d = &custom; }
+    if (isCustom) {
+        custom.id = L"custom"; custom.name = L"Custom"; float p[4] = {0, 0, 100, 100}; int n = 0;
+        for (const wchar_t* c = id.c_str() + 7; c && n < 4; c = wcschr(c, L':'), c = c ? c + 1 : c) p[n++] = (float)_wtof(c);
+        if (n > 1) g_grad = std::clamp(p[1], 0.f, 100.f);
+        custom.hue = fmodf(fmodf(p[0], 360) + 360, 360); custom.sat = std::clamp(p[2], 0.f, 100.f) / 100; custom.val = std::clamp(p[3], 0.f, 100.f) / 100; d = &custom;
+    }
     g_theme = d;
 }
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
@@ -377,6 +383,7 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
             }   // the pink text and accents: the accent 0x4CC2FF lands exactly on the user's orchid pink #F584F1
             else { h = t.hue + (h - 225) * 0.25f; if (t.soft) { s = std::min(s * 0.5f, 0.5f); l = l < 0.5f ? 0.52f + l * 0.22f : std::min(0.9f, l + 0.14f); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
+            s *= t.sat; if (l < 0.5f) l *= t.val;   // vividness for everything blue, brightness only for the dark backgrounds (accents keep their contrast)
             float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, hh = h / 360;
             r = Hue2(p, q, hh + 1.f / 3); g = Hue2(p, q, hh); b = Hue2(p, q, hh - 1.f / 3);
         }

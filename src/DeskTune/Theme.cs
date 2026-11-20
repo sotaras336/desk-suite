@@ -8,7 +8,8 @@ namespace DeskTune;
 /// The same colour themes as DeskBar (pink, blue, purple, teal, green, orange, red, black, white, glass), so the taskbar and the file manager look like one system.
 /// Every colour is written as the original DeskBar blue and mapped through the current theme, exactly like DeskBar's Col().
 /// Kind: 0 = hue theme, 1 = black, 2 = white (light), 3 = glass (translucent over an acrylic backdrop).
-public sealed record ThemeDef(string Id, string Name, double Hue, bool Soft, int Kind);
+/// Sat and Val (0-1) belong to custom colours ("custom:<hue>:<fade>:<sat>:<val>"): how vivid the colour is and how bright its backgrounds are; 1 = the original.
+public sealed record ThemeDef(string Id, string Name, double Hue, bool Soft, int Kind, double Sat = 1, double Val = 1);
 
 public static class Theme
 {
@@ -54,7 +55,8 @@ public static class Theme
         var inv = System.Globalization.CultureInfo.InvariantCulture; var parts = (id ?? "").Split(':');
         if (parts.Length > 1 && parts[0] == "custom" && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var hue))
         {
-            Current = new ThemeDef(id!, "Custom", ((hue % 360) + 360) % 360, false, 0);
+            double Pct(int i) => parts.Length > i && double.TryParse(parts[i], System.Globalization.NumberStyles.Float, inv, out var p) ? Math.Clamp(p, 0, 100) / 100 : 1;
+            Current = new ThemeDef(id!, "Custom", ((hue % 360) + 360) % 360, false, 0, Pct(3), Pct(4));
             if (parts.Length > 2 && double.TryParse(parts[2], System.Globalization.NumberStyles.Float, inv, out var h2)) Grad = Math.Clamp(h2, 0, 100);
         }
         else
@@ -109,6 +111,7 @@ public static class Theme
             }
             else { h = t.Hue + (h - 225) * 0.25; if (t.Soft) { s = Math.Min(s * 0.5, 0.5); l = l < 0.5 ? 0.52 + l * 0.22 : Math.Min(0.9, l + 0.14); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
+            s *= t.Sat; if (l < 0.5) l *= t.Val;   // vividness for everything blue, brightness only for the dark backgrounds (accents keep their contrast)
             FromHsl(h, s, l, out r, out g, out b);
         }
         return Color.FromArgb((byte)Math.Round(al * 255), (byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));
