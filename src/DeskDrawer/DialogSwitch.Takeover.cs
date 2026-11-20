@@ -18,6 +18,7 @@ public static partial class DialogSwitch
     private static readonly HashSet<IntPtr> Taken = new();   // dialogs already handled once: never taken over twice
     private static readonly Dictionary<IntPtr, Mutex> Owned = new();   // one named lock per dialog: with two DeskDrawers running (a trial and the installed one) only one answers
     private static MainWindow? _picker;
+    private static readonly Dictionary<IntPtr, string> LastIn = new();   // app window -> folder its last Save / Open went to: the next dialog from that same window starts there
 
     private static bool TryTakeOver(IntPtr dlg)
     {
@@ -30,7 +31,10 @@ public static partial class DialogSwitch
         try
         {
             var places = _folders?.Invoke() ?? new();
-            string start = Reach.Dir(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            foreach (var w in LastIn.Keys.Where(w => !IsWindow(w)).ToList()) LastIn.Remove(w);
+            IntPtr owner = GetWindow(dlg, 4 /*GW_OWNER*/);
+            string start = owner != IntPtr.Zero && LastIn.TryGetValue(owner, out var last) && Reach.Dir(last) ? last
+                : Reach.Dir(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             GetWindowRect(dlg, out var r);
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
@@ -52,7 +56,12 @@ public static partial class DialogSwitch
         _picker = null;   // KeepHidden stops; a new dialog may be taken over again
         IntPtr owner = IsWindow(dlg) ? GetWindow(dlg, 4 /*GW_OWNER*/) : IntPtr.Zero;
         if (!IsWindow(dlg)) { pw.FinishPick(); return; }
-        if (pw.Result is { Count: > 0 } paths) Fill(dlg, paths, pw.TypeIndex, follow: false, folder: pw.PickIsFolder); else PressCancel(dlg);
+        if (pw.Result is { Count: > 0 } paths)
+        {
+            if (owner != IntPtr.Zero) LastIn[owner] = pw.PickIsFolder ? paths[0] : Path.GetDirectoryName(paths[0]) ?? "";
+            Fill(dlg, paths, pw.TypeIndex, follow: false, folder: pw.PickIsFolder);
+        }
+        else PressCancel(dlg);
         WaitGone(dlg, owner, 0,
             gone: () => { BringBack(owner); pw.FinishPick(); },
             still: () => { pw.FinishPick(); Reveal(dlg); SetForegroundWindow(dlg); });   // the app has something to say (replace this file? bad name?): its own dialog shows it
