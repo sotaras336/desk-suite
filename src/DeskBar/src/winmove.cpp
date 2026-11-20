@@ -57,6 +57,9 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
         for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && (br.top -= up, PtInRect(&br, p))) { bar = w; break; } }
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
+            // a maximized window that draws its own frame (Chrome) restores itself as the drag starts: Esc alone left it restored, so put it back at the drag's end
+            if (IsZoomed(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp; }
+            Log(L"edge drag on the bar cancelled, tap passed to the bar: %s", ClassOf(h).c_str());
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
