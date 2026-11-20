@@ -52,7 +52,9 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         // "below the work area" test missed, so the tap became a cancelled resize of the maximized window instead of reaching the bar.
         // A finger is wider than the bar's edge: its touch point can land a few px ABOVE the bar, in the maximized window's bottom resize band. For a maximized
         // window that band is never a real resize target, so the bar's rect is grown upward by the band there.
-        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h)) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
+        // A snapped or plain window resting on the bar has the same band: with a finger (Windows hides the cursor during touch) it's grown for any window; the mouse can still resize those from the bottom.
+        CURSORINFO ci{sizeof ci}; bool touch = GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED*/);
+        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
         for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && (br.top -= up, PtInRect(&br, p))) { bar = w; break; } }
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
@@ -183,6 +185,10 @@ void ClampForeground() {
     MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) return;
     RECT r = VisibleRect(h);
     if (r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return;   // a full-screen app
+    if (r.top >= mi.rcWork.bottom - 40 && r.top < mi.rcMonitor.bottom && r.bottom > mi.rcWork.bottom) {   // dropped so low that only a sliver of its top shows above the bar (the rest under it and off screen): lift it whole
+        RECT c = r; c.top = std::max(mi.rcWork.top, mi.rcWork.bottom - (r.bottom - r.top)); c.bottom = std::min(c.top + (r.bottom - r.top), mi.rcWork.bottom);
+        Log(L"window hidden under the bar (top %d px above it), lifted: %s", (int)(mi.rcWork.bottom - r.top), ClassOf(h).c_str()); SetVisibleRect(h, c); return;
+    }
     if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 4 || r.bottom > mi.rcMonitor.bottom || r.top >= mi.rcWork.bottom - 40) return;   // a window's own invisible border hanging a few px over is not "in the bar" (pulling it back fought apps that draw their own frame)
     typedef BOOL(WINAPI * Arr)(HWND); static Arr arranged = (Arr)GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"); if (arranged && arranged(h)) return;   // snapped by Windows: it fits it to the work area itself
     Log(L"window overlapped the bar by %d px, pulled back: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());
