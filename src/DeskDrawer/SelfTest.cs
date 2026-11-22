@@ -72,6 +72,10 @@ public static partial class SelfTest
             n = ShellMenu.CountItems(new[] { a }, IntPtr.Zero);
             Check("shell menu builds for a folder", n > 3, $"({n} entries)");
 
+            var swOpen = System.Diagnostics.Stopwatch.StartNew();
+            var asyncOpen = ShellMenu.OpenAsync(IntPtr.Zero, new[] { f1 }, false); long handBack = swOpen.ElapsedMilliseconds;
+            Check("shell menu is built off the UI thread (call returns at once)", handBack < 100, $"({handBack} ms; the build itself took {(asyncOpen.Wait(20000) ? swOpen.ElapsedMilliseconds : -1)} ms)");
+            asyncOpen.Result?.Dispose();
             using (var sess = ShellMenu.Open(IntPtr.Zero, new[] { f1 }, extended: false))
             {
                 int named = 0, sub = 0, icons = 0; if (sess != null) foreach (var e in sess.Items) { if (!e.Separator) named++; if (e.Children != null) sub++; if (e.Icon != null) icons++; }

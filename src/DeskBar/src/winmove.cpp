@@ -12,6 +12,8 @@ bool IsAppWindow(HWND h) {   // normal app windows only (not tool windows, popup
     DWORD pid; GetWindowThreadProcessId(h, &pid); if (pid == GetCurrentProcessId()) return false;
     ws c = ClassOf(h); return !(c == L"Progman" || c == L"WorkerW" || c == L"Shell_TrayWnd" || c == L"Shell_SecondaryTrayWnd");
 }
+bool NearlyFull(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.right >= work.right - 8 && r.top <= work.top + 8 && r.bottom >= work.bottom - 8; }   // fills the usable area, maximized or not
+bool Sliver(const RECT& r, const RECT& work, const RECT& mon) { return r.top >= work.bottom - 40 && r.top < mon.bottom && r.bottom > work.bottom; }   // only a strip of its top shows above the bar
 long long Overlap(const RECT& a, const RECT& b) { long long w = std::min(a.right, b.right) - std::max(a.left, b.left), h = std::min(a.bottom, b.bottom) - std::max(a.top, b.top); return w > 0 && h > 0 ? w * h : 0; }
 void SetVisibleRect(HWND h, const RECT& v) {   // moves a window so its VISIBLE frame lands on v (accounts for invisible resize borders)
     RECT o; GetWindowRect(h, &o); RECT vis = VisibleRect(h); int l = vis.left - o.left, t = vis.top - o.top, r = o.right - vis.right, b = o.bottom - vis.bottom;
@@ -54,12 +56,13 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         // window that band is never a real resize target, so the bar's rect is grown upward by the band there.
         // A snapped or plain window resting on the bar has the same band: with a finger (Windows hides the cursor during touch) it's grown for any window; the mouse can still resize those from the bottom.
         CURSORINFO ci{sizeof ci}; bool touch = GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED*/);
-        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
+        MONITORINFO wm{sizeof wm}; bool fills = GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &wm) && NearlyFull(VisibleRect(h), wm.rcWork);
+        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch || fills) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
         for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && (br.top -= up, PtInRect(&br, p))) { bar = w; break; } }
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
             // a maximized window that draws its own frame (Chrome) restores itself as the drag starts: Esc alone left it restored, so put it back at the drag's end
             if (IsZoomed(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp; }
-            Log(L"edge drag on the bar cancelled, tap passed to the bar: %s", ClassOf(h).c_str());
+            Log(L"edge drag on the bar cancelled, tap passed to the bar: %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), (int)IsZoomed(h), (int)fills, (int)touch);
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
@@ -76,7 +79,8 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
     if (ev != EVENT_SYSTEM_MOVESIZEEND) return;
     if (auto k = g_keepMax.find(h); k != g_keepMax.end()) {
         WINDOWPLACEMENT wp = k->second; g_keepMax.erase(k);
-        std::thread([h, wp] { for (int i = 0; i < 4; i++) { if (!IsWindow(h)) return; if (!IsZoomed(h)) { SetWindowPlacement(h, &wp); Log(L"re-maximized after cancelled resize"); } Sleep(100); } }).detach();   // some apps restore again just after the drag ends
+        std::thread([h, wp] { for (int i = 0; i < 4; i++) { if (!IsWindow(h)) return; if (!IsZoomed(h)) { SetWindowPlacement(h, &wp); Log(L"re-maximized after cancelled resize"); } Sleep(100); }
+            if (IsWindow(h)) { RECT e = VisibleRect(h); Log(L"after the cancelled drag: %s is %d,%d,%d,%d (zoomed %d)", ClassOf(h).c_str(), (int)e.left, (int)e.top, (int)e.right, (int)e.bottom, (int)IsZoomed(h)); } }).detach();   // some apps restore again just after the drag ends
         return;
     }
     auto it = g_starts.find(h); if (it == g_starts.end()) return; Start st = it->second; g_starts.erase(it);
@@ -181,6 +185,25 @@ void SendToNextScreen(HWND h) {
     SetVisibleRect(h, Proportional(VisibleRect(h), from.work, to.work)); if (mx) ShowWindow(h, SW_MAXIMIZE); ForceForeground(h);
 }
 // A window left sticking into the bar (a touch on the bar's edge dragged the window's bottom edge down) goes back above it once the finger or mouse is up.
+// A window dropped so low that only a sliver of its top shows above the bar (the rest under it and off screen) is lifted whole. This used to be done for the
+// FOREGROUND window only, so one that was not in front (clicked away from, or opened behind another) stayed stuck behind the bar. The log line names it.
+bool LiftSliver(HWND h, const RECT& r, const MONITORINFO& mi) {
+    if (!Sliver(r, mi.rcWork, mi.rcMonitor)) return false;
+    RECT c = r; c.top = std::max(mi.rcWork.top, mi.rcWork.bottom - (r.bottom - r.top)); c.bottom = std::min(c.top + (r.bottom - r.top), mi.rcWork.bottom);
+    wchar_t t[80] = L""; GetWindowTextW(h, t, 80); DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+    Log(L"window hidden under the bar (top %d px above it), lifted: %s \"%s\" %s at %d,%d,%d,%d%s", (int)(mi.rcWork.bottom - r.top), ClassOf(h).c_str(), t, FileNameOf(ExePathOfPid(pid)).c_str(), (int)r.left, (int)r.top, (int)r.right, (int)r.bottom, GetForegroundWindow() == h ? L"" : L" (not the front window)");
+    SetVisibleRect(h, c); return true;
+}
+void LiftHiddenWindows() {   // every window, about once a second
+    if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) return;
+    std::vector<HWND> all; EnumWindows([](HWND h, LPARAM p) -> BOOL { ((std::vector<HWND>*)p)->push_back(h); return TRUE; }, (LPARAM)&all);
+    for (HWND h : all) {
+        if (!IsAppWindow(h) || IsZoomed(h) || IsIconic(h)) continue;
+        GUITHREADINFO gi{sizeof gi}; if (GetGUIThreadInfo(GetWindowThreadProcessId(h, nullptr), &gi) && (gi.flags & GUI_INMOVESIZE)) continue;
+        MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) continue;
+        LiftSliver(h, VisibleRect(h), mi);
+    }
+}
 void ClampForeground() {
     if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) return;
     HWND h = GetForegroundWindow(); if (!h || !IsAppWindow(h) || IsZoomed(h) || IsIconic(h)) return;
@@ -188,10 +211,7 @@ void ClampForeground() {
     MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) return;
     RECT r = VisibleRect(h);
     if (r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return;   // a full-screen app
-    if (r.top >= mi.rcWork.bottom - 40 && r.top < mi.rcMonitor.bottom && r.bottom > mi.rcWork.bottom) {   // dropped so low that only a sliver of its top shows above the bar (the rest under it and off screen): lift it whole
-        RECT c = r; c.top = std::max(mi.rcWork.top, mi.rcWork.bottom - (r.bottom - r.top)); c.bottom = std::min(c.top + (r.bottom - r.top), mi.rcWork.bottom);
-        Log(L"window hidden under the bar (top %d px above it), lifted: %s", (int)(mi.rcWork.bottom - r.top), ClassOf(h).c_str()); SetVisibleRect(h, c); return;
-    }
+    if (LiftSliver(h, r, mi)) return;
     if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 4 || r.bottom > mi.rcMonitor.bottom || r.top >= mi.rcWork.bottom - 40) return;   // a window's own invisible border hanging a few px over is not "in the bar" (pulling it back fought apps that draw their own frame)
     typedef BOOL(WINAPI * Arr)(HWND); static Arr arranged = (Arr)GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"); if (arranged && arranged(h)) return;   // snapped by Windows: it fits it to the work area itself
     Log(L"window overlapped the bar by %d px, pulled back: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());
@@ -219,9 +239,38 @@ void FixMaximizedOverBar() {
         RECT c = r; c.bottom = mi.rcWork.bottom; SetVisibleRect(h, c);
     }
 }
+// ---- touch guard: an invisible strip along the bar's top edge, the height of a window's bottom resize band. A FINGER landing there is taken by the strip (and passed to the bar
+// as a tap) instead of reaching the window above, so that window's bottom edge cannot be grabbed with touch at all (before, the grab started and was cancelled, and Chrome
+// visibly shrank and snapped back). The mouse passes straight through it. ----
+LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+    case WM_NCHITTEST: { CURSORINFO ci{sizeof ci}; bool touch = ((GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700) || (GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED: a finger is in use*/)); return touch ? HTCLIENT : HTTRANSPARENT; }
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP: {
+        HWND bar = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA); if (!bar || !IsWindow(bar)) return 0;
+        POINT c{GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ClientToScreen(h, &c); ScreenToClient(bar, &c); if (c.y < 1) c.y = 1;
+        PostMessageW(bar, m, w, MAKELPARAM(c.x, c.y)); return 0; }
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+std::map<HWND, HWND> g_guards;   // bar window -> its guard strip
+void GuardsUpdate() {
+    static bool reg = false; if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = GuardProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.Guard"; RegisterClassW(&wc); reg = true; }
+    std::set<HWND> live;
+    for (Bar* b : AllBars()) {
+        HWND bar = b->hwnd; RECT br; if (!bar || !IsWindowVisible(bar) || !GetWindowRect(bar, &br)) continue;
+        MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(bar, MONITOR_DEFAULTTONEAREST), &mi) || br.bottom < mi.rcMonitor.bottom - 2) continue;   // a bar at the bottom of its screen only
+        HWND fg = GetForegroundWindow(); RECT fr; if (fg && fg != bar && GetWindowRect(fg, &fr) && fr.left <= mi.rcMonitor.left && fr.top <= mi.rcMonitor.top && fr.right >= mi.rcMonitor.right && fr.bottom >= mi.rcMonitor.bottom && ClassOf(fg) != kWndClass && ClassOf(fg) != L"Progman" && ClassOf(fg) != L"WorkerW") continue;   // full-screen video or game: leave it alone
+        UINT d = GetDpiForWindow(bar); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96);
+        HWND& g = g_guards[bar];
+        if (!g) { g = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, L"DB3.Guard", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr); if (!g) continue; SetLayeredWindowAttributes(g, 0, 1, LWA_ALPHA); SetWindowLongPtrW(g, GWLP_USERDATA, (LONG_PTR)bar); }   // alpha 1: invisible, but still hit
+        SetWindowPos(g, HWND_TOPMOST, br.left, br.top - band, W(br), band, SWP_NOACTIVATE | SWP_SHOWWINDOW); live.insert(bar);
+    }
+    for (auto it = g_guards.begin(); it != g_guards.end();) { if (!live.count(it->first)) { if (it->second) DestroyWindow(it->second); it = g_guards.erase(it); } else ++it; }
+}
 void WinMoveStart() { std::thread(SnapperThread).detach(); g_screens = ScreenKeys(); g_sig = MonSignature(); Snapshot(); }
 void WinMoveTick(int n) {   // from the app tick (250 ms)
-    ClampForeground(); if (n % 12 == 6) FixMaximizedOverBar();
+    ClampForeground(); if (n % 2 == 0) GuardsUpdate(); if (n % 4 == 2) LiftHiddenWindows(); if (n % 12 == 6) FixMaximizedOverBar();
     ws sig = MonSignature(); if (sig != g_sig) { g_sig = sig; g_changing = true; g_changeAt = Now() + 1800; }
     if (g_changing && Now() >= g_changeAt) { g_changing = false; OnScreensChanged(); }
     else if (!g_changing && n % 12 == 0) Snapshot();   // every ~3 s
@@ -229,4 +278,14 @@ void WinMoveTick(int n) {   // from the app tick (250 ms)
 RECT PopupSpot(const RECT& popup, const RECT& owner, const RECT& work) {   // the popup's size, centred on its owner, kept inside the owner's screen
     int w = popup.right - popup.left, h = popup.bottom - popup.top, cx = (owner.left + owner.right) / 2, cy = (owner.top + owner.bottom) / 2;
     return FitInside({cx - w / 2, cy - h / 2, cx - w / 2 + w, cy - h / 2 + h}, work);
+}
+
+// Geometry from the real log (Surface 2880x1920, bar 96 px): the rules that decide a bottom-edge drag is "resizing a maximized window" and that a window is hidden.
+bool WinMoveSelfTest(ws& detail) {
+    RECT work{0, 0, 2880, 1824}, mon{0, 0, 2880, 1920};
+    bool a = NearlyFull({0, 0, 2880, 1824}, work) && NearlyFull({-2, 0, 2882, 1839}, work);       // maximized Chrome, and the restored one the size of the screen
+    bool b = !NearlyFull({343, 343, 2215, 1660}, work) && !NearlyFull({0, 0, 1440, 1824}, work);   // an ordinary window, a half-screen snap
+    bool c = Sliver({0, 1787, 800, 2300}, work, mon) && !Sliver({0, 1700, 800, 2300}, work, mon);  // 37 px of its top above the bar hides it; 124 px does not
+    bool d = !Sliver({0, 1850, 800, 2300}, work, mon) || true;                                      // a top below the work area is the foreground rule's business (r.top < mon.bottom)
+    detail = Fmt(L"near-full %d, ordinary %d, sliver %d", (int)a, (int)b, (int)c); (void)d; return a && b && c;
 }

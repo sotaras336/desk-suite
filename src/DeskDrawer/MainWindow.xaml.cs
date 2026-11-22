@@ -58,7 +58,7 @@ public partial class MainWindow : Window
         if (App.Background && _pick == null) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
         StateChanged += (_, _) => OnStateChanged();
         MouseMove += (_, _) => MaxBtn.Tag = null;   // back in the client area: no longer over the (hit-test) maximise button
-        Loaded += (_, _) => { Start(); ShellNew.Preload(); };
+        List.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(ThumbsAfterScroll)); Loaded += (_, _) => { Start(); ShellNew.Preload(); ShellMenu.WarmUp(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)); };
         Closing += (_, e) => { if (_pick != null) { e.Cancel = PickClosing(); return; }   /* a picker window: nothing of yours is saved, and it really closes */ SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
         PreviewKeyDown += Window_PreviewKeyDown;
         PreviewMouseDown += (_, e) => { if (e.ChangedButton == MouseButton.XButton1) { GoBack(); e.Handled = true; } else if (e.ChangedButton == MouseButton.XButton2) { GoForward(); e.Handled = true; } };   // the mouse's back / forward buttons
@@ -534,10 +534,18 @@ public partial class MainWindow : Window
     {
         if (_tab?.Entries == null || _viewMode is "Details" or "List") return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX; int want = _viewMode == "Tiles" ? 48 : _iconSize;
-        ThumbLoader(_tab.Entries, Math.Min(256, (int)Math.Ceiling(want * dpi / 32.0) * 32));
+        int first = 0; if (FindScroll(List) is { ExtentHeight: > 0 } sv) first = (int)(sv.VerticalOffset / sv.ExtentHeight * _tab.Entries.Count);   // start at what is on screen, not at the top of 900 photos
+        Thumbs.Request(_tab.Entries, Math.Min(256, (int)Math.Ceiling(want * dpi / 32.0) * 32), first);
     }
 
-    private static void ThumbLoader(IReadOnlyList<FileEntry> entries, int px) => Thumbs.Request(entries, px);
+    private System.Windows.Threading.DispatcherTimer? _thumbScroll;
+    private void ThumbsAfterScroll(object s, ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange == 0) return;
+        _thumbScroll ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _thumbScroll.Tick -= ThumbScrollTick; _thumbScroll.Tick += ThumbScrollTick; _thumbScroll.Stop(); _thumbScroll.Start();
+    }
+    private void ThumbScrollTick(object? s, EventArgs e) { _thumbScroll?.Stop(); RequestThumbs(); }
 
     /// Ctrl + wheel / Ctrl +/-: bigger or smaller icons in the icon view, the whole list scaled in the others; Ctrl+0 back to normal.
     /// Ctrl + wheel / Ctrl +/- walk the views like File Explorer: Details, List, then icons from small (32) to extra large (256); Ctrl+0 = Details.
@@ -1276,9 +1284,12 @@ public partial class MainWindow : Window
 
     /// "Show more options": the Windows menu for these files (7-Zip, Git, Send to, Open with...), read from the shell and drawn in DeskDrawer's own theme.
     /// Picking an entry still runs it through the shell, so every extension behaves as in File Explorer.
-    private void ShowMoreOptions(List<string> paths)
+    private async void ShowMoreOptions(List<string> paths)
     {
-        var session = ShellMenu.Open(Hwnd, paths, (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0; var hwnd = Hwnd;
+        var wait = Task.Delay(300); var building = ShellMenu.OpenAsync(hwnd, paths, shift);   // built off the UI thread: the shell extensions take a while
+        if (await Task.WhenAny(building, wait) != building) Flash("Loading the Windows menu...");
+        ShellMenu.Session? session; try { session = await building; } catch { session = null; }
         if (session == null) { ShellMenu.Show(this, paths, _menuScreen); return; }   // could not read it: fall back to Windows' own popup
         var m = new ContextMenu(); _lastMenu = m;
         int x = (int)_menuScreen.X, y = (int)_menuScreen.Y;
@@ -1291,7 +1302,7 @@ public partial class MainWindow : Window
                 if (e.Icon != null) mi.Icon = new Image { Source = e.Icon, Width = 16, Height = 16, Stretch = Stretch.Uniform };
                 else if (e.Checked) { var c = new TextBlock { Text = "", FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 13 }; c.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); mi.Icon = c; }
                 if (e.Children != null) Fill(mi.Items, e.Children);
-                else { uint id = e.Id; mi.Click += (_, _) => { try { session.Invoke(id, x, y); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); } }; }
+                else { uint id = e.Id; mi.Click += (_, _) => session.Invoke(id, x, y, ex => Dispatcher.BeginInvoke(() => MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning))); }
                 into.Add(mi);
             }
         }

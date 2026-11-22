@@ -130,14 +130,48 @@ public static class ShellMenu
     /// An open shell menu: its items as data, and the means to run one. Keep it alive while the menu is on screen, then Dispose.
     public sealed class Session : IDisposable
     {
-        internal Bound B = null!; internal IntPtr Menu, Owner; public List<ShellEntry> Items = new();
-        public void Invoke(uint id, int x, int y)
+        internal Bound B = null!; internal IntPtr Menu, Owner; public List<ShellEntry> Items = new(); internal System.Windows.Threading.Dispatcher? Home;   // Home: the shell thread that built it (COM objects must be used there)
+        public void Invoke(uint id, int x, int y, Action<Exception>? failed = null)
         {
-            var info = new CMINVOKECOMMANDINFOEX { fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE, hwnd = Owner, lpVerb = (IntPtr)(id - 1), lpVerbW = (IntPtr)(id - 1), nShow = 1, ptInvoke = new POINT { X = x, Y = y } };
-            info.cbSize = Marshal.SizeOf(info); B.Menu.InvokeCommand(ref info);
+            void Go()
+            {
+                var info = new CMINVOKECOMMANDINFOEX { fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE, hwnd = Owner, lpVerb = (IntPtr)(id - 1), lpVerbW = (IntPtr)(id - 1), nShow = 1, ptInvoke = new POINT { X = x, Y = y } };
+                info.cbSize = Marshal.SizeOf(info); B.Menu.InvokeCommand(ref info);
+            }
+            if (Home == null) { Go(); return; }
+            Home.BeginInvoke(() => { try { Go(); } catch (Exception ex) { failed?.Invoke(ex); } });   // a command that shows a dialog must not freeze DeskDrawer
         }
-        public void Dispose() { if (Menu != IntPtr.Zero) { DestroyMenu(Menu); Menu = IntPtr.Zero; } B?.Dispose(); }
+        public void Dispose()
+        {
+            void Free() { if (Menu != IntPtr.Zero) { DestroyMenu(Menu); Menu = IntPtr.Zero; } B?.Dispose(); }
+            if (Home == null) Free(); else Home.BeginInvoke(Free);
+        }
     }
+
+    // Building the shell's menu loads every shell extension (OneDrive, Google Drive, 7-Zip, Git, Copilot...) and takes from half a second to several: it was done on DeskDrawer's UI thread,
+    // so "Show more options" froze the window. It now runs on one long-lived STA thread; the first use also warms the extensions up.
+    private static System.Windows.Threading.Dispatcher? _sta;
+    private static readonly object _staLock = new();
+    private static System.Windows.Threading.Dispatcher Sta()
+    {
+        lock (_staLock)
+        {
+            if (_sta != null) return _sta;
+            var ready = new ManualResetEventSlim();
+            var t = new Thread(() => { _sta = System.Windows.Threading.Dispatcher.CurrentDispatcher; ready.Set(); System.Windows.Threading.Dispatcher.Run(); }) { IsBackground = true, Name = "shell menu" };
+            t.SetApartmentState(ApartmentState.STA); t.Start(); ready.Wait(); return _sta!;
+        }
+    }
+
+    public static Task<Session?> OpenAsync(IntPtr owner, IReadOnlyList<string> paths, bool extended)
+    {
+        var d = Sta(); var tcs = new TaskCompletionSource<Session?>();
+        d.BeginInvoke(() => { try { var s = Open(owner, paths, extended); if (s != null) s.Home = d; tcs.SetResult(s); } catch (Exception ex) { tcs.SetException(ex); } });
+        return tcs.Task;
+    }
+
+    /// Loads the extensions in the background so the first "Show more options" is not the slow one.
+    public static void WarmUp(string path) => Sta().BeginInvoke(() => { try { using var b = Bound.Create(new[] { path }, IntPtr.Zero); var h = CreatePopupMenu(); try { b?.Menu.QueryContextMenu(h, 0, 1, 0x7FFF, CMF_NORMAL); } finally { DestroyMenu(h); } } catch { } });
 
     public static Session? Open(IntPtr owner, IReadOnlyList<string> paths, bool extended)
     {

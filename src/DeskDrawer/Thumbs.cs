@@ -36,31 +36,37 @@ public static class Thumbs
     }
 
     private static readonly Stack<(FileEntry E, int Px)> Queue = new();
-    private static readonly AutoResetEvent Wake = new(false);
-    private static Thread? _worker;
+    private static Thread[]? _workers;
 
-    /// Thumbnails for the tiles and icon views, on one STA thread, first rows first; a new request replaces whatever was still waiting.
-    public static void Request(IReadOnlyList<FileEntry> entries, int px)
+    /// Thumbnails for the tiles and icon views, on a few STA threads (one made a 900-photo folder crawl), starting at the row `first` (what is on screen) and wrapping round;
+    /// a new request replaces whatever was still waiting.
+    public static void Request(IReadOnlyList<FileEntry> entries, int px, int first = 0)
     {
-        lock (Queue) { Queue.Clear(); for (int i = entries.Count - 1; i >= 0; i--) if (entries[i].ThumbPx < px) Queue.Push((entries[i], px)); }
-        if (_worker == null)
+        int n = entries.Count; if (first < 0 || first >= n) first = 0;
+        lock (Queue)
         {
-            _worker = new Thread(() =>
+            Queue.Clear();
+            for (int k = n - 1; k >= 0; k--) { var e = entries[(first + k) % n]; if (e.ThumbPx < px) Queue.Push((e, px)); }   // pushed last-first so the visible row pops first
+            Monitor.PulseAll(Queue);
+        }
+        if (_workers != null) return;
+        _workers = new Thread[3];
+        for (int w = 0; w < _workers.Length; w++)
+        {
+            _workers[w] = new Thread(() =>
             {
                 for (;;)
                 {
                     (FileEntry E, int Px) job;
-                    lock (Queue) job = Queue.Count > 0 ? Queue.Pop() : default;
-                    if (job.E == null) { Wake.WaitOne(); continue; }
+                    lock (Queue) { while (Queue.Count == 0) Monitor.Wait(Queue); job = Queue.Pop(); }
                     if (job.E.ThumbPx >= job.Px) continue;
                     var bs = Get(job.E.FullPath, job.Px); if (bs == null) continue;
                     var e = job.E; int p = job.Px;
                     Application.Current?.Dispatcher.BeginInvoke(() => e.SetThumb(bs, p), System.Windows.Threading.DispatcherPriority.Background);
                 }
             }) { IsBackground = true, Name = "DeskDrawer thumbnails", Priority = ThreadPriority.BelowNormal };
-            _worker.SetApartmentState(ApartmentState.STA); _worker.Start();
+            _workers[w].SetApartmentState(ApartmentState.STA); _workers[w].Start();
         }
-        Wake.Set();
     }
 
     /// Runs a job on a fresh STA thread (the shell wants one) and hands the answer back through a callback.

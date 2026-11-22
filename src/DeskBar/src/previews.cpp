@@ -139,6 +139,7 @@ struct PreviewWnd : Wnd {
         int x = std::clamp((int)(mid.x - pw / 2), (int)mi.rcMonitor.left + (int)(8 * sc), std::max((int)mi.rcMonitor.left + (int)(8 * sc), (int)mi.rcMonitor.right - pw - (int)(8 * sc)));
         int y = (int)(br.top - ph - 8 * sc); if (y < mi.rcMonitor.top) y = (int)(br.bottom + 8 * sc);   // a bar docked at the top: open below it
         SetWindowPos(hwnd, HWND_TOPMOST, x, y, pw, ph, SWP_NOACTIVATE | SWP_SHOWWINDOW); open = true; Layout(); PaintNow();
+        { RECT bw{}; GetWindowRect(rq.wnd->hwnd, &bw); Log(L"preview placed: popup %d,%d %dx%d (bottom %d) | button %d,%d,%d,%d | bar window %d,%d,%d,%d | monitor bottom %d work bottom %d scale %.2f", x, y, pw, ph, y + ph, (int)br.left, (int)br.top, (int)br.right, (int)br.bottom, (int)bw.left, (int)bw.top, (int)bw.right, (int)bw.bottom, (int)mi.rcMonitor.bottom, (int)mi.rcWork.bottom, sc); }   // where it landed against the bar: a popup that sits on the bar is a bug
         for (auto& wl : wells) {   // thumbnails are drawn by Windows on top of this window
             HTHUMBNAIL th; if (FAILED(DwmRegisterThumbnail(hwnd, wl.second, &th))) continue;
             SIZE src{}; DwmQueryThumbnailSourceSize(th, &src); RECT crop{0, 0, src.cx, src.cy}, outer;
