@@ -41,6 +41,31 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
         Sleep(12);
     }
 }
+// ---- maximized window moved to a screen of another scale (Win+Shift+Arrow, Surface 200% -> LG 100%) ----
+// Minecraft (an SDL window) landed 22 px short of the bar every time, its picture cut off. Measured: Windows puts it there in ONE size change, and Chrome moved the same
+// way lands exactly right, so it is the game's own answer to the scale change (it keeps its old size when Windows tells it the new scale). Nothing outside the game can stop
+// that answer, so it is corrected in the same moment it arrives: this runs on the size-change event itself (milliseconds), not on a timer (the first try polled once a
+// second, and the window visibly sat short, then jumped). Only within 2 s of a change of screen, once per move, so an app that caps its own maximized size is left alone.
+bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.top <= work.top + 8 && (work.bottom - r.bottom > 8 || work.right - r.right > 8) && r.bottom <= work.bottom && r.right <= work.right + 8; }
+std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
+void CALLBACK OnLocation(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
+    if (obj != OBJID_WINDOW || child != 0 || !h || GetAncestor(h, GA_ROOT) != h) return;
+    if (!IsZoomed(h) || IsIconic(h) || !IsAppWindow(h)) { g_maxMon.erase(h); g_maxMoved.erase(h); return; }
+    HMONITOR m = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST); uint64_t now = Now();
+    auto [it, fresh] = g_maxMon.try_emplace(h, m); if (!fresh && it->second != m) { it->second = m; g_maxMoved[h] = now; }
+    auto mv = g_maxMoved.find(h); if (mv == g_maxMoved.end()) return;
+    if (now - mv->second > 2000) { g_maxMoved.erase(mv); return; }
+    MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(m, &mi)) return;
+    RECT v = VisibleRect(h); if (!ShortMax(v, mi.rcWork)) return;
+    g_maxMoved.erase(mv);
+    RECT o; GetWindowRect(h, &o); const RECT& w = mi.rcWork; int l = v.left - o.left, t = v.top - o.top, r = o.right - v.right, b = o.bottom - v.bottom;
+    SetWindowPos(h, nullptr, w.left - l, w.top - t, W(w) + l + r, H(w) + t + b, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);   // async: a busy game must not stall this hook thread
+    Log(L"maximized window came out short on its new screen, set to fill it: %s was %d,%d,%d,%d, work %d,%d,%d,%d", ClassOf(h).c_str(), (int)v.left, (int)v.top, (int)v.right, (int)v.bottom, (int)w.left, (int)w.top, (int)w.right, (int)w.bottom);
+}
+void SeedMaximized() {   // windows already maximized when DeskBar starts: their screen is known before their first move
+    std::vector<HWND> all; EnumWindows([](HWND h, LPARAM p) -> BOOL { ((std::vector<HWND>*)p)->push_back(h); return TRUE; }, (LPARAM)&all);
+    for (HWND h : all) if (IsAppWindow(h) && IsZoomed(h) && !IsIconic(h)) g_maxMon[h] = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+}
 void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (obj != OBJID_WINDOW || !h) return;
     if (ev == EVENT_SYSTEM_MOVESIZESTART) {
@@ -131,6 +156,7 @@ void CALLBACK OnShow(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, 
 }
 void SnapperThread() {
     HWINEVENTHOOK hk = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, nullptr, OnMoveSize, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    SeedMaximized(); HWINEVENTHOOK hl = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnLocation, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS); (void)hl;
     HWINEVENTHOOK hs = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnShow, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } UnhookWinEvent(hk); UnhookWinEvent(hs);
 }
@@ -287,5 +313,8 @@ bool WinMoveSelfTest(ws& detail) {
     bool b = !NearlyFull({343, 343, 2215, 1660}, work) && !NearlyFull({0, 0, 1440, 1824}, work);   // an ordinary window, a half-screen snap
     bool c = Sliver({0, 1787, 800, 2300}, work, mon) && !Sliver({0, 1700, 800, 2300}, work, mon);  // 37 px of its top above the bar hides it; 124 px does not
     bool d = !Sliver({0, 1850, 800, 2300}, work, mon) || true;                                      // a top below the work area is the foreground rule's business (r.top < mon.bottom)
-    detail = Fmt(L"near-full %d, ordinary %d, sliver %d", (int)a, (int)b, (int)c); (void)d; return a && b && c;
+    RECT lg{0, 0, 1920, 1032};
+    bool e = ShortMax({0, 0, 1920, 1005}, lg);   // the Minecraft case: 27 px short of the work area
+    bool f = !ShortMax({0, 0, 1920, 1032}, lg) && !ShortMax({0, 0, 1920, 1030}, lg);
+    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d", (int)a, (int)b, (int)c, (int)e, (int)f); (void)d; return a && b && c && e && f;
 }
