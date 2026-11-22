@@ -161,6 +161,7 @@ void PreviewOpen(const PreviewReq& r);
 void PreviewHideSoon();
 void PreviewCancelHide();
 void PreviewClose();
+unsigned PreviewCloseGen();
 bool PreviewShowingFor(const ws& key);
 void PreviewSnapshot(const ws& path);   // debug
 

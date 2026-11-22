@@ -56,7 +56,8 @@ TaskBtn::TaskBtn() {
         if (hoverTimer) { UiKillTimer(hoverTimer); hoverTimer = 0; }
         if (in) {
             if (wnd && wnd->touchLast) return;
-            auto open = [this] { if (hoverTimer) { UiKillTimer(hoverTimer); hoverTimer = 0; } PreviewOpen(Req(false)); };
+            unsigned gen = PreviewCloseGen();   // a click, right-click or drag closes the preview: then this delayed open must not fire
+            auto open = [this, gen] { if (hoverTimer) { UiKillTimer(hoverTimer); hoverTimer = 0; } if (gen != PreviewCloseGen() || MenuOpen()) return; PreviewOpen(Req(false)); };
             if (PreviewShowingFor(L"*")) open(); else hoverTimer = UiTimer(300, open);
         } else PreviewHideSoon();
     };

@@ -90,7 +90,7 @@ struct PreviewWnd : Wnd {
     }
     void PeekEndSoon() { if (peekT) { UiKillTimer(peekT); peekT = 0; } if (endPeekT) UiKillTimer(endPeekT); endPeekT = UiTimer(120, [this] { UiKillTimer(endPeekT); endPeekT = 0; PeekHide(); }); }
     void Refresh() {
-        auto key = req.key; bool touch = req.touch; UiOnce(400, [key, touch] { TaskBtn* b = FindBtn(key); if (!b || b->e.wins.empty()) PreviewClose(); else PreviewOpen(b->Req(touch)); });
+        auto key = req.key; bool touch = req.touch; UiOnce(400, [this, key, touch] { if (!open) return; TaskBtn* b = FindBtn(key); if (!b || b->e.wins.empty()) PreviewClose(); else PreviewOpen(b->Req(touch)); });
     }
     View* Card(View* parent, const WinInfo& w) {
         Sz t = FitToWindow(w.h); bool active = w.h == fg0; HWND hw = w.h;
@@ -161,6 +161,8 @@ std::unique_ptr<PreviewWnd> g_pv;
 void PreviewOpen(const PreviewReq& r) { Log(L"preview open key=%s wins=%d", r.key.c_str(), (int)r.wins.size()); if (!g_pv) g_pv = std::make_unique<PreviewWnd>(); if (r.wnd && r.wnd->hwnd) g_pv->Show(r); }
 void PreviewHideSoon() { if (!g_pv || !g_pv->open) return; if (g_pv->hideT) UiKillTimer(g_pv->hideT); g_pv->hideT = UiTimer(300, [] { if (g_pv) g_pv->Close(); }); }
 void PreviewCancelHide() { if (g_pv && g_pv->hideT) { UiKillTimer(g_pv->hideT); g_pv->hideT = 0; } }
-void PreviewClose() { if (g_pv) g_pv->Close(); }
+static unsigned g_closeGen = 0;   // bumped by every explicit close, so a hover open still waiting on its timer knows it was cancelled
+void PreviewClose() { g_closeGen++; if (g_pv) g_pv->Close(); }
+unsigned PreviewCloseGen() { return g_closeGen; }
 bool PreviewShowingFor(const ws& key) { return g_pv && g_pv->open && (key == L"*" || g_pv->req.key == key); }
 void PreviewSnapshot(const ws& path) { if (g_pv && g_pv->open) g_pv->Snapshot(path); }
