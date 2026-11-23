@@ -69,7 +69,7 @@ public partial class App : Application
         var w = new MainWindow(); w.Show();
         if (Bounds != null) { void Placed(object? s, EventArgs a) { w.ContentRendered -= Placed; w.PlaceAt(Bounds); } w.ContentRendered += Placed; w.PlaceAt(Bounds); }   // again once drawn: the window restores its remembered size while loading
         if (UiTest != null) { w.RunUiTest(UiTest); return; }
-        if (!test) { if (Resident) Instance.Listen(w.OpenFromOutside);   /* only the resident copy takes folder hand-offs: a --new-window copy used to grab them when the resident was not running, then crashed once its window was closed */ DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); }
+        if (!test) { if (Resident) Instance.Listen(w.OpenFromOutside);   /* only the resident copy takes folder hand-offs: a --new-window copy used to grab them when the resident was not running, then crashed once its window was closed */ if (Resident) { DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); } }   /* only the resident copy watches Save / Open dialogs: a --new-window or test copy put its own DeskDrawer folders button under them too */
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
         if (!test || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
     }

@@ -63,6 +63,10 @@ bool IsTouchMsg() { return ((unsigned long)GetMessageExtraInfo() & 0xFFFFFF00) =
 static LRESULT CALLBACK WProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Wnd* self = (Wnd*)GetWindowLongPtrW(h, GWLP_USERDATA);
     if (m == WM_NCCREATE) { self = (Wnd*)((CREATESTRUCTW*)l)->lpCreateParams; SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)self); if (self) self->hwnd = h; }
+    if (m == WM_TOUCHHITTESTING) {   // a finger on any DeskBar surface is ours: unclaimed, Windows gave a tap on the bar's corner to the maximized Claude app's
+        // resize corner next to it (registered apps claim a finger NEAR them; real log 2026-11-23 13:19, five resizes from taps on Show desktop)
+        auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
+        return PackTouchHitTestingProximityEvaluation(in, &ev); }
     if (!self) return DefWindowProcW(h, m, w, l);
     LRESULT r = self->Proc(m, w, l);
     if (m == WM_NCDESTROY) { SetWindowLongPtrW(h, GWLP_USERDATA, 0); self->hwnd = nullptr; }
@@ -88,6 +92,7 @@ bool Wnd::Create(DWORD ex, DWORD style, int x, int y, int w, int h, HWND owner) 
     (void)reg;
     CreateWindowExW(ex, kWndClass, L"DeskBar", style, x, y, w, h, owner, nullptr, GetModuleHandleW(nullptr), this);
     if (!hwnd) return false;
+    if (!RegisterTouchHitTestingWindow(hwnd, TOUCH_HIT_TESTING_CLIENT)) Log(L"touch hit testing not registered for a DeskBar window (%lu)", GetLastError());
     UpdateScale(); return true;
 }
 void Wnd::UpdateScale() {

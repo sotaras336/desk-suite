@@ -65,8 +65,10 @@ public static partial class DialogSwitch
     {
         if (_chip == null)
         {
-            var label = new TextBlock { Text = "  DeskDrawer folders  ", FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+            // the folder and arrow are icons: in the text font they came out as empty boxes
+            var label = new StackPanel { Orientation = Orientation.Horizontal };
+            TextBlock Part(string t, bool icon, double size, Thickness m) { var b = new TextBlock { Text = t, FontFamily = new FontFamily(icon ? "Segoe Fluent Icons, Segoe MDL2 Assets" : "Segoe UI Variable Text, Segoe UI"), FontSize = size, Margin = m, VerticalAlignment = VerticalAlignment.Center }; b.SetResourceReference(TextBlock.ForegroundProperty, icon ? "Accent" : "Fg"); return b; }
+            label.Children.Add(Part("\uE8B7", true, 14, new Thickness(0, 1, 10, 0))); label.Children.Add(Part("DeskDrawer folders", false, 13, new Thickness(0))); label.Children.Add(Part("\uE70D", true, 10, new Thickness(10, 2, 0, 0)));
             var pill = new Border { Child = label, Padding = new Thickness(14, 7, 14, 7), CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand };
             pill.SetResourceReference(Border.BackgroundProperty, "MenuBg"); pill.SetResourceReference(Border.BorderBrushProperty, "Accent");
             _chip = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, Topmost = true, ShowInTaskbar = false, ShowActivated = false, SizeToContent = SizeToContent.WidthAndHeight, Content = pill, ResizeMode = ResizeMode.NoResize };
