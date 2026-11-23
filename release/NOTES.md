@@ -1,6 +1,6 @@
-## Desk 4.0 beta
+## Pre-release 4
 
-A test build of the next big version. It's marked as a pre-release, so the apps' own update check won't offer it: download the setups below to try it.
+An early look at Desk 4.0. Each app offers it as its next update; it may still have rough edges.
 
 **One settings window for the whole suite**
 
@@ -25,9 +25,8 @@ A test build of the next big version. It's marked as a pre-release, so the apps'
 - Hovering a pinned app that isn't open shows its name without a box.
 - Window previews and the full-size peek no longer cut a strip off the left of the window.
 
-**Known in this beta**
+**Known in this pre-release**
 
-- The apps' update check compares with the newest full release (3.9.1). With the beta installed, they will say an update is available: ignore it, or the beta is replaced by 3.9.1.
 - Tapping right above the bar next to a maximized app can still start a resize from the bottom edge. Being worked on.
 
-**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
+**What you need:** Microsoft's free [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) for DeskDrawer and DeskTune; DeskBar needs nothing extra. With 2.2 or later installed, each app offers this update itself. The files aren't code-signed, so Windows SmartScreen asks the first time you run a downloaded setup: More info, then Run anyway. Checksums are in `SHA256SUMS.txt`.
