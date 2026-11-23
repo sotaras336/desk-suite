@@ -161,7 +161,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     bat->onClick = [] { ClosePanels(); Launch(L"ms-settings:batterysaver"); };
     { auto* st = MkBox(bat, Lay::Overlay); st->fw = 20; st->va = Al::Center; d->batFill = MkGlyph(st, 0xEBA0, 16); d->batG = MkGlyph(st, 0xEBA0, 16); d->batT = MkLabel(bat, L"", FText(12)); d->batT->va = Al::Center; }
     auto* pal = IconBtn(foot, 0xE790, 36, 14, [this] { ShowDetail(MakeThemePage(this)); }); pal->bg = Brush{}; pal->va = Al::Center; pal->ha = Al::End; pal->tip = L"Color";
-    auto* set = IconBtn(foot, 0xE713, 36, 14, [] { ClosePanels(); Launch(L"ms-settings:"); }); set->bg = Brush{}; set->va = Al::Center; set->ha = Al::End; set->tip = L"All settings";
+    auto* set = IconBtn(foot, 0xE713, 36, 14, [] { ClosePanels(); SettingsOpenFromApp(0); }); set->bg = Brush{}; set->va = Al::Center; set->ha = Al::End; set->tip = L"Settings";   // the one Desk settings window
 }
 
 void ThemePreviewEnd(QuickPanel* qp);

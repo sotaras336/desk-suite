@@ -74,6 +74,7 @@ View* Head(View* col, wchar_t glyph, ImgP img, const ws& title, const ws& sub) {
     return h;
 }
 
+enum { kPgTaskbar, kPgScreens, kPgDeskMode, kPgColours, kPgDrawer, kPgTune, kPgApps, kPgStartup };   // the order of kPages below
 void PageTaskbar(View* col) {
     Head(col, 0xE90C, nullptr, L"Taskbar", L"What the bar shows and what the Windows key does.");
     auto* c = Card(col, L"Start");
@@ -83,6 +84,8 @@ void PageTaskbar(View* col) {
     Row(c, 0xE768, L"Media player", L"Song, artist and play controls while something plays.", S.showMedia, [](bool v) { S.showMedia = v; });
     Row(c, 0, L"DeskMode button", L"Next to the keyboard language; opens DeskMode.", S.dmButton, [](bool v) { S.dmButton = v; for (auto* b : AllBars()) if (b->dmBtn) b->dmBtn->Show(v); }, IconRes(2, 32));
     for (int i = 0; i < kWidgetCount; i++) { ws id = kWidgets[i].id; Row(c, 0xE721, L"Search box", id == L"search" ? ws(L"Next to the Windows key. Type, press Enter: searches Google.") : ws(kWidgets[i].name), HasWidget(id), [id](bool v) { SetWidget(id, v); }); }
+    c = Card(col, L"Effects");
+    Row(c, 0xE71E, L"Magnify apps under the mouse", L"An app's icon swells with a liquid bounce while you point at it.", S.hoverMagnify, [](bool v) { S.hoverMagnify = v; for (auto* b : AllBars()) for (auto* t : b->btns) t->Invalidate(); });
 }
 
 void Show(int page);
@@ -130,7 +133,7 @@ void PageStartup(View* col) {
     auto* sign = Row(c, 0xE7E8, L"Start DeskBar when I sign in", L"Runs as a scheduled task, so it starts before the desktop shows.", true, [](bool on) { std::thread([on] { SetSignInTask(on); }).detach(); });
     static int signGen = 0; int gen = ++signGen;   // the page can be rebuilt (and this switch deleted) while PowerShell answers: only the newest build may be touched
     std::thread([sign, gen] { ws s = SignInTaskState(); bool on = s == L"?" || (!s.empty() && !ContainsI(s, L"Disabled"));
-        UiPost([sign, on, gen] { if (gen == signGen && g_sw && g_sw->hwnd && g_cur == 3) { sign->Set(on); sign->Invalidate(); } }); }).detach();
+        UiPost([sign, on, gen] { if (gen == signGen && g_sw && g_sw->hwnd && g_cur == kPgStartup) { sign->Set(on); sign->Invalidate(); } }); }).detach();
     c = Card(col, L"Updates");
     Row(c, 0xE895, L"Look for updates once a day", L"Only looks. Nothing installs until you press Update.", S.updateCheck, [](bool v) { S.updateCheck = v; });
     Sep(c);
@@ -153,8 +156,93 @@ void PageStartup(View* col) {
     auto* q = Dim(c, L"Quitting gives Windows its own taskbar back.", 12); q->margin = Thick(12, 0, 12, 10);
 }
 
+void PageApps(View* col) {
+    Head(col, 0xE71D, nullptr, L"Desk apps", L"The whole Desk suite in one place: install, update and open each app.");
+    auto* c = Card(col, L"One look");
+    auto* t = Dim(c, L"The colour theme you pick in Quick settings, or in DeskDrawer's View menu, is worn by all three apps.", 13); t->margin = Thick(12, 10, 12, 10);
+    c = Card(col, L"Apps");
+    for (int i = 0; i < DeskAppCount(); i++) {
+        ws name = DeskAppName(i), state = DeskAppState(name); bool have = FileExists(DeskAppExe(name));
+        auto* r = RowBase(c, DeskAppGlyph(i), nullptr, name, DeskAppWhat(i));
+        if (have) Btn(r, L"Open", 0xE8A7, false, [name] { Launch(DeskAppExe(name)); })->va = Al::Center;
+        if (!have || ContainsI(state, L"new version")) Btn(r, have ? L"Update" : L"Install", have ? 0xE896 : 0xE896, true, [name] { DeskAppInstall(name); })->va = Al::Center;
+        auto* s = Dim(c, state.empty() ? ws(have ? L"Installed" : L"Not installed") : state, 12); s->margin = Thick(58, 0, 12, 10);
+    }
+    auto* b = MkBox(col, Lay::H); b->margin = Thick(0, 6, 0, 0); Btn(b, L"Look for updates", 0xE72C, false, [] { DeskAppsCheck(); });
+    if (DeskAppState(DeskAppName(0)).empty()) UiPost([] { DeskAppsCheck(); });   // first visit: look once
+}
+
+// ---- Colours: one for the suite, or one per app (deskapps.cpp keeps them in %LOCALAPPDATA%\Desk)
+D2D1_COLOR_F SwatchColour(const ThemeDef& t) {   // what a theme looks like, as one dot
+    if (t.kind == 1) return Raw(0x1A1A1A); if (t.kind == 2) return Raw(0xF2F2F2); if (t.kind == 3) return Raw(0x9AA4B4, 0x90);
+    return ColFor(t, 0x1167C4);
+}
+void Swatches(View* col, const ws& title, const ws& app) {
+    auto* c = Card(col, title); ws cur = ThemeOf(app);
+    auto* row = MkBox(c, Lay::Wrap); row->gap = 10; row->pad = Thick(10, 10, 10, 6);
+    bool known = false;
+    for (int i = 0; i < kThemeCount; i++) {
+        const ThemeDef& t = kThemes[i]; ws id = t.id; bool on = cur == id || StartsI(cur, id + L":"); known |= on;
+        auto* sw = MkBox(row, Lay::Overlay); sw->fw = sw->fh = 34; sw->radius = 17; sw->bg = SolidC(SwatchColour(t)); sw->hit = true; sw->tip = t.name;
+        sw->borderW = on ? 3 : 1; sw->border = on ? Raw(0xFFFFFF) : Raw(0xFFFFFF, 0x30);
+        sw->onClick = [app, id] { ThemeSet(app, id); UiPost([] { Show(kPgColours); }); };
+    }
+    ws name = known ? ws() : cur.empty() ? ws(L"the bar's colour") : StartsI(cur, L"custom") ? ws(L"a custom colour") : StartsI(cur, L"accent") ? ws(L"Windows' accent colour") : cur;
+    auto* d = Dim(c, known ? ws(L"Point at a dot for its name.") : L"Now: " + name + L". Any colour and fades: Quick settings > Colour.", 12); d->margin = Thick(12, 0, 12, 10);
+}
+void PageColours(View* col) {
+    Head(col, 0xE790, nullptr, L"Colours", L"One colour for the whole suite, or a different one for each app.");
+    bool sep = ThemesSeparate();
+    auto* c = Card(col, L"");
+    Row(c, 0xE8B9, L"Same colour for every app", L"Off: DeskBar, DeskMode, DeskDrawer and DeskTune can each wear their own.", !sep, [](bool v) { ThemesSetSeparate(!v); UiPost([] { Show(kPgColours); }); });
+    if (!sep) Swatches(col, L"Every app", L"");
+    else { const wchar_t* ids[] = {L"deskbar", L"deskmode", L"deskdrawer", L"desktune"}, *names[] = {L"DeskBar", L"DeskMode", L"DeskDrawer", L"DeskTune"}; for (int i = 0; i < 4; i++) Swatches(col, names[i], ids[i]); }
+    auto* n = Dim(col, L"DeskBar and DeskMode take a second to restart into a new colour; this window comes back.", 12); n->margin = Thick(4, 4, 4, 0);
+}
+// ---- DeskDrawer and DeskTune: their settings, applied by the apps themselves (deskapps.cpp)
+bool NotInstalled(View* col, const ws& name) {
+    if (FileExists(DeskAppExe(name))) return false;
+    auto* c = Card(col, L""); auto* r = RowBase(c, 0xE896, nullptr, name + L" isn't installed", L"Install it from the newest Desk release.");
+    Btn(r, L"Install", 0xE896, true, [name] { DeskAppInstall(name); UiPost([] { Show(kPgApps); }); })->va = Al::Center; return true;
+}
+void PageDrawer(View* col) {
+    Head(col, 0xEC50, nullptr, L"DeskDrawer", L"Files and folders. Changes reach DeskDrawer right away.");
+    if (NotInstalled(col, L"DeskDrawer")) return;
+    Json j = DeskDrawerSettings(); auto B = [&](const wchar_t* k, bool def) { auto* v = j.Find(k); return v && v->t == Json::Bool ? v->b : def; };
+    auto set = [](const wchar_t* k) { ws key = k; return [key](bool v) { DeskDrawerSet(key, v ? L"1" : L"0"); }; };
+    auto* c = Card(col, L"Instead of File Explorer");
+    Row(c, 0xE8B7, L"Open folders with DeskDrawer", L"Folders, drives and Win+E open in DeskDrawer. Off gives them back to File Explorer.", DeskDrawerIsDefault(), set(L"Default"));
+    Row(c, 0xE8E5, L"Answer other apps' Open and Save", L"When Word, Chrome or any app asks where to open or save, DeskDrawer answers instead of Windows' window.", B(L"TakeOverDialogs", false), set(L"TakeOverDialogs"));
+    c = Card(col, L"What you see");
+    Row(c, 0xE7B3, L"Show hidden items", L"Hidden and system files are listed, dimmed. Ctrl+H flips it from any folder.", B(L"ShowHidden", false), set(L"ShowHidden"));
+    c = Card(col, L"Speed");
+    Row(c, 0xE945, L"Keep ready in the background", L"Closing the window keeps DeskDrawer out of sight, so the next folder opens in about half a second. Uses some memory.", B(L"KeepReady", true), set(L"KeepReady"));
+    {
+        RowBase(c, 0xE8CB, nullptr, L"Scrolling speed", L"How far a turn of the wheel or a touchpad swipe moves the folder.");
+        double speeds[] = {0.4, 0.7, 1, 1.5}; double now = 1; if (auto* v = j.Find(L"ScrollSpeed")) if (v->t == Json::Num) now = v->n;
+        int chosen = 2; for (int i = 0; i < 4; i++) if (fabs(speeds[i] - now) < 0.01) chosen = i;
+        auto* sw = MkBox(c, Lay::V); sw->margin = Thick(58, 0, 12, 10);
+        dm::Strip(sw, {L"Slower", L"Slow", L"Normal", L"Fast"}, chosen, 4, [](int i) { const wchar_t* v[] = {L"0.4", L"0.7", L"1", L"1.5"}; DeskDrawerSet(L"ScrollSpeed", v[i]); UiOnce(400, [] { Show(kPgDrawer); }); });
+    }
+    Row(c, 0xE7F4, L"Use the graphics card", L"Smoother on very large screens, about 85 MB more memory. From DeskDrawer's next start.", B(L"Gpu", false), set(L"Gpu"));
+    c = Card(col, L"");
+    LinkRow(c, 0xE8A7, L"Open DeskDrawer", L"", [] { Launch(DeskAppExe(L"DeskDrawer")); });
+}
+void PageTune(View* col) {
+    Head(col, 0xE9F5, nullptr, L"DeskTune", L"Makes Windows lighter. Everything it changes is written down and can be put back.");
+    if (NotInstalled(col, L"DeskTune")) return;
+    auto* c = Card(col, L"Your changes");
+    LinkRow(c, 0xE8A7, L"Open DeskTune", L"Choose what to switch off.", [] { Launch(DeskAppExe(L"DeskTune")); });
+    LinkRow(c, 0xE777, L"Put everything back", L"Opens DeskTune and undoes every change it made (it asks first).", [] { Launch(DeskAppExe(L"DeskTune"), L"--undoall"); });
+    c = Card(col, L"Administrator");
+    LinkRow(c, 0xE7EF, L"Unlock services", L"Opens DeskTune as administrator: services and machine-wide switches need it.", [] { Launch(DeskAppExe(L"DeskTune"), L"", true); });
+}
+
 const struct { wchar_t glyph; int icon; const wchar_t* name; void (*build)(View*); } kPages[] = {
-    {0xE90C, 0, L"Taskbar", PageTaskbar}, {0xE7F4, 0, L"Screens and windows", PageScreens}, {0, 2, L"DeskMode", PageDeskMode}, {0xE7E8, 0, L"Start-up and updates", PageStartup}};
+    {0xE90C, 0, L"Taskbar", PageTaskbar}, {0xE7F4, 0, L"Screens and windows", PageScreens}, {0, 2, L"DeskMode", PageDeskMode},
+    {0xE790, 0, L"Colours", PageColours}, {0xEC50, 0, L"DeskDrawer", PageDrawer}, {0xE9F5, 0, L"DeskTune", PageTune},
+    {0xE71D, 0, L"Desk apps", PageApps}, {0xE7E8, 0, L"Start-up and updates", PageStartup}};
+void DeskAppsRefresh() { if (g_sw && g_sw->hwnd && g_cur == kPgApps) Show(kPgApps); }
 
 void Show(int page) {
     if (!g_sw || !g_sw->hwnd) return;
@@ -188,7 +276,7 @@ void OpenSettingsWindow() {
         auto* tx = MkBox(id, Lay::V); tx->va = Al::Center; MkLabel(tx, L"DeskBar", FText(16, 600)); Dim(tx, L"Settings", 12);
     }
     g_nav.clear();
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < (int)(sizeof kPages / sizeof kPages[0]); i++) {
         auto* n = MkBox(rail, Lay::H); n->hit = true; n->radius = 10; n->pad = Thick(0, 10, 12, 10); n->gap = 12; n->bgHover = Fill(0x0C);
         auto* bar = MkBox(n); bar->fw = 3; bar->fh = 18; bar->radius = 1.5f; bar->va = Al::Center; bar->margin = Thick(0, 0, 0, 0);
         if (kPages[i].icon) { MkPic(n, IconRes(kPages[i].icon, 32), 18); } else { auto* g = MkGlyph(n, kPages[i].glyph, 16, Raw(kSoft)); g->va = Al::Center; g->fw = 18; }
@@ -204,6 +292,7 @@ void OpenSettingsWindow() {
         if (g_pageUpd) g_pageUpd->Show(UpdateNewer());
         if (g_updStatus) g_updStatus->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus());
     });
+    { auto* w = LinkRow(rail, 0xE713, L"Windows Settings", L"", [] { Launch(L"ms-settings:"); }); w->margin = Thick(0, 0, 0, 8); }   // the gears open this window now: Windows' own stays a click away
     auto* foot = Dim(rail, L"Changes apply right away.", 12); foot->margin = Thick(8, 0, 0, 0);
     { auto* d = MkBox(main); d->fw = 1; d->bg = Fill(0x0E); }
     g_scroll = main->Add(new Scroll()); g_scroll->star = 1;
@@ -213,3 +302,16 @@ void OpenSettingsWindow() {
     g_sw->onDeactivate = nullptr;
 }
 void SettingsSnapshot(const ws& file) { if (g_sw && g_sw->hwnd) g_sw->Snapshot(file); }   // dev: --open settings --snap ms
+
+void DeskAppsChanged() { DeskAppsRefresh(); }   // deskapps.cpp: an app's state changed
+int PageNamed(const ws& n) { return n == L"colours" ? kPgColours : n == L"drawer" ? kPgDrawer : n == L"tune" ? kPgTune : n == L"apps" ? kPgApps : n == L"deskmode" ? kPgDeskMode : kPgTaskbar; }
+void SettingsShowPage(const ws& name) { Show(PageNamed(name)); }   // dev snapshots: --open settings --page colours
+// Another Desk app's Settings (DeskDrawer, DeskTune) opens this window at its page: one settings window for the suite. code: 1 DeskDrawer, 2 DeskTune, 3 Colours.
+void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
+// A colour change restarts DeskBar: the window comes back on the page it was on
+void SettingsReopenAfterRestart() { if (g_sw && g_sw->hwnd && IsWindowVisible(g_sw->hwnd)) WriteAtomic(DataPath(L"reopen-settings.txt"), std::to_string(g_cur)); }
+void SettingsReopenCheck() {
+    std::string d; ws p = DataPath(L"reopen-settings.txt"); if (!ReadAll(p, d)) return; DeleteFileW(p.c_str());
+    int page = atoi(d.c_str()); if (page < 0 || page >= (int)(sizeof kPages / sizeof kPages[0])) return;
+    OpenSettingsWindow(); Show(page);
+}

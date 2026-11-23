@@ -94,7 +94,10 @@ public partial class PreviewPane : UserControl
         });
     }
 
-    private static string ReadText(string path)
+    internal static bool IsText(string extOrName) => TextExt.Contains(extOrName);
+    internal static bool IsImage(string ext) => ImageExt.Contains(ext);
+
+    internal static string ReadText(string path)
     {
         try
         {

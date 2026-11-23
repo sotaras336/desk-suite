@@ -3,6 +3,7 @@
 void PreviewClose();   // app.h: the taskbar hover preview
 
 const wchar_t* kWndClass = L"DB3.Wnd";
+void (*g_onOpenSettings)(int) = nullptr;
 
 // ================= animation =================
 namespace {
@@ -67,6 +68,8 @@ static LRESULT CALLBACK WProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // resize corner next to it (registered apps claim a finger NEAR them; real log 2026-11-23 13:19, five resizes from taps on Show desktop)
         auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
         return PackTouchHitTestingProximityEvaluation(in, &ev); }
+    static const UINT openSettings = RegisterWindowMessageW(L"DeskOpenSettings");   // DeskDrawer's or DeskTune's Settings: open the Desk settings window (one for the suite)
+    if (m == openSettings && openSettings) { if (g_onOpenSettings) g_onOpenSettings((int)w); return 0; }
     if (!self) return DefWindowProcW(h, m, w, l);
     LRESULT r = self->Proc(m, w, l);
     if (m == WM_NCDESTROY) { SetWindowLongPtrW(h, GWLP_USERDATA, 0); self->hwnd = nullptr; }

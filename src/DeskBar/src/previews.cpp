@@ -6,6 +6,14 @@
 // shows that window at full size where it sits.
 namespace {
 const float kThumbW = 174, kThumbH = 110;
+// The part of a window's thumbnail (size src) that is its visible window. Windows usually hands over the picture without the invisible resize
+// borders already (src = the visible size); cutting them off again chopped ~11 px off the left of every preview and stretched the rest.
+RECT ThumbCrop(SIZE src, const RECT& outer, const RECT& vis) {
+    RECT full{0, 0, src.cx, src.cy};
+    if (std::abs(src.cx - (outer.right - outer.left)) > 2 || std::abs(src.cx - (vis.right - vis.left)) <= 2) return full;   // already the visible part
+    RECT c{std::max(0L, vis.left - outer.left), std::max(0L, vis.top - outer.top), std::min(src.cx, vis.right - outer.left), std::min(src.cy, vis.bottom - outer.top)};
+    return c.right > c.left && c.bottom > c.top ? c : full;
+}
 RECT VisibleRect(HWND h) { RECT r{}; if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof r))) GetWindowRect(h, &r); return r; }
 Sz FitToWindow(HWND h) {
     RECT r; if (IsIconic(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); r = wp.rcNormalPosition; } else r = VisibleRect(h);
@@ -48,8 +56,7 @@ void PeekShow(HWND target, HWND keepAbove) {
     g_peekTarget = target; SetWindowPos(g_peekWin, nullptr, vis.left, vis.top, vis.right - vis.left, vis.bottom - vis.top, SWP_NOZORDER | SWP_NOACTIVATE);
     if (FAILED(DwmRegisterThumbnail(g_peekWin, target, &g_peekThumb))) { PeekHide(); return; }
     SIZE src{}; DwmQueryThumbnailSourceSize(g_peekThumb, &src);
-    RECT crop{std::max(0L, vis.left - outer.left), std::max(0L, vis.top - outer.top), std::min(src.cx, vis.right - outer.left), std::min(src.cy, vis.bottom - outer.top)};
-    if (crop.right <= crop.left || crop.bottom <= crop.top) crop = {0, 0, src.cx, src.cy};
+    RECT crop = ThumbCrop(src, outer, vis);
     DWM_THUMBNAIL_PROPERTIES p{}; p.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_RECTSOURCE | DWM_TNP_OPACITY | DWM_TNP_VISIBLE | DWM_TNP_SOURCECLIENTAREAONLY;
     p.rcDestination = {0, 0, vis.right - vis.left, vis.bottom - vis.top}; p.rcSource = crop; p.opacity = 255; p.fVisible = TRUE; p.fSourceClientAreaOnly = FALSE; DwmUpdateThumbnailProperties(g_peekThumb, &p);
     int round = IsZoomed(target) ? 1 : 2; DwmSetWindowAttribute(g_peekWin, 33, &round, 4);
@@ -127,8 +134,13 @@ struct PreviewWnd : Wnd {
         SetWindowPos(hwnd, nullptr, mid.x, mid.y, 10, 10, SWP_NOACTIVATE | SWP_NOZORDER); UpdateScale(); float sc = scale;
         View* r = root; r->Clear(); r->lay = Lay::V; r->bg = SolidB(0x1C1C1C, 0xE6); r->pad = Thick(4); r->radius = 0;   // nearly solid over the blur: at 0x60 it looked see-through
         float monW = (mi.rcMonitor.right - mi.rcMonitor.left) / sc;
-        if (rq.wins.empty()) { auto* l = MkLabel(r, rq.name, FText(12)); l->margin = Thick(10, 6, 10, 7); }
-        else {
+        bool bare = rq.wins.empty();   // an app with no windows: just its name floating above the button, no box (the user's call)
+        { int bd = bare ? 1 : 3; DwmSetWindowAttribute(hwnd, 38, &bd, 4); DWORD border = bare ? 0xFFFFFFFE : 0x003D3D3D; DwmSetWindowAttribute(hwnd, 34, &border, 4); int round = bare ? 1 : 2; DwmSetWindowAttribute(hwnd, 33, &round, 4); }
+        if (bare) {
+            r->lay = Lay::Overlay; r->bg = Brush{}; r->pad = Thick(4, 2, 4, 3);
+            for (auto o : {POINT{-1, 0}, POINT{1, 0}, POINT{0, -1}, POINT{0, 1}, POINT{1, 1}}) { auto* s = MkLabel(r, rq.name, FText(11.5f, 600), Col(K::Black, 0x90)); s->margin = Thick(1.f + o.x, 1.f + o.y, 1.f - o.x, 1.f - o.y); }   // a dark outline keeps it readable on any wallpaper
+            auto* l = MkLabel(r, rq.name, FText(11.5f, 600), Col(K::White)); l->margin = Thick(1);
+        } else {
             float need = 8; for (auto& w : rq.wins) need += FitToWindow(w.h).w + 20;
             if (need > monW - 40) {   // a row would not fit across the screen: a plain list of titles
                 auto* sv = r->Add(new Scroll()); sv->fw = 380; sv->fh = std::min(34.f * rq.wins.size(), (mi.rcWork.bottom - mi.rcWork.top) / sc - 40); auto* col = MkBox(nullptr, Lay::V); sv->content = sv->Add(col);
@@ -145,7 +157,7 @@ struct PreviewWnd : Wnd {
             SIZE src{}; DwmQueryThumbnailSourceSize(th, &src); RECT crop{0, 0, src.cx, src.cy}, outer;
             if (!IsIconic(wl.second) && GetWindowRect(wl.second, &outer)) {   // crop to the visible window: the raw thumbnail includes invisible resize borders
                 RECT vis = VisibleRect(wl.second);
-                if (vis.right > vis.left && vis.bottom > vis.top) crop = {std::max(0L, vis.left - outer.left), std::max(0L, vis.top - outer.top), std::min(src.cx, vis.right - outer.left), std::min(src.cy, vis.bottom - outer.top)};
+                if (vis.right > vis.left && vis.bottom > vis.top) crop = ThumbCrop(src, outer, vis);
             }
             float bw = wl.first->rc.w() * sc, bh = wl.first->rc.h() * sc, cw = (float)std::max(1L, crop.right - crop.left), ch = (float)std::max(1L, crop.bottom - crop.top), k = std::min(bw / cw, bh / ch), tw = cw * k, tH = ch * k;
             int left = (int)lroundf(wl.first->rc.l * sc + (bw - tw) / 2), top = (int)lroundf(wl.first->rc.t * sc + (bh - tH) / 2);

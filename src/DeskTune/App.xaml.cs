@@ -58,6 +58,7 @@ public partial class App : Application
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, a) => { W("task", a.Exception); a.SetObserved(); };
     }
 
+    private static System.IO.FileSystemWatcher? _themeWatch;
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -77,9 +78,18 @@ public partial class App : Application
             if (ok && setupName) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstalledExe) { UseShellExecute = false });
             Shutdown(ok ? 0 : 1); return;
         }
-        Theme.Load("black"); Theme.Apply();
+        string? forced = null; for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--theme") forced = a[i + 1];   // dev: --theme glass (pictures without touching the suite's theme)
+        Theme.Load(forced ?? SharedTheme.Read() ?? "black"); Theme.Apply();   // the suite's one theme (DeskBar / DeskDrawer pick it); Black when there is none
         CrashNet("DeskTune");
         var w = new MainWindow(); w.Show();
+        if (forced == null) try
+        {   // a colour picked in another Desk app (or Desk settings > Colours) while DeskTune is open: wear it at once
+            var fw = new System.IO.FileSystemWatcher(SharedTheme.Dir, "theme*.txt") { NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName, EnableRaisingEvents = true };
+            void Changed() => w.Dispatcher.BeginInvoke(async () => { await Task.Delay(150); if (SharedTheme.Read() is { } id && id != Theme.FullId) { Theme.Load(id); Theme.Apply(); } });
+            fw.Changed += (_, _) => Changed(); fw.Created += (_, _) => Changed(); fw.Deleted += (_, _) => Changed(); _themeWatch = fw;
+        } catch { }
+        if (a.Contains("--colour")) w.Dispatcher.BeginInvoke(() => ColourWindow.Show(w), System.Windows.Threading.DispatcherPriority.ApplicationIdle);   // dev: a picture of the colour window
+        if (a.Contains("--undoall")) w.Dispatcher.BeginInvoke(w.UndoAll, System.Windows.Threading.DispatcherPriority.ApplicationIdle);   // "Put everything back" in the Desk settings window
         if (!a.Contains("--snapshot") && !a.Contains("--settingsshot") || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
         for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--snapshot") SelfTest.SnapshotLater(w, a[i + 1]);
         for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--settingsshot") { w.OpenSettings(); SelfTest.SnapshotLater(w.Settings!, a[i + 1]); break; }   // dev: a picture of Settings (DT_SETPAGE picks the page)

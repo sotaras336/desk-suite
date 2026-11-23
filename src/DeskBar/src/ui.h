@@ -23,7 +23,7 @@ struct Thick {
 enum class Al { Stretch, Start, Center, End };
 enum class Lay { Overlay, H, V, Wrap, Uniform };
 enum class TA { Left, Center, Right };
-enum class Ease { Linear, CubicOut, QuintOut, CubicIn, SineInOut };
+enum class Ease { Linear, CubicOut, QuintOut, CubicIn, SineInOut, Spring };   // Spring: overshoots a little and settles (the liquid hover)
 float EaseF(Ease e, float t);
 
 // ---------- brushes / fonts ----------
@@ -248,6 +248,7 @@ void StyleFlyout(HWND h, bool shadow);     // rounded corners, no light border, 
 void ApplyGlass(HWND h);                   // acrylic backdrop for a window created with transparent = true and without WS_EX_LAYERED
 // ---------- tooltips / menus ----------
 void TipShow(Wnd* w, View* v);
+extern void (*g_onOpenSettings)(int);   // set by the taskbar: another Desk app asked for the settings window (ui_wnd.cpp)
 void TipHide();
 struct MenuItem {
     ws text; wchar_t glyph = 0; std::function<void()> fn; bool sep = false, disabled = false, checked = false;

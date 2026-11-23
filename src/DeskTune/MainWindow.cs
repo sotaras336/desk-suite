@@ -42,7 +42,16 @@ public sealed class MainWindow : Window
         Title = "DeskTune"; Width = App.ForcedSize?.Width ?? Math.Min(980, wa.Width - 24); Height = App.ForcedSize?.Height ?? Math.Min(820, wa.Height - 24);
         MinWidth = Math.Min(520, Width); MinHeight = Math.Min(480, Height); WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "WinBg"); UseLayoutRounding = true; Stylus.SetIsPressAndHoldEnabled(this, false);
-        SourceInitialized += (_, _) => { int dark = Theme.IsLight ? 0 : 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, 4); };
+        SourceInitialized += (_, _) =>
+        {
+            var h = new WindowInteropHelper(this).Handle; int dark = Theme.IsLight ? 0 : 1; DwmSetWindowAttribute(h, 20, ref dark, 4);
+            if (Theme.IsGlass)   // the suite's glass: the blurred wallpaper behind the whole window (as in DeskBar and DeskDrawer), the theme's faint veil painted over it
+            {
+                HwndSource.FromHwnd(h)!.CompositionTarget.BackgroundColor = Colors.Transparent;
+                var m = new MARGINS { L = -1, R = -1, T = -1, B = -1 }; DwmExtendFrameIntoClientArea(h, ref m);
+                int acrylic = 3; DwmSetWindowAttribute(h, 38, ref acrylic, 4);
+            }
+        };
 
         var root = new Grid(); Content = root;
         foreach (var h in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = h });
@@ -92,13 +101,13 @@ public sealed class MainWindow : Window
             newer.MouseLeftButtonUp += async (_, _) => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); };   // the setup that just started replaces this copy and opens the new one
             var opts = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
             TextBlock Link(Action click) { var t = new TextBlock { FontSize = 11.5, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 14, 0) }; t.SetResourceReference(TextBlock.ForegroundProperty, "FgFaint"); t.MouseLeftButtonUp += (_, _) => click(); opts.Children.Add(t); return t; }
-            var check = Link(OpenSettings); var auto = Link(OpenSettings);   // both lead to Settings, where updates and the safety net live now
+            var check = Link(OpenSettings); var colour = Link(() => ColourWindow.Show(this));   // Settings (updates, the safety net) and DeskTune's colour
             void Show()
             {
                 newer.Visibility = Updater.Newer || Updater.Busy && Updater.Status != "Checking…" ? Visibility.Visible : Visibility.Collapsed;
                 newer.Text = Updater.Busy ? Updater.Status : "A new version of DeskTune is available · Update now";
                 check.Inlines.Clear(); check.Inlines.Add(new System.Windows.Documents.Run("") { FontFamily = (FontFamily)FindResource("IconFont") }); check.Inlines.Add(new System.Windows.Documents.Run("  Settings"));   // only the gear in the icon font: it has no letters (they showed as boxes)
-                auto.Visibility = Visibility.Collapsed;
+                colour.Inlines.Clear(); colour.Inlines.Add(new System.Windows.Documents.Run("") { FontFamily = (FontFamily)FindResource("IconFont") }); colour.Inlines.Add(new System.Windows.Documents.Run("  Colour"));
             }
             Updater.Changed += () => Dispatcher.BeginInvoke(Show); Show();
             left.Children.Add(newer); left.Children.Add(opts);
@@ -275,7 +284,7 @@ public sealed class MainWindow : Window
     }
 
     internal SettingsWindow? Settings;
-    internal void OpenSettings() { if (Settings != null) { Settings.Activate(); return; } Settings = new SettingsWindow(this); Settings.Closed += (_, _) => Settings = null; Settings.Show(); }
+    internal void OpenSettings() { if (DeskSettings.Open("desktune")) return; if (Settings != null) { Settings.Activate(); return; } Settings = new SettingsWindow(this); Settings.Closed += (_, _) => Settings = null; Settings.Show(); }
 
     internal void UndoAll()
     {
@@ -343,4 +352,6 @@ public sealed class MainWindow : Window
     [StructLayout(LayoutKind.Sequential)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }
     [DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX m);
     [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
+    [StructLayout(LayoutKind.Sequential)] private struct MARGINS { public int L, R, T, B; }
+    [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(IntPtr h, ref MARGINS m);
 }

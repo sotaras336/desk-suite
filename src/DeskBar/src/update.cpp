@@ -94,6 +94,7 @@ ws UpdateHashFor(const std::string& sums, const ws& file) {   // "hash *name" pe
     return {};
 }
 // On the calling thread: when the newest release holds a different DeskBar than this exe, download and verify it. True = the checked setup is at `path`.
+bool UpdateGet(const ws& url, std::string& out, size_t cap) { return Get(url, out, cap); }
 bool UpdateFetchLatest(ws& path) { ws status; return DoCheck(status) && DoDownload(status, path); }
 bool UpdateNewer() { std::lock_guard<std::mutex> l(g_mu); return g_newer; }
 bool UpdateBusy() { return g_busy; }

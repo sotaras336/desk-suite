@@ -98,7 +98,7 @@ public static class Theme
             bool white = t.Kind == 2;
             if (white && rgb == 0xFFFFFF) r = g = b = 0x1B / 255.0;          // text and highlights: white -> near black
             else if (white && rgb == 0x000000) r = g = b = 1;                // text on accent fills
-            else if (blue && l < 0.5) { r = g = b = white ? 1 - l * 0.3 : l * (t.Kind == 3 ? 0.4 : 0.5); if (t.Kind == 3) al *= 0.55; }   // backgrounds go neutral
+            else if (blue && l < 0.5) { r = g = b = white ? 1 - l * 0.3 : l * (t.Kind == 3 ? 0.3 : 0.5); if (t.Kind == 3) al *= 0.24; }   // backgrounds go neutral; glass: mostly the blurred wallpaper, a faint dark veil (the suite's one glass look, same numbers as DeskBar core.cpp)
             else if (blue && white) FromHsl(h, s, l * 0.72, out r, out g, out b);   // accents need contrast on a light surface
             else if (white && s < 0.1 && l < 0.35) r = g = b = 1 - l;        // dark greys
         }
@@ -168,5 +168,39 @@ public static class Theme
             r["Card"] = Raw(0xFFFFFF, 0x0F); r["CardHover"] = Raw(0xFFFFFF, 0x1C); r["CardLine"] = Raw(0xFFFFFF, 0x16);
             r["Select"] = Raw(0xFFFFFF, 0x20); r["SelectLine"] = Raw(0xFFFFFF, 0x2E);
         }
+    }
+}
+
+/// The Desk suite's colours (4.0), in %LOCALAPPDATA%\Desk: theme.txt is the one theme every app wears; theme-<app>.txt, when present, is an app's
+/// own colour ("Same colour for every app" off, in the Desk settings window, which is DeskBar's). DeskDrawer (always running) follows changes live.
+public static class SharedTheme
+{
+    public const string App = "deskdrawer";
+    public static string Dir => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Desk");
+    public static string File => System.IO.Path.Combine(Dir, "theme.txt");
+    static string Own => System.IO.Path.Combine(Dir, "theme-" + App + ".txt");
+    static string? ReadFile(string f) { try { var t = System.IO.File.ReadAllText(f).Trim(); return t.Length is > 0 and < 200 ? t : null; } catch { return null; } }
+    /// This app's colour: its own if it has one, else the suite's.
+    public static string? Read() => ReadFile(Own) ?? ReadFile(File);
+    /// A colour picked in this app: its own when the apps have separate colours, else the suite's.
+    public static void Write(string id) { try { System.IO.Directory.CreateDirectory(Dir); var f = System.IO.File.Exists(Own) ? Own : File; if (ReadFile(f) != id) System.IO.File.WriteAllText(f, id); } catch { } }
+}
+
+/// One settings window for the Desk suite: DeskBar's. Settings here opens it at this app's page when DeskBar is running (false = it isn't: use our own).
+public static class DeskSettings
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindowW(string cls, string? title);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern uint RegisterWindowMessageW(string name);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out int pid);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
+    /// page: the page's name in DeskBar's settings ("deskdrawer", "desktune", "colours").
+    public static bool Open(string page)
+    {
+        if (Environment.GetEnvironmentVariable("DESK_OWN_SETTINGS") != null) return false;   // tests and pictures of our own window
+        var h = FindWindowW("DB3.Wnd", null); if (h == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(h, out int pid); AllowSetForegroundWindow(pid);
+        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 };
+        return PostMessageW(h, RegisterWindowMessageW("DeskOpenSettings"), (IntPtr)code, IntPtr.Zero);
     }
 }

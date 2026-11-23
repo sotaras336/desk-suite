@@ -433,7 +433,7 @@ void ThemeRepaintLive(QuickPanel* qp, const ws& id) {
     InvalidateAllWnds();
 }
 // The panel closed without Use: everything goes back to the colour that is saved.
-} void ThemePreviewEnd(QuickPanel* qp) { ws cur = ThemeIdNow(); SetTheme(S.theme); if (ThemeIdNow() != cur) ThemeRepaintLive(qp, S.theme); } namespace {
+} void ThemePreviewEnd(QuickPanel* qp) { ws cur = ThemeIdNow(); SetTheme(S.theme); if (ThemeIdNow() != cur) ThemeRepaintLive(qp, S.theme); SetDeskModeTheme(ThemeOf(L"deskmode")); } namespace {   // DeskMode's colour tried on and not used goes back too
 // a bar of every colour a custom theme can take (each spot drawn in the accent that hue gives), with a thumb wearing the picked one
 // the three dots, drawn as circles so they sit exactly in the middle
 struct DotsBtn : View {
@@ -513,18 +513,23 @@ struct LightBar : View {
 // ======================================================= Color
 // Top to bottom: what you get (live), the two sliders with Cancel / Use, ready-made colours, then two shortcuts. Every way of picking ends in the same restart.
 struct ThemePage : PageBase {
-    static void Apply(const ws& id) { S.theme = id; SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); }); }
+    // dm: DeskMode's colour. With "Same colour for every app" on (Settings > Colours), a pick here is every Desk app's colour; off, only this app's.
+    static void Apply(const ws& id, bool dm) {
+        if (dm) { ThemeSet(L"deskmode", id); if (!ThemesSeparate()) S.theme = id; } else { S.theme = id; SharedThemeWrite(id); }
+        SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); });
+    }
     struct St { PadState pad; float fade; bool moved = false; ws base; };
-    ThemePage(QuickPanel* p) : PageBase(p) {
-        PageHeader(this, L"Color", [p] { p->Back(); });
-        auto* sub = MkLabel(this, L"Pick the color of the bar and the panels. DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 12);
-        QuickPanel* qp = q; const ThemeDef& cur = CurrentTheme();
+    ThemePage(QuickPanel* p, bool dm) : PageBase(p) {
+        PageHeader(this, dm ? L"DeskMode colour" : L"Color", [p, dm] { if (dm) p->ShowDetail(MakeDisplayPage(p), true); else p->Back(); });
+        ws what = ThemesSeparate() ? ws(dm ? L"DeskMode's own colour." : L"The bar's and the panels' own colour.") : ws(L"Every Desk app's colour (one colour for all is on in Settings > Colours).");
+        auto* sub = MkLabel(this, what + L" DeskBar restarts for a second to apply it.", FText(12), Col(K::White, K::Dim)); sub->wrap = true; sub->margin = Thick(4, 0, 0, 12);
+        QuickPanel* qp = q; const ThemeDef cur = dm ? DeskModeTheme() : CurrentTheme(); float curGrad = dm ? DeskModeGrad() : ThemeGrad();
         auto st = std::make_shared<St>();
         st->pad.hue = cur.kind != 0 ? 300.f : cur.hue >= 0 ? cur.hue : 205.f;   // the pad sits on the colour in use (Blue is the unshifted original, about 205)
         st->pad.sat = cur.sat * 100; st->pad.t = cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f;
-        st->fade = ThemeGrad() > 0 ? ThemeGrad() : 0.f;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
+        st->fade = curGrad > 0 ? curGrad : 0.f;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
         st->base = cur.kind == 0 && !EqI(cur.id, L"custom") ? ws(cur.id) : ws();   // a ready-made colour keeps its exact look until the colour bar is moved ("blue:40")
-        bool previewing = !EqI(ThemeIdNow(), S.theme);
+        bool previewing = !dm && !EqI(ThemeIdNow(), S.theme);
 
         // 1. the preview: the colour you would get
         auto* pv = MkBox(this, Lay::H); pv->radius = 14; pv->pad = Thick(16, 0); pv->fh = 60; pv->margin = Thick(0, 0, 0, 10);
@@ -548,20 +553,23 @@ struct ThemePage : PageBase {
             ws fade = Fmt(L":%d", (int)lroundf(st->fade)); int sat = (int)lroundf(st->pad.sat), val = (int)lroundf(LightVal(st->pad.t) * 100);
             if (!st->base.empty() && !st->moved) return st->base + fade;
             return Fmt(L"custom:%d", (int)lroundf(st->pad.hue)) + fade + (sat < 100 || val < 100 ? Fmt(L":%d:%d", sat, val) : ws()); };
-        auto paint = [qp, id, show, lite, pad, fadeBox, st] { fadeBox->Show(!LightZone(st->pad.t)); ThemeRepaintLive(qp, id()); show(CurrentTheme()); lite->Invalidate(); pad->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
+        auto paint = [qp, id, show, lite, pad, fadeBox, st, dm] {   // DeskMode: only the preview strip takes the colour (the bar is not DeskMode's)
+            fadeBox->Show(!LightZone(st->pad.t));
+            if (dm) { SetDeskModeTheme(id()); show(DeskModeTheme()); } else { ThemeRepaintLive(qp, id()); show(CurrentTheme()); }
+            lite->Invalidate(); pad->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
         pad->onChange = lite->onChange = [st, paint] { st->moved = true; paint(); };
         bar2->onChange = [st, fv, paint](float h) { st->fade = h * 100.f / 359.f; fv->Set(st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off")); paint(); };
         auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End; row->margin = Thick(0, 4, 0, 0);
         auto pill = [row](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };
         if (previewing) pill(L"Cancel", false, [qp] { SetTheme(S.theme); qp->root->bg = PanelBrush(); qp->ShowDetail(MakeThemePage(qp), true); InvalidateAllWnds(); });
-        pill(L"Use this colour", true, [id] { Apply(id()); });
+        pill(L"Use this colour", true, [id, dm] { Apply(id(), dm); });
 
         // 3. ready-made
         SectionLabel(this, L"Ready-made");
         auto* grid = MkBox(this, Lay::Uniform); grid->cols = 4; grid->gap = 6;
         for (int i = 0; i < kThemeCount; i++) {
-            const ThemeDef& t = kThemes[i]; bool on = &t == &cur; ws tid = t.id;
-            auto* c = ClickCard(grid, [tid] { Apply(tid); }, on);
+            const ThemeDef& t = kThemes[i]; bool on = EqI(t.id, cur.id); ws tid = t.id;   // by name: the theme in use is a copy (core.cpp ParseTheme)
+            auto* c = ClickCard(grid, [tid, dm] { Apply(tid, dm); }, on);
             c->pad = Thick(4, 10); c->margin = Thick(0);
             auto* sw = MkBox(c); sw->fw = sw->fh = 40; sw->radius = 20; sw->ha = Al::Center; sw->bg = LinearB(0, 0, 1, 1, {{0, ColFor(t, K::Bar)}, {1, ColFor(t, K::Accent)}});
             if (on) { auto* g = MkGlyph(sw, 0xE73E, 20, Col(K::White)); g->ha = g->va = Al::Center; }
@@ -572,12 +580,12 @@ struct ThemePage : PageBase {
         auto* sc = MkBox(this, Lay::Uniform); sc->cols = WinAccentAvailable() ? 2 : 1; sc->gap = 6; sc->margin = Thick(0, 10, 0, 0);
         auto chip = [sc](bool on, wchar_t glyph, const wchar_t* t, std::function<void()> fn) { auto* c = ClickCard(sc, std::move(fn), on); c->lay = Lay::H; c->gap = 10; c->pad = Thick(14, 12); c->margin = Thick(0);
             auto* g = MkGlyph(c, glyph, 16); g->va = Al::Center; auto* l = MkLabel(c, t, FText(13)); l->va = Al::Center; };
-        if (WinAccentAvailable()) chip(EqI(cur.id, L"accent"), 0xE771, L"Windows accent", [] { Apply(L"accent"); });
-        chip(false, 0xE790, L"Match my wallpaper", [sub] {   // the theme nearest to the wallpaper's strongest colour
+        if (WinAccentAvailable()) chip(EqI(cur.id, L"accent"), 0xE771, L"Windows accent", [dm] { Apply(L"accent", dm); });
+        chip(false, 0xE790, L"Match my wallpaper", [sub, dm] {   // the theme nearest to the wallpaper's strongest colour
             ws w = WallpaperThemeId();
             if (w.empty()) { sub->Set(L"Your wallpaper has no strong colour to match. Pick one above."); return; }
-            if (EqI(w, CurrentTheme().id)) { sub->Set(L"This colour already matches your wallpaper."); return; }
-            Apply(w); });
+            if (EqI(w, (dm ? DeskModeTheme() : CurrentTheme()).id)) { sub->Set(L"This colour already matches your wallpaper."); return; }
+            Apply(w, dm); });
     }
 };
 
@@ -675,25 +683,32 @@ struct SoundPage : PageBase {
 View* MakeWifiPage(QuickPanel* q) { return new WifiPage(q); }
 View* MakeBtPage(QuickPanel* q) { return new BtPage(q); }
 View* MakeSoundPage(QuickPanel* q) { return new SoundPage(q); }
-View* MakeThemePage(QuickPanel* q) { return new ThemePage(q); }
+View* MakeThemePage(QuickPanel* q, bool deskMode) { return new ThemePage(q, deskMode); }
 
 // ======================================================= Screens and power (what DeskMode did, now here, in DeskMode's own look)
 // DeskMode's panel, piece by piece: the big readout of each screen, the two preset cards, the power-mode strip, and one card per screen with its refresh rates.
 namespace dm {
-// DeskMode's colours: written as DeskMode's blues, then passed through the bar's theme (see Raw)
+static const ThemeDef* g_t = nullptr; static float g_g = -1;   // DeskMode's own theme while a Scope is alive
+Scope::Scope() { g_t = &DeskModeTheme(); g_g = DeskModeGrad(); }
+Scope::~Scope() { g_t = nullptr; }
+static const ThemeDef& T() { return g_t ? *g_t : CurrentTheme(); }
+static float G() { return g_t ? g_g : ThemeGrad(); }
+// DeskMode's colours: written as DeskMode's blues, then passed through the theme (DeskMode's own inside a Scope, else the bar's; see Raw)
 D2D1_COLOR_F Raw(uint32_t rgb, int a) {
     // One rule for every theme: surfaces, overlays and text all go through the bar's theme together, so a light theme gets light panels WITH dark text
     // (White used to keep DeskMode's dark panel while its text turned dark: unreadable). Black and Glass are dark themes with white text, where DeskMode's own
     // dark blues already fit. Only the deep accent (the gradient's two blues) stays as it is on White: it is the colour, not a surface.
-    int k = CurrentTheme().kind; if (k == 0) return Col(rgb, a); if (k != 2) return D2D1::ColorF(rgb, a / 255.f);
+    // Black and Glass: neutral surfaces like the bar's (Desk 4.0: DeskMode used to keep its deep blue there, so in Glass it was the one opaque blue thing)
+    const ThemeDef& t = T(); int k = t.kind; if (k != 2) return ColFor(t, rgb, a);
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f, mx = std::max({r, g, b}), mn = std::min({r, g, b}), l = (mx + mn) / 2;
     float s = mx == mn ? 0 : l > 0.5f ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn);
-    return s > 0.5f && l < 0.5f ? D2D1::ColorF(rgb, a / 255.f) : Col(rgb, a);
+    return s > 0.5f && l < 0.5f ? D2D1::ColorF(rgb, a / 255.f) : ColFor(t, rgb, a);
 }   // DeskMode wears the bar's colour (pink, teal...); Blue and the colourless themes (Black, White, Glass) keep DeskMode's own blue
 Brush Glow() {
-    if (CurrentTheme().soft) return SolidB(K::Accent);
-    float g = ThemeGrad(); auto a = Raw(0x1167C4);
-    return LinearB(0, 0, 1, 1, {{0, a}, {1, g < 0 ? Raw(0x1FA7B9) : g == 0 ? a : ShiftColor(a, -0.5f * g, 0.002f * g)}});
+    const ThemeDef& t = T(); if (t.soft) return SolidC(ColFor(t, K::Accent));
+    auto acc = [&](uint32_t c) { return t.kind == 1 || t.kind == 3 ? D2D1::ColorF(c) : Raw(c); };   // the accent stays a colour in Black and Glass (Raw makes surfaces neutral there)
+    float g = G(); auto a = acc(0x1167C4);
+    return LinearB(0, 0, 1, 1, {{0, a}, {1, g < 0 ? acc(0x1FA7B9) : g == 0 ? a : ShiftColor(a, -0.5f * g, 0.002f * g)}});
 }   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
@@ -730,7 +745,8 @@ struct DisplayPage : PageBase {
             pill(ext0 ? extName + L" connected" : ws(L"No external monitor"), true);
             SYSTEM_POWER_STATUS ps{}; GetSystemPowerStatus(&ps); bool ac = ps.ACLineStatus != 0; int pct = ps.BatteryLifePercent <= 100 ? ps.BatteryLifePercent : -1;
             pill(ws(ac ? L"Plugged in" : L"On battery") + (pct >= 0 ? Fmt(L" \u00B7 %d%%", pct) : ws()), false);
-            auto* gear = IconBtn(h, 0xE713, 32, 15, [p] { p->ShowDetail(MakeDeskModeSettings(p), true); }); gear->bg = Brush{}; gear->va = Al::Start; gear->tip = L"Settings";
+            auto* pal = IconBtn(h, 0xE790, 32, 15, [p] { p->ShowDetail(MakeThemePage(p, true), true); }); pal->bg = Brush{}; pal->va = Al::Start; pal->tip = L"DeskMode colour";
+            auto* gear = IconBtn(h, 0xE713, 32, 15, [] { ClosePanels(); SettingsOpenFromApp(4); }); gear->bg = Brush{}; gear->va = Al::Start; gear->tip = L"Settings";   // the one Desk settings window, at DeskMode
         }
         // what each screen is doing, big
         auto* hero = MkBox(col, Lay::Uniform); hero->cols = std::max<int>(1, (int)scr.size()); hero->gap = 10; hero->margin = Thick(0, 4, 0, 6);
@@ -826,7 +842,7 @@ struct DisplayPage : PageBase {
         }).detach();
     }
 };
-View* MakeDisplayPage(QuickPanel* q) { return new DisplayPage(q); }
+View* MakeDisplayPage(QuickPanel* q) { dm::Scope s; return new DisplayPage(q); }   // in DeskMode's own colour
 
 // Each screen's refresh rates (a tap on a screen in DeskMode's panel)
 struct DeskModeRates : PageBase {
@@ -886,4 +902,4 @@ struct DeskModeSettings : PageBase {
     }
     void Reload() { GUARD UiOnce(0, [this, w_] { IFALIVE q->ShowDetail(MakeDeskModeSettings(q), true); }); }
 };
-View* MakeDeskModeSettings(QuickPanel* q) { return new DeskModeSettings(q); }
+View* MakeDeskModeSettings(QuickPanel* q) { dm::Scope s; return new DeskModeSettings(q); }

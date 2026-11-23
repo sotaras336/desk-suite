@@ -93,7 +93,7 @@ struct StartPanel : Flyout {
         auto* sp = MkBox(row); sp->star = 1;
         auto* right = MkBox(row, Lay::H); right->gap = 8; right->va = Al::Center;
         IconBtn(right, 0xEC50, 40, 15, [this] { Launch(L"explorer.exe"); Close(); })->tip = L"File Explorer";
-        IconBtn(right, 0xE713, 40, 15, [this] { Launch(L"ms-settings:"); Close(); })->tip = L"Settings";
+        IconBtn(right, 0xE713, 40, 15, [this] { Close(); SettingsOpenFromApp(0); })->tip = L"Settings";   // the one Desk settings window
         auto* pw = IconBtn(right, 0xE7E8, 40, 15, {}); pw->tip = L"Power";
         pw->onClick = [this, pw] {
             std::vector<MenuItem> m{{L"Lock", 0xE72E, [] { Launch(L"rundll32.exe", L"user32.dll,LockWorkStation"); }}, {L"Sleep", 0xE708, [] { Launch(L"rundll32.exe", L"powrprof.dll,SetSuspendState 0,1,0"); }}};

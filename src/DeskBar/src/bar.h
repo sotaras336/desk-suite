@@ -6,7 +6,7 @@ struct Entry {                           // one task button's worth of data
 };
 
 struct TaskBtn : View {
-    Entry e; bool active = false, flashing = false, dragging = false, wasP = false; float indW = 0, iconScale = 1, dragFrom = 0; int pinIndex = -1;
+    Entry e; bool active = false, flashing = false, dragging = false, wasP = false; int wasBig = 0; float indW = 0, iconScale = 1, dragFrom = 0; int pinIndex = -1;
     UINT_PTR hoverTimer = 0; uint64_t launchedAt = 0;
     TaskBtn();
     ~TaskBtn() override;

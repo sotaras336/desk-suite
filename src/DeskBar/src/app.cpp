@@ -38,6 +38,7 @@ static void AppTick() {
     if (!g_dev) Explorer::KeepHidden();
     BarsTick(); CheckReady();
     if (!g_dev && n == 120) TrimMemoryIfIdle();   // once, 30 s after start: the pages only start-up touched. Not again: under memory pressure a trimmed page comes back from disk, and the next Start would stutter
+    if (n % 8 == 4) SharedThemeTick();   // another Desk app picked the suite's theme (every 2 s)
     if (n % 2400 == 1200) if (size_t f = IconTrim(400)) Log(L"icons: let go of %zu KB of icons nobody looked at in 10 min", f / 1024);   // every 10 min (250 ms ticks)
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
@@ -45,7 +46,15 @@ static void AppTick() {
     if (!g_dev) { WinMoveTick(n); StartSafetyNet(); if (n % 12 == 0) BarsWorkAreaUpkeep(); if (n % 8 == 0) DeskModeTick(); }
 }
 
-static bool g_openSettings = false; void SettingsSnapshot(const ws& file);
+static bool g_openSettings = false; void SettingsSnapshot(const ws& file); void SettingsShowPage(const ws& name);
+// shortcut: the 2026-11-23 test builds' liquid animation switched Windows' own minimise animation off for the session (not saved); this puts back
+// the saved value at start, so it doesn't stay off until sign-out. Delete once no such build can still be running.
+static void RestoreMinAnimate() {
+    wchar_t v[8] = L""; DWORD n = sizeof v; ANIMATIONINFO ai{sizeof ai};
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop\\WindowMetrics", L"MinAnimate", RRF_RT_REG_SZ, nullptr, v, &n) != ERROR_SUCCESS || !SystemParametersInfoW(SPI_GETANIMATION, sizeof ai, &ai, 0)) return;
+    int want = _wtoi(v); if (ai.iMinAnimate == want) return;
+    ai.iMinAnimate = want; SystemParametersInfoW(SPI_SETANIMATION, sizeof ai, &ai, 0); Log(L"minimise animation put back to the saved %d", want);
+}
 int RunTaskbar(bool real) {
     g_dev = !real; g_start = Now();
     HANDLE mtx = CreateMutexW(nullptr, FALSE, real ? N_INSTANCE : N_INSTANCE L".Dev");
@@ -63,7 +72,7 @@ int RunTaskbar(bool real) {
     // everything below is deferred: the bar is what you are waiting for
     UiOnce(100, [real] {
         SysStart(); MirrorStart();
-        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); DeskModeHotkeysStart(); GesturesStart(); }
+        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); RestoreMinAnimate(); DeskModeHotkeysStart(); UiOnce(1500, [] { SettingsReopenCheck(); }); g_onOpenSettings = SettingsOpenFromApp; GesturesStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
         if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own
@@ -81,10 +90,10 @@ int RunTaskbar(bool real) {
         if (AllBars().empty()) return; TogglePanel(g_openPanel, AllBars()[0]);
         if (g_openPanel == Panel::Quick && !g_page.empty()) UiOnce(400, [] {
             auto* q = (QuickPanel*)Panel_(Panel::Quick);
-            q->ShowDetail(g_page == L"wifi" ? MakeWifiPage(q) : g_page == L"bt" ? MakeBtPage(q) : g_page == L"theme" ? MakeThemePage(q) : g_page == L"display" ? MakeDisplayPage(q) : g_page == L"dmsettings" ? MakeDeskModeSettings(q) : MakeSoundPage(q), g_page == L"display" || g_page == L"dmsettings");
+            q->ShowDetail(g_page == L"wifi" ? MakeWifiPage(q) : g_page == L"bt" ? MakeBtPage(q) : g_page == L"theme" ? MakeThemePage(q) : g_page == L"dmtheme" ? MakeThemePage(q, true) : g_page == L"display" ? MakeDisplayPage(q) : g_page == L"dmsettings" ? MakeDeskModeSettings(q) : MakeSoundPage(q), g_page == L"display" || g_page == L"dmsettings");
         });
     });
-    if (g_openSettings) UiOnce(1200, [] { OpenSettingsWindow(); });
+    if (g_openSettings) UiOnce(1200, [] { OpenSettingsWindow(); if (!g_page.empty()) SettingsShowPage(g_page); });   // dev: --open settings --page colours|drawer|tune|apps
     if (g_snapMs) UiOnce(g_snapMs, [] {
         if (g_openSettings) SettingsSnapshot(g_snapDir + L"\\snap_settings.png");
         int i = 0; for (auto* b : AllBars()) b->Snapshot(g_snapDir + Fmt(L"\\snap_bar%d.png", i++));

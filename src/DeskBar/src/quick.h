@@ -21,7 +21,7 @@ View* MakeWifiPage(QuickPanel* q);
 extern ws g_wifiPreview;                              // dev: --wifipreview connecting|done|failed opens the Wi-Fi page already showing that card
 View* MakeBtPage(QuickPanel* q);
 View* MakeSoundPage(QuickPanel* q);
-View* MakeThemePage(QuickPanel* q);
+View* MakeThemePage(QuickPanel* q, bool deskMode = false);   // deskMode: DeskMode's own colour
 View* MakeDisplayPage(QuickPanel* q);
 View* MakeDeskModeSettings(QuickPanel* q);
 View* MakeDeskModeRates(QuickPanel* q);

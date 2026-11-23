@@ -69,6 +69,7 @@ struct Settings {
     int dmMaxLaptopHz = 0, dmMaxMonitorHz = 0, dmMaxMode = 2, dmEasyHz = 60, dmEasyMode = 0;   // 0 Hz = the highest the screen offers; modes 0 recommended, 1 better, 2 best
     bool dmMaxSaverOff = true, dmEasySaverOn = true;
     bool showMedia = true, showBatteryPercent = true;
+    bool hoverMagnify = false;   // optional, off by default: app icons grow under the mouse with a liquid bounce
     std::vector<ws> mirrorDevices;
     std::vector<ws> quickFolders; bool foldersInit = false;
     std::vector<ws> startPins; bool startPinsInit = false, startPinsImported = false;   // imported: this PC's own Start pins were read once
@@ -94,9 +95,11 @@ extern const ThemeDef kThemes[]; extern const int kThemeCount;
 const ThemeDef& CurrentTheme();
 D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl);
 ws ThemeIdNow();
+ws SharedThemeRead(); void SharedThemeWrite(const ws& id);   // Desk 4.0: the suite's one theme, %LOCALAPPDATA%\Desk\theme.txt (deskapps.cpp)
 float ThemeGrad();                                  // >= 0: the custom colour's second hue (gradient), -1 = none
 inline bool ThemeIsGlass(const ThemeDef& t) { return t.kind == 3; }
-void SetTheme(const ws& id);                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
+void SetTheme(const ws& id);
+void SetDeskModeTheme(const ws& id); const ThemeDef& DeskModeTheme(); float DeskModeGrad();   // DeskMode's own colour (Desk settings > Colours), else the bar's                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a = 255);   // for swatches that show a theme other than the current one
 D2D1_COLOR_F Col(uint32_t rgb, int a = 255);   // 0xRRGGBB, alpha 0..255; mapped through the current theme
 bool DuoTone(uint32_t rgb);                     // true: the colour is a light accent, filled as a two-tone gradient (SolidB does it)

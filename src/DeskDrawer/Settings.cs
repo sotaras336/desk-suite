@@ -32,6 +32,26 @@ public sealed class Settings
 
     private static Settings? _loaded;
 
+    /// "Key=value" from the Desk settings window while DeskDrawer isn't running: written to the file, plus what each switch does outside it.
+    public static void ApplyOffline(IEnumerable<string> kvs)
+    {
+        var s = Load();
+        foreach (var kv in kvs)
+        {
+            int eq = kv.IndexOf('='); if (eq < 0) continue; string k = kv[..eq], v = kv[(eq + 1)..]; bool on = v == "1";
+            switch (k)
+            {
+                case "Default": try { DefaultApp.Set(on, Environment.ProcessPath!); } catch { } break;
+                case "TakeOverDialogs": s.TakeOverDialogs = on; break;
+                case "ShowHidden": s.ShowHidden = on; break;
+                case "KeepReady": s.KeepReady = on; Setup.StartAtSignIn(on); break;
+                case "ScrollSpeed": if (double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sp)) s.ScrollSpeed = sp; break;
+                case "Gpu": s.Gpu = on; break;
+            }
+        }
+        s.Save();
+    }
+
     /// Read once per process: App and the window share it.
     public static Settings Load() => _loaded ??= Read();
 

@@ -214,3 +214,13 @@ bool PinMatchesWindow(const PinInfo& p, const WinInfo& w);
 ws WinGroupKey(const WinInfo& w);        // key for unpinned grouping
 ws WinGroupName(const WinInfo& w);
 ws WinIconKey(const WinInfo& w);
+
+// deskapps.cpp: Desk 4.0, the suite in one place (one theme file for all three apps, Settings > Desk apps installs and updates the others)
+void SharedThemeTick();   // SharedThemeRead/Write: core.h
+bool UpdateGet(const ws& url, std::string& out, size_t cap); ws UpdateHashFor(const std::string& sums, const ws& file); ws Sha256HexOf(const std::string& d);
+void DeskAppsCheck(); void DeskAppInstall(const ws& name); ws DeskAppExe(const ws& name); ws DeskAppState(const ws& name);
+int DeskAppCount(); ws DeskAppName(int i); ws DeskAppWhat(int i); wchar_t DeskAppGlyph(int i);
+void DeskAppsChanged();   // settingswin.cpp: redraw the Desk apps page
+bool ThemesSeparate(); ws ThemeOf(const ws& app); void ThemeSet(const ws& app, const ws& id); void ThemesSetSeparate(bool on);   // deskapps.cpp: Settings > Colours
+Json DeskDrawerSettings(); bool DeskDrawerIsDefault(); void DeskDrawerSet(const ws& key, const ws& value);
+void SettingsReopenAfterRestart(); void SettingsReopenCheck(); void SettingsOpenFromApp(int code);   // settingswin.cpp

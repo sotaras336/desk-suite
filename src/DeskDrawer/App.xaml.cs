@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 
 namespace DeskDrawer;
@@ -54,10 +55,16 @@ public partial class App : Application
         for (int i = 0; i + 1 < e.Args.Length; i++) if (e.Args[i] == "--dialogtest") { Shutdown(SelfTest.DialogTest(e.Args[i + 1])); return; } else if (e.Args[i] == "--pickshot") { Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.PickShot(e.Args[i + 1])); return; } else if (e.Args[i] == "--settingsshot") { App.SnapshotFile = e.Args[i + 1]; Theme.Load(ForcedTheme ?? Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.SettingsShot(e.Args[i + 1])); return; } else if (e.Args[i] == "--picktest") { Theme.Load(Settings.Load().Theme); Theme.Apply(); Shutdown(SelfTest.PickTest(e.Args[i + 1])); return; }
         for (int i = 0; i + 1 < e.Args.Length; i++) if (e.Args[i] == "--makeicon") { IconMaker.Make(e.Args[i + 1]); Shutdown(0); return; }
         if (e.Args.Contains("--shortcuts")) { Shortcuts.Make(); Shutdown(0); return; }
+        if (e.Args.Length >= 2 && e.Args[0] == "--set")   // from the Desk settings window (DeskBar)
+        {
+            var sets = e.Args.Skip(1).Select(a => "--set " + a).ToList();
+            if (!Instance.HandOff(sets)) Settings.ApplyOffline(e.Args.Skip(1));
+            Shutdown(0); return;
+        }
         var st = Settings.Load();
         if (Background && !st.KeepReady) { Shutdown(0); return; }
         if (!st.Gpu) System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;   // measured: 200 MB with the GPU, 115 MB without
-        Theme.Load(ForcedTheme ?? st.Theme);
+        Theme.Load(ForcedTheme ?? SharedTheme.Read() ?? st.Theme);   // the suite's one theme first (DeskBar may have changed it)
         Theme.Apply();
         if (SnapshotFile == null) try { DefaultApp.MigrateFromDexplorer(Environment.ProcessPath!); } catch { }
         if (!st.ShortcutsMade && SnapshotFile == null) { Shortcuts.Make(); st.ShortcutsMade = true; st.Save(); }   // first run: a Start Menu and a Desktop entry, so it is one click away
@@ -65,6 +72,7 @@ public partial class App : Application
         if (!test && !newWindow && !Background && Instance.HandOff(StartPaths)) { Shutdown(0); return; }   // already open: the folder becomes a tab there
         Resident = !test && !newWindow;
         SessionEnding += (_, _) => Quitting = true;
+        if (Resident && ForcedTheme == null) WatchSharedTheme();
         if (UiTest == null) CrashNet("DeskDrawer");   // a test run must still fail loudly
         var w = new MainWindow(); w.Show();
         if (Bounds != null) { void Placed(object? s, EventArgs a) { w.ContentRendered -= Placed; w.PlaceAt(Bounds); } w.ContentRendered += Placed; w.PlaceAt(Bounds); }   // again once drawn: the window restores its remembered size while loading
@@ -72,5 +80,24 @@ public partial class App : Application
         if (!test) { if (Resident) Instance.Listen(w.OpenFromOutside);   /* only the resident copy takes folder hand-offs: a --new-window copy used to grab them when the resident was not running, then crashed once its window was closed */ if (Resident) { DialogSwitch.TakeOver = st.TakeOverDialogs; DialogSwitch.Start(w.FoldersToOffer); } }   /* only the resident copy watches Save / Open dialogs: a --new-window or test copy put its own DeskDrawer folders button under them too */
         if (Resident) Setup.StartAtSignIn(st.KeepReady);   // points at whichever copy is running
         if (!test || Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null) Updater.Start();   // a snapshot run never asks GitHub
+    }
+
+    private static FileSystemWatcher? _themeWatch;
+    /// DeskBar (or another DeskDrawer window) picked a new theme for the suite: switch every window live.
+    private void WatchSharedTheme()
+    {
+        try
+        {
+            var dir = System.IO.Path.GetDirectoryName(SharedTheme.File)!; Directory.CreateDirectory(dir);
+            _themeWatch = new FileSystemWatcher(dir, "theme*.txt") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size, EnableRaisingEvents = true };
+            void Changed() => Dispatcher.BeginInvoke(async () =>
+            {
+                await Task.Delay(150);   // the writer may still hold the file
+                if (SharedTheme.Read() is not { } id || id == Theme.FullId) return;
+                Theme.Load(id); Theme.Apply(); foreach (var w in Windows.OfType<MainWindow>()) w.ThemeChangedElsewhere(id);
+            });
+            _themeWatch.Changed += (_, _) => Changed(); _themeWatch.Created += (_, _) => Changed(); _themeWatch.Renamed += (_, _) => Changed(); _themeWatch.Deleted += (_, _) => Changed();   // "Same colour for every app" back on removes the per-app files
+        }
+        catch { }
     }
 }

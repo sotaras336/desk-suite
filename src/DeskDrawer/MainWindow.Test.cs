@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace DeskDrawer;
 
@@ -60,6 +61,21 @@ public partial class MainWindow
                 Address.Text = root + "\\alpha"; Address_KeyDown(Address, new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent }); await Task.Delay(1200);
                 Check("Enter goes to the typed folder", string.Equals(_tab.Current, Path.Combine(root, "alpha"), StringComparison.OrdinalIgnoreCase), _tab.Current ?? "");
                 Navigate(root); await Task.Delay(1200); va = Find(a);   // back in the folder: the entries are new objects now
+            }
+            if (Want("look"))   // Space: a big look at the file (QuickLook.cs): text as text, a picture as a picture, arrows step, Space closes
+            {
+                string t = Path.Combine(root, "look-a.txt"), p = Path.Combine(root, "look-b.png"); File.WriteAllText(t, "hello quick look");
+                var rtb = new RenderTargetBitmap(64, 48, 96, 96, PixelFormats.Pbgra32); var dv = new DrawingVisual(); using (var dc = dv.RenderOpen()) dc.DrawRectangle(Brushes.OrangeRed, null, new Rect(0, 0, 64, 48)); rtb.Render(dv);
+                using (var fs = File.Create(p)) { var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(rtb)); enc.Save(fs); }
+                await Task.Delay(1500);   // the folder watcher merges the new files in (a reload would replace the rows the later tests hold)
+                if (Find(t) is { } et) {
+                    SelectOnly(et); QuickLook.Toggle(this, et, StepSelection, _ => { }); await Task.Delay(800);
+                    Check("Space opens a quick look of the text file, as text", QuickLook.IsOpen && QuickLook.ShownText == "hello quick look", $"({QuickLook.ShownText})");
+                    QuickLook.Press(Key.Right); await Task.Delay(1500);
+                    Check("the right arrow steps to the next file, a picture shown as a picture", QuickLook.ShownName == "look-b.png" && QuickLook.ShowsPicture, $"({QuickLook.ShownName}, picture {QuickLook.ShowsPicture})");
+                    Check("the list's selection followed the arrow", Sel() is { Count: 1 } s1 && s1[0].Name == "look-b.png");
+                    QuickLook.Press(Key.Space); await Task.Delay(300); Check("Space closes it again", !QuickLook.IsOpen);
+                } else Check("quick-look test files listed", false);
             }
             if (va != null && Want("edit"))
             {

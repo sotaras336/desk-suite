@@ -26,6 +26,12 @@ int RunSelfTest(const ws& outFile) {
         { ws d; bool ok = FileIndexSelfTest(d); check(L"file index rebuilds full paths", ok, d); }
         { ws d; bool ok = FileIndexScanSelfTest(d); check(L"file index saves a scan (the crash)", ok, d); }
         { ws d; bool ok = IconTrimSelfTest(d); check(L"icons: unused icons are let go, held ones stay", ok, d); }
+        {   // search that learns: what you pick for a query rises for that query (and longer ones that start the same), and nothing else moves
+            HabitRecord(L"dxtest qq", RKind::File, L"C:\\dxtest\\picked.txt"); HabitRecord(L"dxtest qq", RKind::File, L"C:\\dxtest\\picked.txt");
+            double same = HabitBoost(L"dxtest qq", RKind::File, L"C:\\dxtest\\picked.txt"), longer = HabitBoost(L"dxtest qqx", RKind::File, L"C:\\dxtest\\picked.txt");
+            double other = HabitBoost(L"dxtest qq", RKind::File, L"C:\\dxtest\\other.txt"), unrelated = HabitBoost(L"zzz", RKind::File, L"C:\\dxtest\\picked.txt");
+            check(L"search learns: a result picked twice rises for that search", same >= 45 && longer > 0 && longer < same && other == 0 && unrelated == 0, Fmt(L"same %.0f longer %.0f other %.0f unrelated %.0f", same, longer, other, unrelated));
+        }
         { ws d; bool ok = WinMoveSelfTest(d); check(L"windows: maximized-size and hidden-under-bar rules", ok, d); }
         { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
         if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)

@@ -55,6 +55,7 @@ public partial class MainWindow
     /// Folders sent by a later launch (double-click on the desktop, Win+E...): each becomes a tab here, and the window comes to the front.
     public void OpenFromOutside(List<string> paths)
     {
+        if (paths.Count > 0 && paths[0].StartsWith("--set ")) { foreach (var p in paths) if (p.StartsWith("--set ")) ApplySetting(p[6..]); return; }   // the Desk settings window (DeskBar) changed a DeskDrawer setting
         if (paths is ["--quit"]) { App.Quitting = true; Close(); Application.Current.Shutdown(); return; }   // Shutdown too: a hidden helper window (the dialog button, the picker) would keep the process, and the exe locked, after Close()   // Setup is replacing or removing this copy
         if (App.Background) EndWarmUp();   // asked for before the sign-in warm-up finished
         if (!IsVisible) Wake(paths);   // waking from the background: the folders asked for, or the last session

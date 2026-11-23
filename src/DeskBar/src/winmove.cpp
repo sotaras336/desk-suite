@@ -49,6 +49,7 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
 bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.top <= work.top + 8 && (work.bottom - r.bottom > 8 || work.right - r.right > 8) && r.bottom <= work.bottom && r.right <= work.right + 8; }
 std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
 bool GuardSaysTouch(bool sig, bool suppressed, bool device, bool away) { return sig || suppressed || device || away; }
+std::map<HWND, HWND> g_guards;   // bar window -> its guard strip
 std::atomic<uint64_t> g_guardTouch{0};   // last time Windows asked the strip about a finger (WM_TOUCHHITTESTING) and it claimed it
 struct GuardHit { uint64_t at = 0; bool sig = false, supp = false, dev = false, away = false; int type = 0; POINT p{}, c{}; } g_lastGuard;   // the strip's last decision, for the log when a touch still got through
 void CALLBACK OnLocation(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
@@ -91,6 +92,15 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
             // a maximized window that draws its own frame (Chrome) restores itself as the drag starts: Esc alone left it restored, so put it back at the drag's end
             if (IsZoomed(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp; }
             { DWORD wp = 0; GetWindowThreadProcessId(h, &wp); Log(L"edge drag on the bar cancelled, tap passed to the bar: %s in %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), FileNameOf(ExePathOfPid(wp)).c_str(), (int)IsZoomed(h), (int)fills, (int)touch); }   // the app's name: Chrome_WidgetWin_1 is every Chromium/Electron app
+            {   // what Windows sees under the finger right now: which window is on top there, is the guard up and above the app, and what the app itself calls that spot
+                HWND top = WindowFromPoint(p); DWORD_PTR ht = 0; SendMessageTimeoutW(h, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y), SMTO_ABORTIFHUNG, 100, &ht);
+                HWND gd = nullptr; RECT gr{}; for (auto& kv : g_guards) if (kv.second) { gd = kv.second; GetWindowRect(gd, &gr); break; }
+                bool above = false; for (HWND w = gd; w; w = GetWindow(w, GW_HWNDNEXT)) if (w == h) { above = true; break; }
+                RECT hr; GetWindowRect(h, &hr);
+                Log(L"  under the finger: top window %s; the app calls the spot %d (15 = bottom border, 1 = inside); guard %s at %d,%d,%d,%d, %s the app; app window %d,%d,%d,%d, topmost %d",
+                    top ? ClassOf(top).c_str() : L"none", (int)ht, gd ? (IsWindowVisible(gd) ? L"visible" : L"HIDDEN") : L"MISSING", (int)gr.left, (int)gr.top, (int)gr.right, (int)gr.bottom, above ? L"above" : L"BELOW",
+                    (int)hr.left, (int)hr.top, (int)hr.right, (int)hr.bottom, (int)((GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0));
+            }
             { auto& g = g_lastGuard; Log(L"  the guard strip let it through? last finger it claimed %llu ms ago; its last hit test %llu ms ago at %d,%d (cursor %d,%d): sig %d suppressed %d device %d(type %d) away %d", GetTickCount64() - g_guardTouch.load(), GetTickCount64() - g.at, (int)g.p.x, (int)g.p.y, (int)g.c.x, (int)g.c.y, (int)g.sig, (int)g.supp, (int)g.dev, g.type, (int)g.away); }
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
@@ -302,7 +312,6 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(h, m, w, l);
 }
-std::map<HWND, HWND> g_guards;   // bar window -> its guard strip
 void GuardsUpdate() {
     static bool reg = false; if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = GuardProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.Guard"; RegisterClassW(&wc); reg = true; }
     std::set<HWND> live;

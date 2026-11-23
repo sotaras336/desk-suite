@@ -31,6 +31,7 @@ float EaseF(Ease e, float t) {
     case Ease::QuintOut: return 1 - powf(1 - t, 5);
     case Ease::CubicIn: return t * t * t;
     case Ease::SineInOut: return -(cosf(3.14159265f * t) - 1) / 2;
+    case Ease::Spring: return t >= 1 ? 1 : 1 - expf(-7 * t) * (cosf(6 * t) + 7.f / 6 * sinf(6 * t));   // damped: a ~3% overshoot that settles, no wobble
     }
     return t;
 }

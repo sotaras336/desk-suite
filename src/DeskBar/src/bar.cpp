@@ -53,6 +53,7 @@ TaskBtn::TaskBtn() {
     onMiddle = [this] { Launch_(); };
     onRight = [this] { Menu(); }; onLong = [this] { Menu(); };
     onHover = [this](bool in) {
+        if (S.hoverMagnify) for (auto* b : ((Bar*)wnd)->btns) b->Invalidate();   // the neighbours ease in and out with it
         if (hoverTimer) { UiKillTimer(hoverTimer); hoverTimer = 0; }
         if (in) {
             if (wnd && wnd->touchLast) return;
@@ -73,7 +74,15 @@ void TaskBtn::Update(const Entry& n, HWND fg) {
     Invalidate();
 }
 void TaskBtn::PaintContent(Gfx& g) {
-    if (wasP != pressed) { wasP = pressed; Anim(this, &iconScale, pressed ? 0.84f : 1.f, pressed ? 80 : 140); }
+    // hover magnify (setting, mouse only: a tap must not leave an icon swollen): the icon swells with a spring, the button itself keeps its size so nothing moves under the pointer
+    int big = 0;   // 2 = under the mouse, 1 = next to it (the dock-style wave)
+    if (S.hoverMagnify && !wnd->touchLast) {
+        if (hovered) big = 2;
+        else { auto& bs = ((Bar*)wnd)->btns; auto it = std::find(bs.begin(), bs.end(), this);
+               if (it != bs.end() && ((it != bs.begin() && (*(it - 1))->hovered) || (it + 1 != bs.end() && (*(it + 1))->hovered))) big = 1; }
+    }
+    // a press dips the icon to 90% of the size it has (it used to drop a magnified icon from 1.4 straight to 0.84 and bounce it back: the snap after a click)
+    if (wasP != pressed || wasBig != big) { wasP = pressed; wasBig = big; float base = big == 2 ? 1.4f : big == 1 ? 1.14f : 1.f; Anim(this, &iconScale, pressed ? base * (S.hoverMagnify ? 0.9f : 0.84f) : base, pressed ? 90 : big ? 320 : 240, pressed ? Ease::CubicOut : Ease::Spring); }
     float cx = rc.cx(), cy = rc.cy(); bool multi = e.wins.size() > 1;
     if (flashing) g.FillC(rc, Col(K::Flash, 0x55), 4);
     // Windows' own look, measured from its taskbar (two screenshots): ONE soft plate 35.5 x 39 behind the icon when the button is hovered, pressed or (with several windows)
@@ -84,12 +93,12 @@ void TaskBtn::PaintContent(Gfx& g) {
         Rf second = Rf::XYWH(cx - 15.f, cy - 19.f, 35.5f, 38.f);
         g.PushClip(Rf::XYWH(cx + 17.5f, cy - 21.f, 4.f, 42.f)); g.FillC(second, fill, 5); g.Stroke(second, edge, 5, 1); g.PopClip();
     }
-    if (hovered || pressed || (multi && active)) {
+    if (pressed || (multi && active) || (hovered && !S.hoverMagnify)) {   // a magnified icon stands on its own, as in a dock
         Rf plate = Rf::XYWH(multi ? cx - 20.f : cx - 17.75f, cy - 19.5f, 35.5f, 39.f);
         g.FillC(plate, pressed ? Col(K::White, 0x09) : fill, 5); g.Stroke(plate, edge, 5, 1);
     }
-    float isz = 24 * iconScale; Rf ir = Rf::XYWH(cx - isz / 2, cy - isz / 2, isz, isz);
-    ImgP im = IconGet(e.iconKey, (int)lroundf(24 * g.scale));
+    float isz = 24 * iconScale; cy -= std::max(0.f, iconScale - 1) * 14; Rf ir = Rf::XYWH(cx - isz / 2, cy - isz / 2, isz, isz);   // a magnified icon also rises out of the bar
+    ImgP im = IconGet(e.iconKey, (int)lroundf((S.hoverMagnify ? 32 : 24) * g.scale));   // magnified icons are drawn from the bigger image, not stretched
     if (im) g.Image(*im, ir);
     else { g.Circle(cx, cy, 13 * iconScale, Col(K::White, 0x40)); ws l = e.name.empty() ? L"?" : ws(1, towupper(e.name[0])); g.Text(l, Rf::XYWH(cx - 13, cy - 13, 26, 26), FText(13), Col(K::White), TA::Center); }
     if (indW > 0.1f) {
@@ -194,6 +203,7 @@ bool Bar::Init() {
     if (!Create(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, WS_POPUP, mon.left + 10, g_dev ? mon.top + 10 : mon.bottom - 60, 100, 40)) return false;
     if (transparent) ApplyGlass(hwnd);
     View* r = root; r->bg = FadeB(K::Bar); r->lay = Lay::Overlay; r->hit = true;
+    if (transparent) { auto* line = MkBox(r); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, 0x1E); }   // glass: a faint light edge along the top, as on Start
     r->onRight = [this] {
         std::vector<MenuItem> m;
         if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});

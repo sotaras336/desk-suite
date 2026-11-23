@@ -432,6 +432,7 @@ public partial class MainWindow : Window
         else if (ctrl && key == Key.V) Paste(PasteTarget());
         else if (key == Key.Delete) DeleteSelection(shift);
         else if (key == Key.F2) RenameSelection();
+        else if (key == Key.Space && !ctrl && !alt && !shift && Sel() is { Count: 1 } one) QuickLook.Toggle(this, one[0], StepSelection, OpenFile);   // a big look without opening it
         else if (ctrl && shift && key == Key.N) NewItem(folder: true);
         else if (alt && key == Key.Enter) ShowProperties();
         else done = false;
@@ -499,8 +500,10 @@ public partial class MainWindow : Window
 
     private void SetTheme(string id)
     {
-        Theme.Load(id); Theme.Apply(); ApplyChrome(); _settings.Theme = id; _settings.Save();
+        Theme.Load(id); Theme.Apply(); ApplyChrome(); _settings.Theme = id; _settings.Save(); SharedTheme.Write(Theme.FullId);   // the whole suite follows
     }
+    /// The suite's theme was changed in another Desk app: wear it too (Theme.Apply already ran for all windows).
+    internal void ThemeChangedElsewhere(string id) { ApplyChrome(); _settings.Theme = id; _settings.Save(); }
 
     // ---------- view modes and zoom ----------
 
@@ -1001,6 +1004,11 @@ public partial class MainWindow : Window
     }
 
     private List<FileEntry> Sel() => List.SelectedItems.Cast<FileEntry>().ToList();
+    private FileEntry? StepSelection(int n)   // quick look's arrows: the next or previous item becomes the selection
+    {
+        int i = List.SelectedIndex + n; if (i < 0 || i >= List.Items.Count) return null;
+        List.SelectedIndex = i; var e = List.Items[i] as FileEntry; if (e != null) List.ScrollIntoView(e); return e;
+    }
 
     private static DependencyObject? AsVisual(DependencyObject? d) { while (d != null && d is not Visual && d is not System.Windows.Media.Media3D.Visual3D) d = LogicalTreeHelper.GetParent(d); return d; }
 

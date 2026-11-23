@@ -250,6 +250,7 @@ static void ApplySettings(const Json& j) {
     S.snapOnRelease = BoolOf(j.Find(L"SnapOnRelease"), true); S.keepSizeRatio = BoolOf(j.Find(L"KeepSizeRatio"), true);
     S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.popupsFollowOwner = BoolOf(j.Find(L"PopupsFollowOwner"), true); S.dmAutoMax = BoolOf(j.Find(L"DmAutoMax"), true); S.dmRestore = BoolOf(j.Find(L"DmRestore"), true); S.dmGameLock = BoolOf(j.Find(L"DmGameLock"), true); S.dmButton = BoolOf(j.Find(L"DmButton"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
     S.showBatteryPercent = BoolOf(j.Find(L"ShowBatteryPercent"), true);
+    S.hoverMagnify = BoolOf(j.Find(L"HoverMagnify"), false);
     S.widgets = StrList(j.Find(L"Widgets"));
     S.updateCheck = BoolOf(j.Find(L"UpdateCheck"), true); S.bugReports = BoolOf(j.Find(L"BugReports"), false); if (auto p = j.Find(L"BtLagMs")) if (p->t == Json::Num) S.btLagMs = std::clamp((int)p->n, 0, 500); if (auto p = j.Find(L"UpdateLast")) if (p->t == Json::Num) S.updateLast = p->n;
     if (auto p = j.Find(L"UpdateKnown")) if (p->t == Json::Str) S.updateKnown = p->s;
@@ -259,6 +260,7 @@ static void ApplySettings(const Json& j) {
     S.pinnedRecents = StrList(j.Find(L"PinnedRecents")); S.hiddenRecents = StrList(j.Find(L"HiddenRecents"));
     S.promotedTrayIcons = StrList(j.Find(L"PromotedTrayIcons")); S.trayImported = BoolOf(j.Find(L"TrayImported"), false);
     if (auto t = j.Find(L"Theme")) if (t->t == Json::Str) S.theme = t->s;
+    if (ws shared = SharedThemeRead(); !shared.empty()) S.theme = shared;   // Desk 4.0: one theme for the suite (deskapps.cpp)
     SetTheme(S.theme);
     S.launchCounts.clear();
     if (auto lc = j.Find(L"LaunchCounts")) if (lc->t == Json::Obj) for (auto& p : lc->o) S.launchCounts[p.first] = (int)p.second.n;
@@ -278,6 +280,7 @@ void SaveSettingsNow() {
     j.Set(L"WinKeyOpensStart", Json::B(S.winKeyOpensStart)); j.Set(L"MouseBridge", Json::B(S.mouseBridge)); j.Set(L"EdgeResistance", Json::N(S.edgeResistance));
     j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows)); j.Set(L"DmAutoMax", Json::B(S.dmAutoMax)); j.Set(L"DmRestore", Json::B(S.dmRestore)); j.Set(L"DmGameLock", Json::B(S.dmGameLock)); j.Set(L"DmButton", Json::B(S.dmButton)); j.Set(L"DmMaxLaptopHz", Json::N(S.dmMaxLaptopHz)); j.Set(L"DmMaxMonitorHz", Json::N(S.dmMaxMonitorHz)); j.Set(L"DmMaxMode", Json::N(S.dmMaxMode)); j.Set(L"DmEasyHz", Json::N(S.dmEasyHz)); j.Set(L"DmEasyMode", Json::N(S.dmEasyMode)); j.Set(L"DmMaxSaverOff", Json::B(S.dmMaxSaverOff)); j.Set(L"DmEasySaverOn", Json::B(S.dmEasySaverOn)); j.Set(L"PopupsFollowOwner", Json::B(S.popupsFollowOwner));
     j.Set(L"ShowMedia", Json::B(S.showMedia)); j.Set(L"ShowBatteryPercent", Json::B(S.showBatteryPercent));
+    j.Set(L"HoverMagnify", Json::B(S.hoverMagnify));
     j.Set(L"Widgets", ListJ(S.widgets)); j.Set(L"UpdateCheck", Json::B(S.updateCheck)); j.Set(L"BugReports", Json::B(S.bugReports)); j.Set(L"BtLagMs", Json::N(S.btLagMs)); j.Set(L"UpdateLast", Json::N(S.updateLast)); j.Set(L"UpdateKnown", Json::S(S.updateKnown));
     j.Set(L"MirrorDevices", ListJ(S.mirrorDevices));
     j.Set(L"QuickFolders", ListJ(S.quickFolders)); j.Set(L"FoldersInit", Json::B(S.foldersInit));
@@ -333,8 +336,16 @@ D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl) {   // hue turned by
     float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, x = h / 360;
     return D2D1_COLOR_F{Hue2(p, q, x + 1.f / 3), Hue2(p, q, x), Hue2(p, q, x - 1.f / 3), c.a};
 }
+static ThemeDef ParseTheme(const ws& id, float& grad);
 void SetTheme(const ws& id) {
-    g_grad = -1; g_themeId = id;
+    static ThemeDef cur; cur = ParseTheme(id, g_grad); g_theme = &cur; g_themeId = id;
+}
+static ThemeDef g_dm; static float g_dmGrad = -1; static bool g_dmSet = false;
+void SetDeskModeTheme(const ws& id) { g_dm = ParseTheme(id, g_dmGrad); g_dmSet = true; }
+const ThemeDef& DeskModeTheme() { return g_dmSet ? g_dm : *g_theme; }
+float DeskModeGrad() { return g_dmSet ? g_dmGrad : g_grad; }
+static ThemeDef ParseTheme(const ws& id, float& g_grad) {
+    g_grad = -1;
     bool isCustom = id.size() > 7 && !_wcsnicmp(id.c_str(), L"custom:", 7);
     ws name = id; size_t cp = id.find(L':');   // a ready-made colour with a fade: "blue:40"
     if (!isCustom && cp != ws::npos) { name = id.substr(0, cp); g_grad = std::clamp((float)_wtof(id.c_str() + cp + 1), 0.f, 100.f); }
@@ -359,7 +370,7 @@ void SetTheme(const ws& id) {
         if (n > 1) g_grad = std::clamp(p[1], 0.f, 100.f);
         custom.hue = fmodf(fmodf(p[0], 360) + 360, 360); custom.sat = std::clamp(p[2], 0.f, 100.f) / 100; custom.val = std::clamp(p[3], 0.f, 100.f) / 100; d = &custom;
     }
-    g_theme = d;
+    return *d;
 }
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f; float al = a / 255.f;
@@ -369,7 +380,7 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
         auto hsl = [&](float hh, float ss, float ll) { float q = ll < .5f ? ll * (1 + ss) : ll + ss - ll * ss, p = 2 * ll - q, x = hh / 360; r = Hue2(p, q, x + 1.f / 3); g = Hue2(p, q, x); b = Hue2(p, q, x - 1.f / 3); };
         if (white && rgb == 0xFFFFFF) grey(0x1B / 255.f);          // text and highlights: white -> near black
         else if (white && rgb == 0x000000) grey(1.f);              // text on accent fills: black -> white
-        else if (blue && l < 0.5f) { grey(white ? 1 - l * 0.3f : l * (t.kind == 3 ? 0.4f : 0.5f)); if (t.kind == 3) al *= 0.55f; }   // backgrounds
+        else if (blue && l < 0.5f) { grey(white ? 1 - l * 0.3f : l * (t.kind == 3 ? 0.3f : 0.5f)); if (t.kind == 3) al *= 0.24f; }   // glass: mostly the blurred wallpaper (its colour shows through), a faint dark veil keeps white text readable   // backgrounds
         else if (blue && white) hsl(h, s, l * 0.72f);               // accents need contrast on a light bar
         else if (white && s < 0.1f && l < 0.35f) grey(1 - l);       // dark grey tooltips and menus
         return D2D1_COLOR_F{r, g, b, al};

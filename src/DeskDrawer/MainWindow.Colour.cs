@@ -148,6 +148,22 @@ public partial class MainWindow
         win.ShowDialog();
     }
 
+    /// A setting changed in the Desk settings window (DeskBar's): "Key=value", applied the same way our own switches do it.
+    internal void ApplySetting(string kv)
+    {
+        int eq = kv.IndexOf('='); if (eq < 0) return; string k = kv[..eq], v = kv[(eq + 1)..]; bool on = v == "1";
+        switch (k)
+        {
+            case "Default": SetDefault(on); break;
+            case "TakeOverDialogs": _settings.TakeOverDialogs = on; DialogSwitch.TakeOver = on; break;
+            case "ShowHidden": if (on != _settings.ShowHidden) ToggleHidden(); break;
+            case "KeepReady": _settings.KeepReady = on; Setup.StartAtSignIn(on); break;
+            case "ScrollSpeed": if (double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sp)) { _settings.ScrollSpeed = sp; Wheel.Speed = sp; } break;
+            case "Gpu": _settings.Gpu = on; break;
+            default: return;
+        }
+        _settings.Save();
+    }
     private void SetDefault(bool on)
     {
         if (Environment.ProcessPath is not { } exe) return;
