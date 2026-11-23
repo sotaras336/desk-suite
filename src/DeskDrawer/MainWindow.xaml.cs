@@ -189,6 +189,7 @@ public partial class MainWindow : Window
     {
         Hide();
         foreach (var t in _tabs) t.Cts?.Cancel();
+        Thumbs.Request(Array.Empty<FileEntry>(), 0);   // drop the thumbnails still waiting for the closed folder
         SharedIndex.Release();   // the map of DeskBar's file list goes back to the system while we sleep
         _tabs.Clear(); _tab = new TabState();
         List.ItemsSource = null; HomeContent.Children.Clear();
@@ -534,8 +535,13 @@ public partial class MainWindow : Window
     {
         if (_tab?.Entries == null || _viewMode is "Details" or "List") return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX; int want = _viewMode == "Tiles" ? 48 : _iconSize;
-        int first = 0; if (FindScroll(List) is { ExtentHeight: > 0 } sv) first = (int)(sv.VerticalOffset / sv.ExtentHeight * _tab.Entries.Count);   // start at what is on screen, not at the top of 900 photos
-        Thumbs.Request(_tab.Entries, Math.Min(256, (int)Math.Ceiling(want * dpi / 32.0) * 32), first);
+        // Only what is on screen and a screen or two around it: every photo of a 900-photo folder at once held ~130 MB of pictures nobody was looking at.
+        var shown = List.Items.OfType<FileEntry>().ToList(); int n = shown.Count; int first = 0, page = 60;
+        if (FindScroll(List) is { ExtentHeight: > 0 } sv) { first = (int)(sv.VerticalOffset / sv.ExtentHeight * n); page = Math.Max(20, (int)Math.Ceiling(sv.ViewportHeight / sv.ExtentHeight * n)); }
+        int from = Math.Max(0, first - page), to = Math.Min(n, first + 2 * page);
+        var keep = new HashSet<FileEntry>(shown.Skip(Math.Max(0, first - 3 * page)).Take(7 * page));
+        foreach (var e in _tab.Entries) if (!keep.Contains(e)) e.DropThumb();
+        Thumbs.Request(shown.GetRange(from, to - from), Math.Min(256, (int)Math.Ceiling(want * dpi / 32.0) * 32), first - from);
     }
 
     private System.Windows.Threading.DispatcherTimer? _thumbScroll;

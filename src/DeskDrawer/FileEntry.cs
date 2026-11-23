@@ -47,6 +47,7 @@ public sealed class FileEntry : INotifyPropertyChanged
     /// The picture for tiles and icon views: a real thumbnail once ThumbLoader has one, the small icon until then.
     public ImageSource? Big => _thumb ?? _icon;
     public void SetThumb(ImageSource s, int px) { _thumb = s; ThumbPx = px; Raise(nameof(Big)); }
+    public void DropThumb() { if (_thumb == null) return; _thumb = null; ThumbPx = 0; Raise(nameof(Big)); }   // scrolled far away: the picture goes back to Windows' own thumbnail cache, fetched again on the way back
     public string TypeText { get => _type; set { _type = value; Raise(nameof(TypeText)); } }
 
     public FileEntry(FileSystemInfo fi)

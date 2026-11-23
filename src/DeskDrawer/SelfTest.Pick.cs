@@ -25,8 +25,8 @@ public static partial class SelfTest
     public static int PickShot(string png)
     {
         var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var w = MainWindow.ForPick(docs, "", "Open", new[] { "Word Documents (*.docx;*.doc)", "OpenDocument Text (*.odt)", "All Files (*.*)" }, 0, "Open", 300, 200, 1300, 800);
-        w.Show();
+        var w = MainWindow.ForPick(docs, "", "Open", new[] { "Word Documents (*.docx;*.doc)", "OpenDocument Text (*.odt)", "All Files (*.*)" }, 0, "Save As", 300, 200, 1300, 800);
+        w.PickFor("Microsoft Word"); w.PickShow();   // the real way in: its real size and place on the screen the "dialog" is on
         var frame = new System.Windows.Threading.DispatcherFrame(); var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3000) };
         t.Tick += (_, _) => { t.Stop(); frame.Continue = false; }; t.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
         var el = (System.Windows.FrameworkElement)w.Content; double k = System.Windows.Media.VisualTreeHelper.GetDpi(el).DpiScaleX;

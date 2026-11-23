@@ -38,6 +38,7 @@ static void AppTick() {
     if (!g_dev) Explorer::KeepHidden();
     BarsTick(); CheckReady();
     if (!g_dev && n == 120) TrimMemoryIfIdle();   // once, 30 s after start: the pages only start-up touched. Not again: under memory pressure a trimmed page comes back from disk, and the next Start would stutter
+    if (n % 2400 == 1200) if (size_t f = IconTrim(400)) Log(L"icons: let go of %zu KB of icons nobody looked at in 10 min", f / 1024);   // every 10 min (250 ms ticks)
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
         if (Panel p = OpenPanel(); p != Panel::None) Panel_(p)->Snapshot(DataPath(L"live_panel.png")); } }

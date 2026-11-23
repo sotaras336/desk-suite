@@ -54,7 +54,34 @@ public partial class MainWindow
     {
         WindowState = WindowState.Normal;   // your own window size and maximised state stay yours
         Topmost = true; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.Manual; Left = -32000; Top = -32000; PickBar.Visibility = Visibility.Visible;
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && (Keyboard.FocusedElement is not TextBox || Keyboard.FocusedElement == PickName) && !InSearch) { Close(); e.Handled = true; } };
+        // A picker, not a file manager: a title instead of tabs, a short toolbar (cut/copy/delete... stay on the keys and the right-click menu), a slimmer tree,
+        // and the status line folded into the bottom bar.
+        TabDock.Visibility = Visibility.Collapsed; PickHead.Visibility = Visibility.Visible; StatusRow.Height = new GridLength(0); TreeCol.Width = new GridLength(200);
+        var c = CmdBar.Children; c.Clear();
+        c.Add(_new = Cmd("", "New folder", "New folder (Ctrl+Shift+N)", _ => NewItem(true)));
+        c.Add(CmdLine());
+        c.Add(Cmd("", "Sort", "Sort by", ShowSortMenu, chevron: true));
+        c.Add(Cmd("", "View", "Preview pane, hidden files, colour", ShowViewMenu, chevron: true));
+        c.Add(Cmd("", "Filter", "Show only some kinds of item", ShowFilterMenu, chevron: true));
+        System.ComponentModel.DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock)).AddValueChanged(Status, (_, _) => PickStatus());
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && (Keyboard.FocusedElement is not TextBox || Keyboard.FocusedElement == PickName) && !InSearch) { Close(); e.Handled = true; }
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is Key.T or Key.W) e.Handled = true;   // no tabs here: a hidden second tab would only confuse
+        };
+    }
+
+    /// The asking app's name, under the title ("Save As  ·  Microsoft Word").
+    internal void PickFor(string app) => PickHeadApp.Text = app.Length > 0 ? "for " + app : "";
+
+    /// Where the answer will go and the folder's count / messages, in the bottom bar (the status bar is hidden in picker mode).
+    private void PickStatus()
+    {
+        if (_pick == null) return;
+        PickCount.Text = Status.Text;
+        string? here = _tab?.Current is { } cur && !IsVirtual(cur) ? cur : null;
+        PickWhere.Text = here == null ? (_pickSave ? "Open a folder to save in" : "Pick a file, or open a folder") : (_pickFolder ? "Chooses " : _pickSave ? "Saves in " : "Looking in ") + Friendly(here);
+        PickWhere.ToolTip = here;
     }
 
     /// Takes one dialog's request: its folder, name, button, file types and title. The window may have answered another dialog before: everything of that one is reset.
@@ -68,13 +95,14 @@ public partial class MainWindow
             else NavigateTab(_tab, p.Folder, push: false); }
         _pickType = p.TypeIndex; _pickSave = p.Button.Contains("Save", StringComparison.OrdinalIgnoreCase);
         _pickPatterns = _pickType >= 0 && _pickType < p.Types.Length ? DialogSwitch.PatternsOf(p.Types[_pickType]) : Array.Empty<string>();
-        Title = "DeskDrawer · " + (string.IsNullOrWhiteSpace(p.Title) ? p.Button : p.Title);
+        Title = "DeskDrawer · " + (string.IsNullOrWhiteSpace(p.Title) ? p.Button : p.Title); PickHeadTitle.Text = string.IsNullOrWhiteSpace(p.Title) ? p.Button : p.Title; PickHeadApp.Text = "";
         WindowState = WindowState.Normal;
         _pickFolder = p.Button.Contains("Folder", StringComparison.OrdinalIgnoreCase);   // a folder picker (Quartus' "Select Folder"): the answer is a folder
         PickOk.Content = p.Button; PickName.Text = _pickFolder ? "" : p.Name; PickLabel.Text = _pickFolder ? "Folder" : "File name";
         PickName.ToolTip = _pickFolder ? "Leave it empty to choose the folder that is open, or type a path" : null;
-        PickType.Visibility = p.Types.Length == 0 ? Visibility.Collapsed : Visibility.Visible; PickShowType();
+        PickTypeBox.Visibility = p.Types.Length == 0 ? Visibility.Collapsed : Visibility.Visible; PickShowType();
         foreach (var t in _tabs) ApplyFilter(t);
+        PickStatus();
     }
 
     /// The file-type filter of the list: the dialog's patterns for the chosen type (none = everything).
@@ -166,7 +194,7 @@ public partial class MainWindow
     internal void FinishPick() { Hide(); _spare ??= this; }
     private bool PickClosing()
     {
-        if (!_pickAnswered) { _pickAnswered = true; Left = -32000; Top = -32000; var a = OnAnswer; Dispatcher.BeginInvoke(() => { if (a != null) a(this); else FinishPick(); }); }   // after the close request has returned: closing from inside it crashed
+        if (!_pickAnswered) { _pickAnswered = true; PickRememberSize(); Left = -32000; Top = -32000; var a = OnAnswer; Dispatcher.BeginInvoke(() => { if (a != null) a(this); else FinishPick(); }); }   // after the close request has returned: closing from inside it crashed
         return true;   // never really closes: it steps off screen until FinishPick hides it
     }
     internal void TestAnswer(string path) => PickDone(new List<string> { path });   // the self-test answers the way a click on a file would
@@ -181,17 +209,41 @@ public partial class MainWindow
         // quarters of the Surface, and wrong on a second screen with another scaling. Now: about the size of the dialog it replaces (see PickSize).
         uint dpi = 96; try { PickGetDpiForMonitor(PickMonitorFromRect(ref dlg, 2), 0, out dpi, out _); } catch { } double k = Math.Max(1, dpi) / 96.0;
         int workW = mi.rcWork.R - mi.rcWork.L, workH = mi.rcWork.B - mi.rcWork.T;
-        var (w, hh) = PickSize(workW, workH, k, dlg.R - dlg.L, dlg.B - dlg.T); int wl = mi.rcWork.L, wt = mi.rcWork.T;
+        var saved = App.SnapshotFile == null ? PickSaved() : (0, 0); var (w, hh) = PickSize(workW, workH, k, dlg.R - dlg.L, dlg.B - dlg.T, saved.W, saved.H); _pickPlacedW = w; _pickPlacedH = hh; _pickScale = k; int wl = mi.rcWork.L, wt = mi.rcWork.T;
         int gap = (int)(12 * k), x = wl + gap, y = wt + gap;   // the top-left corner of that screen's usable area (the user's choice), a small gap from the edges
         PickSetWindowPos(h, IntPtr.Zero, x, y, w, hh, 0x0004 | 0x0010);
     }
 
-    // The size of the dialog it stands in for (that is what the app and Windows chose), kept between 640 x 420 and 800 x 520 at the screen's scaling so the tree and
-    // the list still fit, and never more than half the screen's width or 55% of its height.
-    internal static (int W, int H) PickSize(int workW, int workH, double scale, int dlgW, int dlgH)
+    // 820 x 560 at the screen's scaling: the names, dates and types fit (the old 640 x 420 cut them), without taking over the screen (960 x 640 was too big).
+    // At least the dialog it replaces, never more than 60% of the screen's width or 70% of its height.
+    // Once you resize the picker yourself, your size (in layout units, so it means the same on every screen) is used from then on, kept inside the screen.
+    internal static (int W, int H) PickSize(int workW, int workH, double scale, int dlgW, int dlgH, double savedW = 0, double savedH = 0)
     {
-        int maxW = (int)Math.Min(800 * scale, workW * 0.50), maxH = (int)Math.Min(520 * scale, workH * 0.55);
-        return (Math.Min(Math.Max(dlgW, (int)(640 * scale)), maxW), Math.Min(Math.Max(dlgH, (int)(420 * scale)), maxH));
+        if (savedW > 0 && savedH > 0)
+            return (Math.Min(Math.Max((int)(savedW * scale), (int)(480 * scale)), workW - (int)(24 * scale)), Math.Min(Math.Max((int)(savedH * scale), (int)(360 * scale)), workH - (int)(24 * scale)));
+        int maxW = (int)(workW * 0.60), maxH = (int)(workH * 0.70);
+        return (Math.Min(Math.Max(dlgW, (int)(820 * scale)), maxW), Math.Min(Math.Max(dlgH, (int)(560 * scale)), maxH));
+    }
+
+    // Your own picker size: its own little file, because every DeskDrawer window saves its whole settings.json and would write an old value over it.
+    private static readonly string PickSizeFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskDrawer", "picker-size.txt");
+    private static (double W, double H)? _pickSaved;
+    private static (double W, double H) PickSaved()
+    {
+        if (_pickSaved is { } v) return v;
+        try { var p = File.ReadAllText(PickSizeFile).Split(' '); _pickSaved = (double.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture)); }
+        catch { _pickSaved = (0, 0); }
+        return _pickSaved.Value;
+    }
+    private int _pickPlacedW, _pickPlacedH; private double _pickScale = 1;
+    /// On the way out: if you resized it (not maximised), that size becomes the picker's size from now on.
+    private void PickRememberSize()
+    {
+        if (WindowState != WindowState.Normal) return;
+        var h = new WindowInteropHelper(this).Handle; if (h == IntPtr.Zero || !PickGetWindowRect(h, out var r)) return;
+        int w = r.R - r.L, hh = r.B - r.T; if (Math.Abs(w - _pickPlacedW) <= 4 && Math.Abs(hh - _pickPlacedH) <= 4) return;
+        _pickSaved = (Math.Round(w / _pickScale), Math.Round(hh / _pickScale));
+        try { Directory.CreateDirectory(Path.GetDirectoryName(PickSizeFile)!); File.WriteAllText(PickSizeFile, FormattableString.Invariant($"{_pickSaved.Value.W} {_pickSaved.Value.H}")); } catch { }
     }
     [DllImport("shcore.dll", EntryPoint = "GetDpiForMonitor")] private static extern int PickGetDpiForMonitor(IntPtr m, int type, out uint x, out uint y);
     [StructLayout(LayoutKind.Sequential)] private struct PRECT { public int L, T, R, B; }

@@ -7,6 +7,7 @@
 namespace {
 struct Job { ws key; int px; };
 std::mutex g_mu; std::map<std::pair<ws, int>, ImgP> g_cache; std::set<std::pair<ws, int>> g_pending; std::set<std::pair<ws, int>> g_failed; std::vector<Job> g_queue, g_slow;
+std::map<std::pair<ws, int>, uint64_t> g_used;   // last time each cached icon was asked for
 HANDLE g_ev, g_evSlow; ws g_dir;
 
 ws ParsingName(const ws& key) {
@@ -59,7 +60,7 @@ void IconInit() {
 ImgP IconGet(const ws& key, int px) {
     if (key.empty() || px <= 0) return nullptr;
     std::lock_guard<std::mutex> l(g_mu);
-    auto k = std::make_pair(key, px); auto it = g_cache.find(k); if (it != g_cache.end()) return it->second;
+    auto k = std::make_pair(key, px); auto it = g_cache.find(k); if (it != g_cache.end()) { g_used[k] = GetTickCount64(); return it->second; }
     if (!g_failed.count(k) && g_pending.insert(k).second) { g_queue.push_back({key, px}); SetEvent(g_ev); }
     return nullptr;
 }
@@ -71,4 +72,24 @@ ws ShellNameOf(const ws& key) {
 bool IconSettled(const ws& key, int px) {   // arrived or definitively failed: the bar needn't wait for it any longer
     if (key.empty() || px <= 0) return true; { std::lock_guard<std::mutex> l(g_mu); auto k = std::make_pair(key, px); if (g_cache.count(k) || g_failed.count(k)) return true; }
     IconGet(key, px); return false;
+}
+
+// Every file shown in search kept its icon in memory for good. Above `keep` icons, the ones nothing holds and nobody asked for in 10 minutes go
+// (oldest first); the disk cache brings one back in a few ms. The bar's and Start's icons are asked for on every paint, so they are never the old ones.
+size_t IconTrim(size_t keep, uint64_t idleMs) {
+    std::lock_guard<std::mutex> l(g_mu); if (g_cache.size() <= keep) return 0;
+    uint64_t now = GetTickCount64(); std::vector<std::pair<uint64_t, std::pair<ws, int>>> old;
+    for (auto& [k, im] : g_cache) { uint64_t u = g_used.count(k) ? g_used[k] : 0; if (im.use_count() == 1 && now - u >= idleMs) old.push_back({u, k}); }
+    std::sort(old.begin(), old.end()); size_t freed = 0, drop = std::min(old.size(), g_cache.size() - keep);
+    for (size_t i = 0; i < drop; i++) { auto& k = old[i].second; freed += g_cache[k]->px.size() * 4; g_cache.erase(k); g_used.erase(k); }
+    return freed;
+}
+
+bool IconTrimSelfTest(ws& detail) {   // 3 fake icons, one still held: trimming to 1 drops only the two nobody holds (real icons set aside meanwhile)
+    decltype(g_cache) real; { std::lock_guard<std::mutex> l(g_mu); real.swap(g_cache); }
+    ImgP held = ImgMake(4, 4);
+    { std::lock_guard<std::mutex> l(g_mu); g_cache[{L"t:a", 4}] = ImgMake(4, 4); g_cache[{L"t:b", 4}] = ImgMake(4, 4); g_cache[{L"t:c", 4}] = held; }
+    size_t freed = IconTrim(1, 0);
+    bool ok; { std::lock_guard<std::mutex> l(g_mu); ok = freed == 2 * 64 && g_cache.size() == 1 && g_cache.count({L"t:c", 4}); g_cache.swap(real); }
+    detail = Fmt(L"freed %zu bytes", freed); return ok;
 }

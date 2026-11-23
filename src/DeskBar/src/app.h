@@ -194,7 +194,7 @@ void SendToNextScreen(HWND h);
 
 // ---------- icons ----------
 // key forms: "exe:<path>", "aum:<AUMID>", "file:<path>" (any shell path).  Returns null until the image has arrived; onReady runs on the UI thread.
-ImgP IconGet(const ws& key, int px);
+ImgP IconGet(const ws& key, int px); size_t IconTrim(size_t keep, uint64_t idleMs = 600000); bool IconTrimSelfTest(ws& detail);
 void IconInit();
 bool IconSettled(const ws& key, int px);   // arrived or failed for good (starts the fetch if neither)
 ws ShellNameOf(const ws& key);          // display name for "aum:..." / "exe:..." keys (blocking: call from workers)

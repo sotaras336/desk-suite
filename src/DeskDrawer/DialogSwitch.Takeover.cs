@@ -38,7 +38,7 @@ public static partial class DialogSwitch
             GetWindowRect(dlg, out var r);
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
-            _picker = p;
+            _picker = p; p.PickFor(AppNameOf(dlg));
             ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             p.OnAnswer = pw => Answer(dlg, pw);
             long built = sw0.ElapsedMilliseconds;
@@ -274,6 +274,13 @@ public static partial class DialogSwitch
 
     /// Runs then() once the dialog has gone to the folder that was typed into it: its address bar shows that folder, or has changed from what it showed before (it shows
     /// "Documents", not the path, for the well-known folders). Looks every 60 ms. After 1.5 s it runs anyway: a dialog whose address bar can't be read still gets its answer.
+    /// "Microsoft Word", "Quartus Prime"...: the app's own description, else its exe name. Empty when it can't be read (an elevated app).
+    private static string AppNameOf(IntPtr dlg)
+    {
+        try { GetWindowThreadProcessId(dlg, out uint pid); using var pr = System.Diagnostics.Process.GetProcessById((int)pid); var d = pr.MainModule?.FileVersionInfo.FileDescription; return string.IsNullOrWhiteSpace(d) ? pr.ProcessName : d.Trim(); }
+        catch { return ""; }
+    }
+
     internal static bool SameFolder(string shown, string wanted) => shown.Length > 0 && string.Equals(shown.TrimEnd('\\'), wanted.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
     internal static bool Arrived(string shownNow, string shownBefore, string wanted) => SameFolder(shownNow, wanted) || (shownNow.Length > 0 && !string.Equals(shownNow, shownBefore, StringComparison.OrdinalIgnoreCase));
     private static void WhenIn(IntPtr dlg, string folder, string before, int n, Action then) => After(n == 0 ? 120 : 60, () => { if (!IsWindow(dlg)) return; if (n >= 23 || Arrived(Describe(dlg).Folder, before, folder)) then(); else WhenIn(dlg, folder, before, n + 1, then); });

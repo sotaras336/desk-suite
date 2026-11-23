@@ -48,6 +48,9 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
 // second, and the window visibly sat short, then jumped). Only within 2 s of a change of screen, once per move, so an app that caps its own maximized size is left alone.
 bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.top <= work.top + 8 && (work.bottom - r.bottom > 8 || work.right - r.right > 8) && r.bottom <= work.bottom && r.right <= work.right + 8; }
 std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
+bool GuardSaysTouch(bool sig, bool suppressed, bool device, bool away) { return sig || suppressed || device || away; }
+std::atomic<uint64_t> g_guardTouch{0};   // last time Windows asked the strip about a finger (WM_TOUCHHITTESTING) and it claimed it
+struct GuardHit { uint64_t at = 0; bool sig = false, supp = false, dev = false, away = false; int type = 0; POINT p{}, c{}; } g_lastGuard;   // the strip's last decision, for the log when a touch still got through
 void CALLBACK OnLocation(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
     if (obj != OBJID_WINDOW || child != 0 || !h || GetAncestor(h, GA_ROOT) != h) return;
     if (!IsZoomed(h) || IsIconic(h) || !IsAppWindow(h)) { g_maxMon.erase(h); g_maxMoved.erase(h); return; }
@@ -87,7 +90,8 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
             // a maximized window that draws its own frame (Chrome) restores itself as the drag starts: Esc alone left it restored, so put it back at the drag's end
             if (IsZoomed(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp; }
-            Log(L"edge drag on the bar cancelled, tap passed to the bar: %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), (int)IsZoomed(h), (int)fills, (int)touch);
+            { DWORD wp = 0; GetWindowThreadProcessId(h, &wp); Log(L"edge drag on the bar cancelled, tap passed to the bar: %s in %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), FileNameOf(ExePathOfPid(wp)).c_str(), (int)IsZoomed(h), (int)fills, (int)touch); }   // the app's name: Chrome_WidgetWin_1 is every Chromium/Electron app
+            { auto& g = g_lastGuard; Log(L"  the guard strip let it through? last finger it claimed %llu ms ago; its last hit test %llu ms ago at %d,%d (cursor %d,%d): sig %d suppressed %d device %d(type %d) away %d", GetTickCount64() - g_guardTouch.load(), GetTickCount64() - g.at, (int)g.p.x, (int)g.p.y, (int)g.c.x, (int)g.c.y, (int)g.sig, (int)g.supp, (int)g.dev, g.type, (int)g.away); }
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
@@ -270,7 +274,26 @@ void FixMaximizedOverBar() {
 // visibly shrank and snapped back). The mouse passes straight through it. ----
 LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-    case WM_NCHITTEST: { CURSORINFO ci{sizeof ci}; bool touch = ((GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700) || (GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED: a finger is in use*/)); return touch ? HTCLIENT : HTTRANSPARENT; }
+    case WM_NCHITTEST: {
+        // The first touch after the touchpad or mouse came through as "not a finger": the cursor is not suppressed yet and the extra-info signature belongs to an
+        // older message, so the strip said HTTRANSPARENT and maximized Chrome got a resize (real log 2026-11-23 12:23). Two signals that don't depend on that state:
+        // Windows' own source of the input being handled, and the point itself: a mouse is always hit-tested where its cursor is, a finger lands wherever it lands.
+        CURSORINFO ci{sizeof ci}; bool supp = GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED*/);
+        bool sig = (GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700;
+        INPUT_MESSAGE_SOURCE src{}; bool dev = GetCurrentInputMessageSource(&src) && (src.deviceType == IMDT_TOUCH || src.deviceType == IMDT_PEN);
+        POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)}, c{}; GetCursorPos(&c); bool away = abs(p.x - c.x) > 8 || abs(p.y - c.y) > 8;
+        bool touch = GuardSaysTouch(sig, supp, dev, away) || GetTickCount64() - g_guardTouch < 1500;   // a finger the strip claimed: the clicks that follow are its too
+        g_lastGuard = {GetTickCount64(), sig, supp, dev, away, (int)src.deviceType, p, c};
+        return touch ? HTCLIENT : HTTRANSPARENT; }
+    case WM_TOUCHHITTESTING: {
+        // Touch is targeted by its own rules: windows registered for touch hit testing (Chrome) are asked about a finger NEAR them and claim it for their
+        // resize edge, and the strip, never asked, was skipped (real log 12:48-12:50: no hit test at all on the strip for those touches). Registered too, the strip
+        // claims every finger that lands on it, with the best score there is.
+        auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
+        uint64_t now = GetTickCount64(); if (now - g_guardTouch > 3000) { HWND under = nullptr; for (HWND w = GetWindow(h, GW_HWNDNEXT); w; w = GetWindow(w, GW_HWNDNEXT)) { RECT r; if (IsWindowVisible(w) && GetWindowRect(w, &r) && PtInRect(&r, in->point) && !(GetWindowLongW(w, GWL_EXSTYLE) & WS_EX_TRANSPARENT)) { under = w; break; } }
+            DWORD up = 0; if (under) GetWindowThreadProcessId(under, &up); Log(L"guard strip took a finger at %d,%d (over %s)", (int)in->point.x, (int)in->point.y, under ? FileNameOf(ExePathOfPid(up)).c_str() : L"nothing"); }
+        g_guardTouch = now;
+        return PackTouchHitTestingProximityEvaluation(in, &ev); }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_LBUTTONDOWN: case WM_LBUTTONUP: {
         HWND bar = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA); if (!bar || !IsWindow(bar)) return 0;
@@ -289,7 +312,7 @@ void GuardsUpdate() {
         HWND fg = GetForegroundWindow(); RECT fr; if (fg && fg != bar && GetWindowRect(fg, &fr) && fr.left <= mi.rcMonitor.left && fr.top <= mi.rcMonitor.top && fr.right >= mi.rcMonitor.right && fr.bottom >= mi.rcMonitor.bottom && ClassOf(fg) != kWndClass && ClassOf(fg) != L"Progman" && ClassOf(fg) != L"WorkerW") continue;   // full-screen video or game: leave it alone
         UINT d = GetDpiForWindow(bar); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96);
         HWND& g = g_guards[bar];
-        if (!g) { g = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, L"DB3.Guard", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr); if (!g) continue; SetLayeredWindowAttributes(g, 0, 1, LWA_ALPHA); SetWindowLongPtrW(g, GWLP_USERDATA, (LONG_PTR)bar); }   // alpha 1: invisible, but still hit
+        if (!g) { g = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, L"DB3.Guard", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr); if (!g) continue; SetLayeredWindowAttributes(g, 0, 1, LWA_ALPHA); SetWindowLongPtrW(g, GWLP_USERDATA, (LONG_PTR)bar); if (!RegisterTouchHitTestingWindow(g, TOUCH_HIT_TESTING_CLIENT)) Log(L"guard strip: touch hit testing not registered (%lu)", GetLastError()); }   // alpha 1: invisible, but still hit
         SetWindowPos(g, HWND_TOPMOST, br.left, br.top - band, W(br), band, SWP_NOACTIVATE | SWP_SHOWWINDOW); live.insert(bar);
     }
     for (auto it = g_guards.begin(); it != g_guards.end();) { if (!live.count(it->first)) { if (it->second) DestroyWindow(it->second); it = g_guards.erase(it); } else ++it; }
@@ -313,8 +336,9 @@ bool WinMoveSelfTest(ws& detail) {
     bool b = !NearlyFull({343, 343, 2215, 1660}, work) && !NearlyFull({0, 0, 1440, 1824}, work);   // an ordinary window, a half-screen snap
     bool c = Sliver({0, 1787, 800, 2300}, work, mon) && !Sliver({0, 1700, 800, 2300}, work, mon);  // 37 px of its top above the bar hides it; 124 px does not
     bool d = !Sliver({0, 1850, 800, 2300}, work, mon) || true;                                      // a top below the work area is the foreground rule's business (r.top < mon.bottom)
+    bool g = GuardSaysTouch(false, false, false, true) && GuardSaysTouch(false, false, true, false) && !GuardSaysTouch(false, false, false, false);   // first touch after the touchpad: only 'away'/'device' know
     RECT lg{0, 0, 1920, 1032};
     bool e = ShortMax({0, 0, 1920, 1005}, lg);   // the Minecraft case: 27 px short of the work area
     bool f = !ShortMax({0, 0, 1920, 1032}, lg) && !ShortMax({0, 0, 1920, 1030}, lg);
-    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d", (int)a, (int)b, (int)c, (int)e, (int)f); (void)d; return a && b && c && e && f;
+    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d, touch guard %d", (int)a, (int)b, (int)c, (int)e, (int)f, (int)g); (void)d; return a && b && c && e && f && g;
 }

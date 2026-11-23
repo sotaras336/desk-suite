@@ -75,7 +75,7 @@
             <RowDefinition Height="46"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="30"/>
+            <RowDefinition x:Name="StatusRow" Height="30"/>
         </Grid.RowDefinitions>
 
         <!-- Tab strip -->
@@ -87,7 +87,12 @@
                     <Button x:Name="MaxBtn" Style="{StaticResource Caption}" Content="&#xE922;" ToolTip="Maximise" Click="Max_Click"/>
                     <Button Style="{StaticResource CaptionClose}" Content="&#xE8BB;" ToolTip="Close" Click="Close_Click"/>
                 </StackPanel>
-                <DockPanel LastChildFill="False">
+                <!-- picker mode: what the app asked for, in place of the tabs (the strip stays a drag handle) -->
+                <StackPanel x:Name="PickHead" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,-4,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="PickHeadTitle" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Fg}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PickHeadApp" FontSize="13" Foreground="{DynamicResource FgDim}" Margin="10,1,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <DockPanel x:Name="TabDock" LastChildFill="False">
                 <ItemsControl x:Name="TabStrip" DockPanel.Dock="Left" Focusable="False" VerticalAlignment="Bottom" WindowChrome.IsHitTestVisibleInChrome="True">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:TabRow/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
@@ -161,7 +166,7 @@
         <!-- Folder tree | file list -->
         <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="230" MinWidth="140"/>
+                <ColumnDefinition x:Name="TreeCol" Width="230" MinWidth="140"/>
                 <ColumnDefinition Width="6"/>
                 <ColumnDefinition Width="*" MinWidth="240"/>
                 <ColumnDefinition x:Name="PreviewSplitCol" Width="6"/>
@@ -261,21 +266,32 @@
         </Grid>
 
         <!-- Picker mode only (MainWindow.Pick.cs): file name, the dialog's file types, Open / Save -->
-        <Border x:Name="PickBar" Grid.Row="4" Visibility="Collapsed" Background="{DynamicResource BarBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0" Height="60">
-            <Grid Margin="16,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock x:Name="PickLabel" Text="File name" Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <TextBox x:Name="PickName" Grid.Column="1" Style="{StaticResource Field}" VerticalAlignment="Center" KeyDown="PickName_KeyDown"/>
-                <Button x:Name="PickType" Grid.Column="2" Style="{StaticResource Cmd}" Margin="10,0,0,0" Click="PickType_Click"/>
-                <Button x:Name="PickOk" Grid.Column="3" Margin="8,0,0,0" Height="34" Focusable="False" Foreground="{DynamicResource OnAccent}" Click="PickOk_Click">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" CornerRadius="17" Padding="28,0" Background="{DynamicResource Accent}"><TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-                            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <Button Grid.Column="4" Style="{StaticResource Cmd}" Content="Cancel" Margin="4,0,0,0" Click="PickCancel_Click"/>
+        <Border x:Name="PickBar" Grid.Row="4" Visibility="Collapsed" Background="{DynamicResource BarBg}" BorderBrush="{DynamicResource BarLine}" BorderThickness="0,1,0,0" Padding="16,10,16,14">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <!-- where the answer goes, and the folder's item count / messages (the status bar is hidden in picker mode) -->
+                <DockPanel Margin="2,0,2,10">
+                    <TextBlock x:Name="PickCount" DockPanel.Dock="Right" FontSize="12" Foreground="{DynamicResource FgDim}" Margin="16,0,0,0"/>
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8B7;" FontSize="13" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,1,8,0"/>
+                    <TextBlock x:Name="PickWhere" FontSize="12" Foreground="{DynamicResource FgDim}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                </DockPanel>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="PickLabel" Text="File name" Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" Margin="2,0,12,0"/>
+                    <TextBox x:Name="PickName" Grid.Column="1" Style="{StaticResource Field}" VerticalAlignment="Center" KeyDown="PickName_KeyDown"/>
+                    <Border x:Name="PickTypeBox" Grid.Column="2" Margin="10,0,0,0" CornerRadius="17" BorderThickness="1" BorderBrush="{DynamicResource CardLine}" VerticalAlignment="Center">
+                        <Button x:Name="PickType" Style="{StaticResource Cmd}" Click="PickType_Click" ToolTip="File type"/>
+                    </Border>
+                    <Button x:Name="PickOk" Grid.Column="3" Margin="12,0,0,0" Height="34" MinWidth="96" Focusable="False" Foreground="{DynamicResource OnAccent}" Click="PickOk_Click">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" CornerRadius="17" Padding="28,0" Background="{DynamicResource Accent}"><TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                                <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button Grid.Column="4" Style="{StaticResource Cmd}" Content="Cancel" Margin="6,0,0,0" Click="PickCancel_Click" ToolTip="Esc"/>
+                </Grid>
             </Grid>
         </Border>
 
