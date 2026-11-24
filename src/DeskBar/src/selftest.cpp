@@ -139,6 +139,13 @@ int RunSelfTest(const ws& outFile) {
         float g1, g2, g3, g4; ThemeDef a = ThemeFromId(L"blue:40", g1), b = ThemeFromId(L"custom:-30", g2), c = ThemeFromId(L"custom:200:150:120:-5", g3), d = ThemeFromId(L"PURPLE", g4);
         check(L"colours: theme ids are read the same way as in DeskDrawer and DeskTune", EqI(a.id, L"blue") && g1 == 40 && b.hue == 330 && g2 == -1 && c.hue == 200 && g3 == 100 && c.sat == 1 && c.val == 0 && EqI(d.id, L"purple") && g4 == -1,
               Fmt(L"blue:40 -> %s %.0f; custom:-30 -> hue %.0f; clamped -> fade %.0f sat %.2f val %.2f", a.id, g1, b.hue, g3, c.sat, c.val));
+#ifdef PINK
+        const wchar_t* fallback = L"pink";
+#else
+        const wchar_t* fallback = L"blue";
+#endif
+        { float g; ThemeDef x = ThemeFromId(L"nonsense", g), y = ThemeFromId(L"x:40", g); check(L"colours: a broken theme name falls back to this build's colour (DeskDrawer and DeskTune do the same)", EqI(x.id, fallback) && EqI(y.id, fallback), ws(x.id) + L" " + y.id); }
+        check(L"colour picker: the colour and the fade are rounded (DeskDrawer and DeskTune round the same way)", ColourIdOf(0.25f, L"", true, 199.6f, 39.5f, 100) == L"custom:200:40" && ColourIdOf(0.25f, L"", true, 200.4f, 0.4f, 100) == L"custom:200:0", ColourIdOf(0.25f, L"", true, 199.6f, 39.5f, 100));
         bool ends = ColourIdOf(0.05f, L"", true, 200, 30, 100) == L"white" && ColourIdOf(0.95f, L"blue", false, 200, 30, 100) == L"black";
         bool named = ColourIdOf(0.25f, L"blue", false, 205, 40, 100) == L"blue:40" && ColourIdOf(0.25f, L"blue", true, 200, 0, 100) == L"custom:200:0" && ColourIdOf(0.25f, L"", true, 200, 40, 80) == L"custom:200:40:80:100";
         check(L"colour picker: the ids it makes (black and white ends, a ready-made colour with a fade, a custom one)", ends && named, ColourIdOf(0.25f, L"", true, 200, 40, 80));

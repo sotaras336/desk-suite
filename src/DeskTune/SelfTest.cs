@@ -62,6 +62,9 @@ public static class SelfTest
             Theme.Load("custom:200:150:120:-5"); bool ic = Theme.Current.Hue == 200 && Theme.Grad == 100 && Theme.Current.Sat == 1 && Theme.Current.Val == 0;
             Theme.Load("PURPLE"); bool id2 = Theme.Current.Id == "purple" && Theme.Grad == -1;
             Check("colours: theme ids are read the same way as in DeskBar", ia && ib && ic && id2, $"blue:40 {ia}, custom:-30 {ib}, clamped {ic}, PURPLE {id2}");
+            Theme.Load("nonsense"); string broken = Theme.Current.Id; Theme.Load("x:40"); string broken2 = Theme.Current.Id; Theme.Load(""); string none = Theme.Current.Id;
+            Check("colours: a broken theme name falls back to Blue, as in DeskBar (no theme at all: Black)", broken == "blue" && broken2 == "blue" && none == "black", $"{broken} {broken2} {none}");
+            Check("colour picker: the colour and the fade are rounded as DeskBar rounds them", Theme.ColourId(0.25, null, true, 199.6, 39.5, 100) == "custom:200:40" && Theme.ColourId(0.25, null, true, 200.4, 0.4, 100) == "custom:200:0", Theme.ColourId(0.25, null, true, 199.6, 39.5, 100));
             bool ends = Theme.ColourId(0.05, null, true, 200, 30, 100) == "white" && Theme.ColourId(0.95, "blue", false, 200, 30, 100) == "black";
             bool named = Theme.ColourId(0.25, "blue", false, 205, 40, 100) == "blue:40" && Theme.ColourId(0.25, "blue", true, 200, 0, 100) == "custom:200:0" && Theme.ColourId(0.25, null, true, 200, 40, 80) == "custom:200:40:80:100";
             Check("colour picker: the ids it makes (black and white ends, a ready-made colour with a fade, a custom one)", ends && named, Theme.ColourId(0.25, null, true, 200, 40, 80));

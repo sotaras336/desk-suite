@@ -63,7 +63,7 @@ public static class Theme
         {   // a ready-made colour, optionally with a fade: "blue:40"
             if (parts.Length > 1 && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var gs)) Grad = Math.Clamp(gs, 0, 100);
             if (parts[0] == "accent" && WindowsAccentHue() is { } ah) Current = new ThemeDef("accent", "Windows accent", ah, false, 0);
-            else Current = All.FirstOrDefault(t => string.Equals(t.Id, parts[0], StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == "black");
+            else Current = All.FirstOrDefault(t => string.Equals(t.Id, parts[0], StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == (string.IsNullOrWhiteSpace(parts[0]) ? "black" : "blue"));   // no theme yet: Black; a name nobody knows (a broken file, a grey Windows accent): Blue, as DeskBar does
         }
         FullId = Current.Kind == 0 && Grad >= 0 && !Current.Id.StartsWith("custom:") ? Current.Id + ":" + (int)Grad : Current.Id;
     }
@@ -86,9 +86,9 @@ public static class Theme
     public static string ColourId(double t, string? baseId, bool moved, double hue, double fade, double sat)
     {
         int z = LightZone(t); if (z != 0) return z == 1 ? "black" : "white";
-        string f = ":" + (int)fade; if (baseId != null && !moved) return baseId + f;
+        string f = ":" + (int)Math.Round(fade, MidpointRounding.AwayFromZero); if (baseId != null && !moved) return baseId + f;   // rounded as DeskBar rounds (lroundf), so the same spot gives the same id in every app
         int sv = (int)Math.Round(sat), v = (int)Math.Round(LightVal(t) * 100);
-        return "custom:" + (int)hue + f + (sv < 100 || v < 100 ? ":" + sv + ":" + v : "");
+        return "custom:" + (int)Math.Round(hue, MidpointRounding.AwayFromZero) + f + (sv < 100 || v < 100 ? ":" + sv + ":" + v : "");
     }
 
     public static Color Col(uint rgb, int a = 255) => ColFor(Current, rgb, a);
