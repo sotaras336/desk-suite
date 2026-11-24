@@ -147,10 +147,19 @@ public static class SelfTest
             Check("log: a change that can't be undone doesn't stop the rest", failedUndo.Count == 1 && !tw.IsApplied && !Log.Touched("test") && Log.Count == 1, string.Join("; ", failedUndo));
 
             // an unreadable log is kept aside, not overwritten with an empty one
+            try { File.Delete(Log.File + ".bak"); } catch { }   // no spare copy: an empty list, the broken file kept aside
             File.WriteAllText(Log.File, "[{\"id\":\"cut short"); entriesField.SetValue(null, null);
             bool kept = Log.Count == 0 && Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*").Length > 0;
             Check("log: an unreadable change log is kept aside", kept);
             foreach (var f in Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*")) try { File.Delete(f); } catch { }
+            entriesField.SetValue(null, null);
+
+            // ...and with a spare copy (changes.json.bak, the save before), its changes can still be undone
+            File.WriteAllText(Log.File + ".bak", "[{\"id\":\"spare\",\"title\":\"Spare\",\"when\":\"2026-01-01T00:00:00\",\"steps\":[]}]");
+            File.WriteAllText(Log.File, new string('\0', 40)); entriesField.SetValue(null, null);
+            Check("log: an unreadable change log is replaced by the copy from the save before", Log.Count == 1 && Log.Touched("spare") && Log.Recovered);
+            foreach (var f in Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*")) try { File.Delete(f); } catch { }
+            try { File.Delete(Log.File + ".bak"); File.Delete(Log.File); } catch { }
             entriesField.SetValue(null, null);
 
             ServiceUndo(Check);   // services: only with administrator rights (the GitHub check has them)

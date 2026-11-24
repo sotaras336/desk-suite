@@ -52,6 +52,32 @@ int RunSelfTest(const ws& outFile) {
     check(L"package family", PackageFamilyFromPath(L"C:\\Program Files\\WindowsApps\\Claude_2.3.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe") == L"Claude_pzs8sxrjxfjjc");
     { PinInfo p; p.exe = L"C:\\x\\a.exe"; WinInfo w; w.exe = L"c:\\X\\A.EXE"; check(L"pin match exe", PinMatchesWindow(p, w)); PinInfo q; q.aumid = L"Foo!App"; WinInfo w2; w2.aumid = L"foo!app"; check(L"pin match aumid", PinMatchesWindow(q, w2)); }
     check(L"short name", AudioShortName(L"Headphones (2- Sam's Buds Pro)") == L"Sam's Buds Pro", AudioShortName(L"Headphones (2- Sam's Buds Pro)"));
+    {   // a file cut short at every possible length, or junk, never throws or reads past its end, and says it was not well-formed
+        Json j = Json::O(); j.Set(L"a", Json::S(L"x\u00E9\U0001F600\"y")); Json arr = Json::A(); arr.a.push_back(Json::N(-1.5e3)); arr.a.push_back(Json::O()); j.Set(L"b", arr); j.Set(L"c", Json::B(false));
+        std::string full = j.Dump(2) + "\n", esc = "{\"k\": \"\\uD83D\\uDE00 \\u00e9\"}"; int okCut = 0, threw = 0;
+        for (const std::string* src : {&full, &esc}) for (size_t n = 0; n < src->size(); n++) { bool ok = true; try { Json::Parse(src->substr(0, n), &ok); } catch (...) { threw++; } if (ok && n + 1 < src->size()) okCut++; }
+        bool fullOk = false, escOk = false; Json::Parse(full, &fullOk); Json e2 = Json::Parse(esc, &escOk);
+        bool junk = true; for (std::string bad : {std::string(), std::string(4, '\0'), std::string("{\"a\":"), std::string("[[[[[[[[[["), std::string("{\"a\" 1}"), std::string("{} x"), std::string("\xEF\xBB\xBF{\"u\":\"\\uD8")}) { bool ok = true; Json::Parse(bad, &ok); junk = junk && !ok; }
+        std::string deep(100000, '['); bool deepOk = true; Json::Parse(deep, &deepOk);
+        check(L"settings file cut short or junk: read safely and reported as broken", threw == 0 && okCut == 0 && fullOk && escOk && junk && !deepOk && e2.Find(L"k") && e2.Find(L"k")->s.size() == 4, Fmt(L"threw %d, cut-short read as fine %d, full %d", threw, okCut, (int)fullOk));
+    }
+    {   // a broken settings.json: set aside, the copy from the save before is used (pins kept), and the broken file is not lost
+        Settings keep = S; ws path = DataPath(L"settings.json"), bak = DataPath(L"settings.bak.json"), broken = DataPath(L"settings.broken.json"); DeleteFileW(broken.c_str());
+        S.taskbarPins = {L"first"}; SaveSettingsNow(); S.taskbarPins = {L"good", L"pins"}; SaveSettingsNow();   // two saves: the spare copy holds the first
+        S.taskbarPins = {L"second"}; SaveSettingsNow(); std::string cut = "{\"TaskbarPins\": [\"gar"; WriteAtomic(path, cut);   // the spare now holds "good", "pins"; the file is cut short
+        S = Settings(); LoadSettings(); bool fromBak = S.taskbarPins.size() == 2 && S.taskbarPins[0] == L"good" && SettingsRecovered(); std::string kept; ReadAll(broken, kept);
+        std::string now; bool rewritten = ReadAll(path, now) && [&] { bool ok = false; Json::Parse(now, &ok); return ok; }();
+        WriteAtomic(path, std::string(64, '\0')); DeleteFileW(bak.c_str()); S = Settings(); LoadSettings(); bool noBak = S.taskbarPins.empty();   // zeros and no spare: the defaults, no crash
+        check(L"broken settings: the copy from the save before is used, the broken file is kept aside", fromBak && kept == cut && rewritten && noBak, Fmt(L"pins %d, kept %d bytes", (int)S.taskbarPins.size(), (int)kept.size()));
+        DeleteFileW(broken.c_str()); S = keep; SaveSettingsNow();
+    }
+    {   // the friendly crash report finds the newest crash it hasn't offered yet (DeskBar's crash.txt, written by the crash filter and the watchdog)
+        ws f = DataPath(L"crash.txt"); std::string keepTxt; bool had = ReadAll(f, keepTxt);
+        WriteAtomic(f, "2099-01-01 10:00:00  DeskBar crashed: code c0000005, x\r\n  DeskBar!Foo+0x1\r\n\r\n2099-01-02 03:04:05  DeskBar stopped answering for 21 s and was restarted\r\n\r\nnot a header line\r\n");
+        CrashSeen a = CrashNewest(L"", L"2000-01-01 00:00:00"), b = CrashNewest(L"2099-01-02 03:04:05", L"2000-01-01 00:00:00"), c = CrashNewest(L"", L"2100-01-01 00:00:00");
+        check(L"crash report: newest crash found once, old ones skipped", a.app == L"DeskBar" && a.when == L"2099-01-02 03:04:05" && b.app.empty() && c.app.empty(), a.app + L" " + a.when);
+        if (had) WriteAtomic(f, keepTxt); else DeleteFileW(f.c_str());
+    }
     { Settings keep = S; S.taskbarPins = {L"a", L"b"}; S.edgeResistance = 3; S.launchCounts[L"x"] = 4; SaveSettingsNow(); S = Settings(); LoadSettings(); check(L"settings roundtrip", S.taskbarPins.size() == 2 && S.edgeResistance == 3 && S.launchCounts[L"x"] == 4); S = keep; SaveSettingsNow(); }   // write the real settings back: run against the real data folder, the test pins "a", "b" stayed in the file and replaced the user's pins at the next start
     check(L"measure text", MeasureText(L"Hello", FText(12)).w > 10);
     { ws d; bool ok = AccSelfTest(d); check(L"accessibility: Tab reaches every button, each has a name, high contrast colours", ok, d); }   // ui_access.cpp

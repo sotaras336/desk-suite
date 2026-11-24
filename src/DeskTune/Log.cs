@@ -16,6 +16,9 @@ public static class Log
     /// Guards the list: the changes run on a worker thread while the window reads Count and Touched.
     private static readonly object Gate = new();
 
+    /// This run's list came from changes.json.bak because changes.json could not be read.
+    public static bool Recovered { get; private set; }
+
     private static JsonArray Load()
     {
         if (!System.IO.File.Exists(File)) return new JsonArray();
@@ -25,12 +28,15 @@ public static class Log
         // Unreadable (cut short by a crash, a full disk...): it used to be replaced by an empty list at the next change, and every undo was lost for good.
         // Kept aside instead, so the old changes can still be recovered by hand.
         try { System.IO.File.Copy(File, File + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json", true); } catch { }
+        // ...and the copy from the save before (changes.json.bak) takes its place: at most the last change is missing from the undo list, not all of them.
+        try { if (JsonNode.Parse(System.IO.File.ReadAllText(File + ".bak")) is JsonArray b) { Recovered = true; return b; } } catch { }
         return new JsonArray();
     }
 
     private static void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(File)!);
+        try { if (System.IO.File.Exists(File) && JsonNode.Parse(System.IO.File.ReadAllText(File)) is JsonArray) System.IO.File.Copy(File, File + ".bak", true); } catch { }   // only a good file becomes the spare copy
         string tmp = File + ".tmp"; System.IO.File.WriteAllText(tmp, Entries.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); System.IO.File.Move(tmp, File, true);
     }
 

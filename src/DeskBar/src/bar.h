@@ -48,6 +48,7 @@ struct Bar : Wnd {
 void WidgetsBuild(Bar* b, View* parent);  // webwidget.cpp: add this bar's widget pills (hidden unless switched on)
 void BarsStart();                         // build bars for the current monitors
 void BarsStop();
+void BarsRedock();   // Explorer restarted: it forgot every appbar, so each bar registers again (bar.cpp)
 void BarsTick();
 void BarsSync();
 void BarsRebuildIfMonitorsChanged();
@@ -57,4 +58,4 @@ std::vector<Bar*> AllBars();
 TaskBtn* FindBtn(const ws& key);
 extern ws g_devScreen;                    // "surface" | "lg" | "all"
 
-void TrayStart(); void TrayStop(); void TrayKeepOnTop(); void TrayPlace(const RECT& r); void TrayRefresh(); void TrayToggleOverflow(Bar* bar);
+void TrayStart(); void TrayStop(); void TrayKeepOnTop(); void TrayAnnounce(); void TrayPlace(const RECT& r); void TrayRefresh(); void TrayToggleOverflow(Bar* bar);

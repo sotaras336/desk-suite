@@ -135,6 +135,8 @@ void TrayStop() {
     SendNotifyMessageW(HWND_BROADCAST, g_wmTaskbarCreated, 0, 0);    // Windows' own tray is the first Shell_TrayWnd again: apps re-register
 }
 void TrayKeepOnTop() { if (g_wnd && FindWindowW(L"Shell_TrayWnd", nullptr) != g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+// After Explorer restarts its new taskbar window sits above ours, and apps put their icons back there ("TaskbarCreated"): ours goes on top again and asks once more.
+void TrayAnnounce() { if (!g_wnd) return; SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SendNotifyMessageW(HWND_BROADCAST, g_wmTaskbarCreated, 0, 0); }
 void TrayPlace(const RECT& r) { if (g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE); }
 bool OverflowFill(bool show);
 void TrayRefresh() {

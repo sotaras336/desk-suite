@@ -52,7 +52,19 @@ public partial class App : Application
     private void CrashNet(string app)
     {
         string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), app); int n = 0;
-        void W(string kind, object? ex) { try { System.IO.Directory.CreateDirectory(dir); System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "crash.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {kind}\r\n{ex}\r\n\r\n"); } catch { } }
+        // "fatal" entries (the app closed) are what DeskBar offers to send with Report a bug at its next start (bugreport.cpp); the build and Windows
+        // version are on the same line, so a report says which copy crashed. Kept under 256 KB: only the newest part is ever read.
+        string head = $"{app} build {Updater.SelfBuilt ?? "?"}, Windows {Environment.OSVersion.Version}";
+        void W(string kind, object? ex)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir); string f = System.IO.Path.Combine(dir, "crash.log");
+                if (new System.IO.FileInfo(f) is { Exists: true, Length: > 256 * 1024 }) { string all = System.IO.File.ReadAllText(f); System.IO.File.WriteAllText(f, all[^Math.Min(all.Length, 128 * 1024)..]); }
+                System.IO.File.AppendAllText(f, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {kind}  {head}\r\n{ex}\r\n\r\n");
+            }
+            catch { }
+        }
         DispatcherUnhandledException += (_, a) => { W("window", a.Exception); if (++n <= 20) a.Handled = true; };
         AppDomain.CurrentDomain.UnhandledException += (_, a) => W("fatal", a.ExceptionObject);
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, a) => { W("task", a.Exception); a.SetObserved(); };

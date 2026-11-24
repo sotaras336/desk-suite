@@ -21,17 +21,21 @@ ws CacheName(const ws& key) {   // a program's icon changes when the file is rep
     return k;
 }
 ws CacheFile(const ws& key, int px) { return g_dir + L"\\" + Hex16(Sha1Prefix(CacheName(key))) + L"_" + std::to_wstring(px) + L".png"; }
+// The same icon under the key alone, without the program's write time: the last picture the shell gave for it. After a reboot that updated an app
+// (Windows Update, Chrome, Teams, Office all do this at restart) the exact file above is missing and the shell, busy with sign-in, took seconds per icon:
+// the bar waited (up to 8 s) with empty buttons. Now the last picture shows at once, and the fresh one replaces it when the shell answers.
+ws LastFile(const ws& key, int px) { return g_dir + L"\\" + Hex16(Sha1Prefix(key)) + L"_" + std::to_wstring(px) + L".png"; }
 ImgP FromShell(const ws& key, int px) {
     ComPtr<IShellItemImageFactory> fac;
     if (FAILED(SHCreateItemFromParsingName(ParsingName(key).c_str(), nullptr, IID_PPV_ARGS(&fac)))) return nullptr;
     HBITMAP hb = nullptr;
     if (FAILED(fac->GetImage({px, px}, SIIGBF_ICONONLY, &hb)) || !hb) return nullptr;
     ImgP im = ImgFromHBitmap(hb); DeleteObject(hb);
-    if (im) ImgSavePng(*im, CacheFile(key, px));
+    if (im) { ws exact = CacheFile(key, px), last = LastFile(key, px); ImgSavePng(*im, exact); if (!EqI(exact, last)) CopyFileW(exact.c_str(), last.c_str(), FALSE); }
     return im;
 }
 void Finish(const Job& j, ImgP im) {
-    { std::lock_guard<std::mutex> l(g_mu); g_pending.erase({j.key, j.px}); if (im) g_cache[{j.key, j.px}] = im; else g_failed.insert({j.key, j.px}); }
+    { std::lock_guard<std::mutex> l(g_mu); g_pending.erase({j.key, j.px}); if (im) g_cache[{j.key, j.px}] = im; else if (!g_cache.count({j.key, j.px})) g_failed.insert({j.key, j.px}); }   // the shell failing keeps the last picture, if there was one
     if (im) UiPost([] { InvalidateAllWnds(); });
 }
 bool Take(std::vector<Job>& q, Job& j) { std::lock_guard<std::mutex> l(g_mu); if (q.empty()) return false; j = q.back(); q.pop_back(); return true; }
@@ -39,8 +43,10 @@ void FastWorker() {   // the disk cache only
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     for (;;) {
         Job j; if (!Take(g_queue, j)) { WaitForSingleObject(g_ev, INFINITE); continue; }
-        if (ImgP im = ImgFromFile(CacheFile(j.key, j.px))) Finish(j, im);
-        else { { std::lock_guard<std::mutex> l(g_mu); g_slow.push_back(j); } SetEvent(g_evSlow); }
+        ws exact = CacheFile(j.key, j.px), last = LastFile(j.key, j.px);
+        if (ImgP im = ImgFromFile(exact)) { Finish(j, im); if (!EqI(exact, last) && !FileExists(last)) CopyFileW(exact.c_str(), last.c_str(), TRUE); continue; }   // a cache from before the "last picture" existed gets one too
+        if (ImgP old = ImgFromFile(last)) { { std::lock_guard<std::mutex> l(g_mu); g_cache[{j.key, j.px}] = old; } UiPost([] { InvalidateAllWnds(); }); }   // shown now, kept pending: the shell's answer replaces it
+        { std::lock_guard<std::mutex> l(g_mu); g_slow.push_back(j); } SetEvent(g_evSlow);
     }
 }
 void SlowWorker() {   // the shell
@@ -51,6 +57,11 @@ void SlowWorker() {   // the shell
         Finish(j, FromShell(j.key, j.px));
     }
 }
+}
+// For the supervisor's stand-in bar (no icon workers there): the exact cached picture, else the last one.
+ws IconCachedFile(const ws& key, int px) {
+    if (g_dir.empty()) g_dir = DataPath(L"icons");
+    ws f = CacheFile(key, px); if (FileExists(f)) return f; f = LastFile(key, px); return FileExists(f) ? f : ws();
 }
 void IconInit() {
     g_dir = DataPath(L"icons"); SHCreateDirectoryExW(nullptr, g_dir.c_str(), nullptr);

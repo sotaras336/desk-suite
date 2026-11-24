@@ -55,7 +55,6 @@ LRESULT CALLBACK StandinProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 void StandinThread() {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     WNDCLASSW wc{}; wc.lpfnWndProc = StandinProc; wc.hInstance = g_inst; wc.lpszClassName = L"DB3.Standin"; wc.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&wc);
-    ws iconDir = DataPath(L"icons");
     for (auto& m : Monitors()) {
         auto* s = new Standin(); s->mon = m.h; s->scale = m.scale; s->barH = (int)lroundf(48 * m.scale);
         s->hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, wc.lpszClassName, L"DeskBar", WS_POPUP | WS_VISIBLE, m.bounds.left, m.bounds.bottom - s->barH, m.bounds.right - m.bounds.left, s->barH, nullptr, nullptr, g_inst, nullptr);
@@ -63,7 +62,7 @@ void StandinThread() {
         s->font = CreateFontW(-(int)lroundf(12 * m.scale), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable Text");
         int px = (int)lroundf(24 * m.scale);
         for (auto& p : g_pinsForStandin) {
-            Slot sl; sl.launch = p.launch; sl.bmp = LoadPng(iconDir + L"\\" + Hex16(Sha1Prefix(p.iconKey)) + L"_" + std::to_wstring(px) + L".png", px);
+            Slot sl; sl.launch = p.launch; ws f = IconCachedFile(p.iconKey, px); sl.bmp = f.empty() ? nullptr : LoadPng(f, px);   // the same file names as the real bar's cache: the stand-in looked under the key alone, so a program's icon (named with its write time) was never found and its slot stayed empty
             if (sl.bmp) { BITMAP b; GetObjectW(sl.bmp, sizeof b, &b); sl.w = b.bmWidth; sl.h = b.bmHeight; } s->slots.push_back(sl);
         }
         g_stand.push_back(s); InvalidateRect(s->hwnd, nullptr, FALSE);

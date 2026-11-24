@@ -410,6 +410,7 @@ void BarsStart() {
     for (auto& m : want) { auto b = std::make_unique<Bar>(m.h, i); b->isMain = i++ == mainAt; if (b->Init()) g_bars.push_back(std::move(b)); }
     BarsSync(); TrayRefresh();
 }
+void BarsRedock() { if (g_dev) return; for (auto& b : g_bars) { if (b->hiddenFs) continue; Dock::Remove(b->hwnd); Dock::Register(b->hwnd, b->mon, b->HeightPx()); } }
 void BarsStop() { for (auto& b : g_bars) { RevokeDragDrop(b->hwnd); if (!g_dev) Dock::Remove(b->hwnd); } g_bars.clear(); }   // revoke: the drop target points at the bar
 void BarsSync() {
     auto snap = WinSnapshot(); auto es = BuildEntries(*snap);

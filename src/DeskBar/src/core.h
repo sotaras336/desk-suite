@@ -47,7 +47,7 @@ struct Json {
     enum T { Null, Bool, Num, Str, Arr, Obj } t = Null;
     bool b = false; double n = 0; ws s;
     std::vector<Json> a; std::vector<std::pair<ws, Json>> o;
-    static Json Parse(const std::string& u8);
+    static Json Parse(const std::string& u8, bool* ok = nullptr);   // ok: false when the text was cut short or not JSON (what could be read is still returned)
     std::string Dump(int indent = 0) const;
     const Json* Find(const wchar_t* k) const;
     Json& Set(const wchar_t* k, Json v);
@@ -81,7 +81,8 @@ struct Settings {
     bool updateCheck = true; ws updateKnown; double updateLast = 0;   // once-a-day look for a newer release (update.cpp): on/off, the newest build's checksum, when (unix seconds)
 };
 extern Settings S;
-void LoadSettings();                   // also imports DeskBar2's file on first run
+void LoadSettings();                   // also imports DeskBar2's file on first run; an unreadable file is set aside and settings.bak.json used
+bool SettingsRecovered();              // this run's settings came from the spare copy (or the defaults) because settings.json was unreadable
 void SaveSettingsSoon();               // debounced 400 ms, atomic
 void SaveSettingsNow();
 bool SettingsFileChanged();            // for the input helper: re-read when the file changes
