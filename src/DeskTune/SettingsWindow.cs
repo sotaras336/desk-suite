@@ -44,7 +44,7 @@ public sealed class SettingsWindow : Window
             var bar = new Border { Width = 3, Height = 18, CornerRadius = new CornerRadius(1.5), Margin = new Thickness(0, 0, 12, 0) };
             var g = G(_pages[i].Glyph, 16, Soft); g.Width = 18; g.Margin = new Thickness(0, 0, 12, 0);
             var sp = new StackPanel { Orientation = Orientation.Horizontal }; sp.Children.Add(bar); sp.Children.Add(g); sp.Children.Add(T(_pages[i].Name, 14, Fg));
-            var item = new Border { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 10, 12, 10), Margin = new Thickness(0, 0, 0, 4), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            var item = A11y.Button(new TapBorder { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 10, 12, 10), Margin = new Thickness(0, 0, 0, 4), Background = Brushes.Transparent, Cursor = Cursors.Hand }, _pages[i].Name, () => Show(n));
             item.MouseEnter += (_, _) => { if (item.Tag is not true) item.Background = Rgb(0xFFFFFF, 0x0C); };
             item.MouseLeave += (_, _) => { if (item.Tag is not true) item.Background = Brushes.Transparent; };
             item.MouseLeftButtonUp += (_, _) => Show(n);
@@ -126,7 +126,7 @@ public sealed class SettingsWindow : Window
         return sp;
     }
     static void Sep(StackPanel card) { if (card.Children.Count > 0) card.Children.Add(new Border { Height = 1, Background = Rgb(0xFFFFFF, 0x0E), Margin = new Thickness(58, 0, 10, 0) }); }
-    Border Row(StackPanel card, string glyph, string title, string what, UIElement? right)
+    TapBorder Row(StackPanel card, string glyph, string title, string what, UIElement? right)
     {
         Sep(card);
         var disc = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(10), Background = Rgb(0xFFFFFF, 0x10), Child = G(glyph, 16, Soft), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
@@ -134,10 +134,11 @@ public sealed class SettingsWindow : Window
         var row = new DockPanel(); DockPanel.SetDock(disc, Dock.Left); row.Children.Add(disc);
         if (right is FrameworkElement fe) { DockPanel.SetDock(fe, Dock.Right); fe.Margin = new Thickness(14, 0, 0, 0); row.Children.Add(fe); }
         row.Children.Add(text);
-        var hit = new Border { Child = row, Padding = new Thickness(10, 10, 12, 10), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent };
+        var hit = new TapBorder { Child = row, Padding = new Thickness(10, 10, 12, 10), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Focusable = false };   // focusable once it does something (Clickable)
+        System.Windows.Automation.AutomationProperties.SetName(hit, title); if (what.Length > 0) System.Windows.Automation.AutomationProperties.SetHelpText(hit, what);
         card.Children.Add(hit); return hit;
     }
-    void Clickable(Border hit, Action act) { hit.Cursor = Cursors.Hand; hit.MouseEnter += (_, _) => hit.Background = Hover; hit.MouseLeave += (_, _) => hit.Background = Brushes.Transparent; hit.MouseLeftButtonUp += (_, _) => act(); }
+    void Clickable(TapBorder hit, Action act) { hit.Activate = act; hit.Focusable = true; hit.Cursor = Cursors.Hand; hit.MouseEnter += (_, _) => hit.Background = Hover; hit.MouseLeave += (_, _) => hit.Background = Brushes.Transparent; hit.MouseLeftButtonUp += (_, _) => act(); }
     void Switch(StackPanel card, string glyph, string title, string what, bool on, Action<bool> set)
     {
         var knob = new Ellipse { Width = 12, Height = 12, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
@@ -149,7 +150,8 @@ public sealed class SettingsWindow : Window
             if (anim) tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(on ? 20 : 0, TimeSpan.FromMilliseconds(130)) { EasingFunction = new QuadraticEase() }); else tt.X = on ? 20 : 0;
         }
         Paint(false);
-        Clickable(Row(card, glyph, title, what, pill), () => { on = !on; Paint(true); set(on); });
+        var hit = Row(card, glyph, title, what, pill); hit.IsOn = () => on;   // a screen reader hears it as a switch, on or off
+        Clickable(hit, () => { on = !on; Paint(true); set(on); });
     }
     void Action(StackPanel card, string glyph, string title, string what, Action? act)
     {
@@ -163,8 +165,8 @@ public sealed class SettingsWindow : Window
         if (glyph.Length > 0) { var g = G(glyph, 13, Fg); g.Margin = new Thickness(0, 0, 8, 0); sp.Children.Add(g); }
         sp.Children.Add(T(text, 13.5, Fg, primary ? FontWeights.SemiBold : FontWeights.Normal));
         var idle = primary ? Glow() : Rgb(0xFFFFFF, 0x10); var over = primary ? Glow() : Rgb(0xFFFFFF, 0x1C);
-        var b = new Border { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 8, 16, 9), Background = idle, BorderBrush = primary ? null : Line, BorderThickness = new Thickness(primary ? 0 : 1), Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+        var b = new TapBorder { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 8, 16, 9), Background = idle, BorderBrush = primary ? null : Line, BorderThickness = new Thickness(primary ? 0 : 1), Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
         b.MouseEnter += (_, _) => b.Background = over; b.MouseLeave += (_, _) => b.Background = idle; b.MouseLeftButtonUp += (_, _) => act();
-        return b;
+        return A11y.Button(b, text, act);
     }
 }

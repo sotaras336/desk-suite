@@ -101,6 +101,7 @@ public static class SelfTest
             catch (Exception ex) { Check("shared colours: no exception", false, ex.Message); }
             finally { Environment.SetEnvironmentVariable("DESK_DIR", realDir); try { Directory.Delete(dir, true); } catch { } }
         }
+        A11y.SelfTest(Check);   // keyboard and screen reader basics (A11y.cs)
         string realLog = Log.File; Log.File = Path.Combine(Path.GetTempPath(), "desktune-selftest-" + Guid.NewGuid().ToString("N")[..8] + ".json");
         try
         {

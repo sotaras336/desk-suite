@@ -98,6 +98,8 @@ struct View {
     float radius = 0, borderW = 0; D2D1_COLOR_F border{};
     Brush bg, bgHover, bgPress, borderHover;
     ws tip;
+    ws accName;                             // what a screen reader calls it; empty = its text, its tooltip's first line, or its icon's name (ui_access.cpp)
+    void* acc = nullptr;                    // its UI Automation provider, made only when a screen reader asks (ui_access.cpp)
     std::function<void()> onClick, onRight, onLong, onMiddle;
     std::function<void(bool)> onHover;
     bool ibeam = false;
@@ -154,7 +156,7 @@ struct Slider : View {
     bool OnDown(float x, float y, bool touch) override; void OnDrag(float x, float y) override; void OnUp(float x, float y) override;
     bool OnKey(UINT vk, bool ctrl, bool shift) override;
     bool OnWheel(float d, float, float) override;
-    bool Focusable() const override { return false; }
+    bool Focusable() const override { return enabled; }   // arrow keys move it (ui_access.cpp)
     void From(float x, bool fin);
 };
 struct Toggle : View {
@@ -209,6 +211,7 @@ struct Wnd {
     bool followDpi = false;   // a window you move yourself (settings): on a screen with other scaling it takes the size Windows suggests. The bar, panels and menus place themselves.
     Sz client;                              // dips
     View *hover = nullptr, *press = nullptr, *capture = nullptr, *focus = nullptr;
+    bool kbCue = false;                     // focus came from the keyboard: draw the focus ring (a click hides it again)
     bool touchLast = false; float downX = 0, downY = 0; UINT_PTR longTimer = 0; bool longFired = false, panMode = false; View* panView = nullptr;
     float lastX = 0, lastY = 0; int frames = 0;
     UINT_PTR tipTimer = 0; View* tipView = nullptr; bool tracking = false; float panX = 0, panY = 0;
@@ -260,4 +263,23 @@ struct MenuItem {
 void MenuShow(std::vector<MenuItem> items, RECT anchorPx, bool above, float scale);
 void MenuClose();
 bool MenuOpen();
+Wnd* MenuWindow();                         // the menu's window while one exists (for the keyboard and screen readers), else nullptr
+
+// ---------- accessibility (ui_access.cpp) ----------
+// Keyboard: Tab / Shift+Tab and the arrow keys move between everything you can click, Enter or Space clicks, the menu key or Shift+F10 right-clicks.
+// Screen readers: every window answers UI Automation with its views as buttons, toggles, sliders, text boxes and text.
+// High contrast: Col() paints with Windows' high contrast colours while it is on. Text size: tooltips and menus follow Windows' "Text size".
+bool AccKeyDown(Wnd* w, UINT vk, bool ctrl, bool shift, bool beforeWindow);   // beforeWindow: Enter/Space/menu key, before the window's own keys; then Tab/arrows
+bool AccMenuKey(UINT vk);                  // a menu is open: Up/Down/Enter/Esc go to it, whichever window has the keyboard
+bool AccGetObject(Wnd* w, WPARAM wp, LPARAM lp, LRESULT& out);
+void AccWindowGone(Wnd* w);
+void AccViewGone(View* v);
+void AccFocusChanged(Wnd* w, View* v);
+void AccValueChanged(View* v);
+void AccPaintFocus(Wnd* w);
+void AccSettingChange(WPARAM wp, LPARAM lp);
+bool AccSliderKey(Slider* s, UINT vk, bool ctrl);
+ws AccNameOf(View* v);
+float TextScale();                         // Windows' Settings > Accessibility > Text size: 1 to 2.25
+bool AccSelfTest(ws& detail);
 

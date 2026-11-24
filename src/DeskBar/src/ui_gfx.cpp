@@ -44,7 +44,7 @@ Brush SolidB(uint32_t rgb, int a) {
     Brush b; b.k = Brush::Solid; b.c = Col(rgb, a); return b;
 }
 Brush FadeB(uint32_t rgb, float k) {
-    float g = ThemeGrad(); if (g <= 0 || CurrentTheme().kind != 0) return SolidB(rgb);
+    float g = ThemeGrad(); if (g <= 0 || CurrentTheme().kind != 0 || HighContrastOn()) return SolidB(rgb);
     auto a = Col(rgb); return LinearB(0, 0, 1, 0, {{0, a}, {1, ShiftColor(a, -0.5f * g, k * g)}});
 }
 Brush SolidC(D2D1_COLOR_F c) { Brush b; b.k = Brush::Solid; b.c = c; return b; }

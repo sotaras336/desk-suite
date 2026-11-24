@@ -22,7 +22,7 @@ public static class Theme
 
     public static ThemeDef Current { get; private set; } = All[0];
     public static bool IsLight => Current.Kind == 2;
-    public static bool IsGlass => Current.Kind == 3;
+    public static bool IsGlass => Current.Kind == 3 && !SystemParameters.HighContrast;   // high contrast: solid system colours, no see-through
 
     /// How far a custom colour fades to a lighter shade ("custom:<hue>:<0-100>"): 0 = flat, -1 = not set (DeskMode's own fade).
     public static double Grad = -1;
@@ -183,6 +183,7 @@ public static class Theme
             r["Card"] = Raw(0xFFFFFF, 0x0F); r["CardHover"] = Raw(0xFFFFFF, 0x1C); r["CardLine"] = Raw(0xFFFFFF, 0x16);
             r["Select"] = Raw(0xFFFFFF, 0x20); r["SelectLine"] = Raw(0xFFFFFF, 0x2E);
         }
+        A11y.HighContrast(r);   // Windows' high contrast colours win while it is on
     }
 }
 
