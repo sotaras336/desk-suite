@@ -58,7 +58,7 @@ bool DoCheck(ws& status) {
     { std::lock_guard<std::mutex> l(g_mu); g_known = want; }
     ws me = SelfHash(); bool newer = !me.empty() && want != me;
     ws built = UpdateBuiltFor(sums, kAsset), mine = SelfBuilt();
-    if (newer && !built.empty() && !mine.empty() && built <= mine) { status = L"You have a newer build than the latest release."; return false; }   // same-length stamps: text order is time order
+    if (newer && UpdateReleaseNotNewer(built, mine)) { status = L"You have a newer build than the latest release."; return false; }
     status = newer ? L"A new version is available." : L"You have the latest version."; return newer;
 }
 // download + verify, on the calling thread; true = the checked setup file is at `path`
@@ -115,6 +115,15 @@ ws UpdateBuiltFor(const std::string& sums, const ws& file) {
         if (EqI(Trim(rest.substr(0, sp)), file)) return stamp;
     }
     return {};
+}
+// The one rule for "is the release newer than me", the same in all three apps. A release is only newer when it says it was built later than this copy.
+// A release list with no "built" line comes from before 4.0, when builds started carrying their time: every copy that knows its own build time is newer than
+// that, so it is never offered (the test builds on the PC were offered the older public release over and over, and Update put the old one back).
+// Only a copy that doesn't know its own build time (older than 4.0) still goes by "the file is different".
+bool UpdateReleaseNotNewer(const ws& releaseBuilt, const ws& mine) {
+    if (mine.empty()) return false;              // no time of our own: different = newer, as before
+    if (releaseBuilt.empty()) return true;       // the release doesn't say: it is older than any copy that does
+    return releaseBuilt <= mine;                 // same-length stamps: text order is time order
 }
 ws UpdateStamp(int64_t unixSeconds) {   // seconds since 1970 (UTC) -> "yyyyMMddTHHmmssZ"
     if (unixSeconds <= 0) return {};

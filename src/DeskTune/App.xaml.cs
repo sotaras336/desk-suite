@@ -12,14 +12,38 @@ public partial class App : Application
     {
         try
         {
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(InstalledExe)!);
-            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase))
-                for (int i = 0; ; i++) { try { System.IO.File.Copy(Environment.ProcessPath!, InstalledExe, true); break; } catch (System.IO.IOException) when (i < 30) { System.Threading.Thread.Sleep(200); } }   // an open DeskTune that is updating itself is still closing
+            var dir = System.IO.Path.GetDirectoryName(InstalledExe)!; System.IO.Directory.CreateDirectory(dir);
+            try { System.IO.File.Delete(System.IO.Path.Combine(dir, UninstallMark)); } catch { }   // an uninstall a moment ago: its delayed folder removal must not take this copy
+            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase)) CopyIn(Environment.ProcessPath!, dir);
+            if (!System.IO.File.Exists(InstalledExe)) { MessageBox.Show("DeskTune couldn't install: the program file didn't arrive in " + dir, "DeskTune"); return false; }
             foreach (var dir in new[] { Programs, Desktop }) Link(System.IO.Path.Combine(dir, "DeskTune.lnk"), "", "DeskTune: make Windows lighter");
             Link(System.IO.Path.Combine(Programs, "Uninstall DeskTune.lnk"), "--uninstall", "Remove DeskTune");
             return true;
         }
         catch (Exception ex) { MessageBox.Show("DeskTune couldn't install: " + ex.Message, "DeskTune"); return false; }
+    }
+
+    const string UninstallMark = "uninstalling";
+
+    /// Each file is copied beside its place, then swapped in: a failed copy leaves the old file, never an empty folder. A "dotnet build" copy (exe + dll +
+    /// two .json files) installs whole, a published single exe on its own (DeskDrawer's Setup.CopyIn does the same).
+    internal static List<string> CopyIn(string fromExe, string toDir)
+    {
+        string src = System.IO.Path.GetDirectoryName(fromExe)!, me = System.IO.Path.GetFileNameWithoutExtension(fromExe);
+        var pairs = new List<(string from, string to)> { (fromExe, System.IO.Path.Combine(toDir, "DeskTune.exe")) };
+        foreach (var ext in new[] { ".dll", ".deps.json", ".runtimeconfig.json" })
+        {
+            var f = System.IO.Path.Combine(src, me + ext); var t = System.IO.Path.Combine(toDir, "DeskTune" + ext);
+            if (System.IO.File.Exists(f)) pairs.Add((f, t)); else if (System.IO.File.Exists(t)) try { System.IO.File.Delete(t); } catch { }
+        }
+        var copied = new List<string>();
+        foreach (var (from, to) in pairs)
+            for (int i = 0; ; i++)
+            {
+                try { System.IO.File.Copy(from, to + ".new", true); System.IO.File.Move(to + ".new", to, true); copied.Add(to); break; }
+                catch (Exception) when (i < 30) { System.Threading.Thread.Sleep(200); }   // an open DeskTune that is updating itself is still closing
+            }
+        return copied;
     }
 
     private static string Programs => Environment.GetFolderPath(Environment.SpecialFolder.Programs);
@@ -39,7 +63,9 @@ public partial class App : Application
         if (answer != MessageBoxResult.Yes) return 1;
         foreach (var l in new[] { System.IO.Path.Combine(Programs, "DeskTune.lnk"), System.IO.Path.Combine(Desktop, "DeskTune.lnk"), System.IO.Path.Combine(Programs, "Uninstall DeskTune.lnk") })
             try { System.IO.File.Delete(l); } catch { }
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 3 > nul & rmdir /s /q \"{System.IO.Path.GetDirectoryName(InstalledExe)}\"") { CreateNoWindow = true, UseShellExecute = false });
+        var dir = System.IO.Path.GetDirectoryName(InstalledExe)!; var mark = System.IO.Path.Combine(dir, UninstallMark);
+        try { System.IO.File.WriteAllText(mark, ""); } catch { }   // an install in the next 3 s deletes this, and the folder stays
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 3 > nul & if exist \"{mark}\" rmdir /s /q \"{dir}\"") { CreateNoWindow = true, UseShellExecute = false });
         return 0;
     }
 

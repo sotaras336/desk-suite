@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "bar.h"
+#include "flyout.h"
 
 // Window helpers: snap a dragged window onto one screen, send to the other screen, and rescue windows when a screen is unplugged.
 namespace {
@@ -392,6 +393,16 @@ void GuardPost() {   // any thread: have the guard thread bring the strips in li
     static std::once_flag once; std::call_once(once, [] { std::thread(GuardThread).detach(); for (int i = 0; i < 200 && !g_guardTid; i++) Sleep(5); });
     if (DWORD t = g_guardTid) PostThreadMessageW(t, WM_GUARD_SYNC, 0, 0);
 }
+// While a DeskBar menu or panel is open the strips step aside. They live on their own thread now, and the mouse's "pass through" answer (HTTRANSPARENT) only
+// reaches windows of the SAME thread, so a click on a strip went nowhere; and the strip is put back on top every half second, over the menu. The bar's
+// right-click menu opens just above the pointer, so its last row ("DeskBar settings") sat on the strip and did nothing; a tap there was moved onto the strip.
+// The menu and panels cover the app's edge anyway while they are open. The strips come back on the next sync after they close.
+bool GuardsStandAside() { return MenuOpen() || OpenPanel() != Panel::None; }
+static void GuardsSet(std::vector<GuardWant> want) {   // UI thread
+    if (GuardsStandAside()) want.clear();
+    { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant = std::move(want); }
+    GuardPost();
+}
 void GuardsUpdate() {   // UI thread: where the strips should be; the guard thread does the rest
     std::vector<GuardWant> want;
     for (Bar* b : AllBars()) {
@@ -401,8 +412,7 @@ void GuardsUpdate() {   // UI thread: where the strips should be; the guard thre
         int band = EdgeBandPx(GetDpiForWindow(bar), 14);
         want.push_back({bar, GuardStripRect(br, band)});
     }
-    { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant = std::move(want); }
-    GuardPost();
+    GuardsSet(std::move(want));
 }
 void WinMoveStart() { std::thread(SnapperThread).detach(); std::thread(SizeWatchThread).detach(); g_screens = ScreenKeys(); g_sig = MonSignature(); Snapshot(); }
 void WinMoveTick(int n) {   // from the app tick (250 ms)
@@ -451,6 +461,34 @@ bool GuardThreadSelfTest(ws& detail) {
     if (fake) DestroyWindow(fake);
     detail = Fmt(L"made %d, in place %d, topmost %d, own thread %d, made afresh %d, removed %d", (int)made, (int)placed, (int)top, (int)own, (int)fresh, (int)gone);
     return made && placed && top && own && fresh && gone;
+}
+
+// The right-click menu for real: the bar's menu still has its items; a menu shown where the bar's menu opens runs each item you pick (through the UI queue,
+// as a click does); and while it is open no touch strip is made, even one asked for right over its last row. Closed, the strip comes back.
+bool MenuGuardSelfTest(ws& detail) {
+    if (!UiHwnd()) UiInit();
+    auto pump = [](const std::function<bool()>& f) { for (int i = 0; i < 200; i++) { MSG m; while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); } if (f()) return true; Sleep(10); } return false; };
+    bool items = false; { auto bm = BarMenuItems(); bool tm = false, st = false; for (auto& it : bm) { if (it.text == L"Task Manager" && it.fn) tm = true; if (it.text == L"Desk settings" && it.fn) st = true; } items = tm && st; }
+    MONITORINFO mi{sizeof mi}; GetMonitorInfoW(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
+    POINT at{(mi.rcWork.left + mi.rcWork.right) / 2, mi.rcWork.bottom + 4};   // on the bar, as a right-click there
+    int ran = 0, want = 0; const wchar_t* names[] = {L"DeskDrawer", L"Task Manager", L"Desk settings"};
+    for (int k = 0; k < 3; k++) {
+        int got = -1; std::vector<MenuItem> m; for (int i = 0; i < 3; i++) m.push_back({names[i], 0xE8A7, [i, &got] { got = i; }});
+        MenuShow(std::move(m), RECT{at.x, at.y, at.x, at.y}, true, 1); want++;
+        Wnd* w = MenuWindow(); std::vector<View*> rows; if (w && w->root) for (auto* v : w->root->kids) if (v->onClick) rows.push_back(v);
+        if ((int)rows.size() == 3) { auto f = rows[k]->onClick; f(); if (pump([&] { return got == k; }) && !MenuOpen()) ran++; }
+        MenuClose();
+    }
+    // a strip asked for right over the menu's last row, with the menu open: none is made
+    std::vector<MenuItem> m; m.push_back({L"Desk settings", 0xE713, [] {}}); MenuShow(std::move(m), RECT{at.x, at.y, at.x, at.y}, true, 1);
+    RECT mr{}; if (MenuWindow()) GetWindowRect(MenuWindow()->hwnd, &mr);
+    HWND fake = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    RECT strip{mr.left, mr.bottom - 20, mr.right, mr.bottom};
+    bool aside = GuardsStandAside(); GuardsSet({{fake, strip}}); Sleep(100); bool none = g_anyGuard.load() == nullptr;
+    MenuClose(); bool back = !GuardsStandAside(); GuardsSet({{fake, strip}}); back = back && WaitFor([] { return g_anyGuard.load() != nullptr; });
+    GuardsSet({}); WaitFor([] { return g_anyGuard.load() == nullptr; }); if (fake) DestroyWindow(fake);
+    detail = Fmt(L"bar menu items %d, picked items ran %d of %d, strips step aside %d, none over the menu %d, back after %d", (int)items, ran, want, (int)aside, (int)none, (int)back);
+    return items && ran == want && aside && none && back;
 }
 
 // Touch on the bar's edge and window moves between screens, with the numbers of the real setup: a Surface 2880x1920 at 200% (bar 96 px) and an LG 1920x1080 at

@@ -24,7 +24,7 @@ public partial class MainWindow
         m.Items.Add(MI("New tab", "", () => NewTab(t.Current), "Ctrl+T"));
         m.Items.Add(MI("Duplicate tab", "", () => { if (t.Current != null) { AddTab(t.Current); _tabs.Move(_tabs.Count - 1, _tabs.IndexOf(t) + 1); Activate(_tabs[_tabs.IndexOf(t) + 1]); } }));
         m.Items.Add(MI("Open in new window", "", () => { Activate(t); OpenNewWindow(); }, "Ctrl+N"));
-        m.Items.Add(MI("Side by side", "", () => { Activate(t); SideBySide(); }, "Ctrl+Shift+2"));
+        m.Items.Add(MI("Side by side", "", () => { Activate(t); SideBySide(); }, "Ctrl+Shift+S"));
         m.Items.Add(new Separator());
         m.Items.Add(MI("Close tab", "", () => CloseTab(t), "Ctrl+W"));
         m.Items.Add(MI("Close other tabs", "", () => { foreach (var o in _tabs.Where(x => x != t).ToList()) CloseTab(o); }, enabled: _tabs.Count > 1));

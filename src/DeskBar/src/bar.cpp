@@ -192,6 +192,16 @@ static View* BarBtn(View* parent) {
     b->bgHover = SolidB(K::White, 0x22); b->bgPress = SolidB(K::White, 0x14); return b;
 }
 
+// The bar's own right-click menu (the self-test checks it still holds Task Manager and the settings window, each with something to run)
+std::vector<MenuItem> BarMenuItems() {
+    std::vector<MenuItem> m;
+    if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});
+    if (BugReportsOn()) m.push_back({L"Report a bug to Claude", 0xEBE8, [] { OpenBugReport(); }});
+    if (FileExists(DeskAppExe(L"DeskDrawer"))) m.push_back({L"DeskDrawer", 0xEC50, [] { Launch(DeskAppExe(L"DeskDrawer")); }});   // the suite's other apps, one right-click away
+    if (FileExists(DeskAppExe(L"DeskTune"))) m.push_back({L"DeskTune", 0xE9F5, [] { Launch(DeskAppExe(L"DeskTune")); }});
+    m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"Desk settings", 0xE713, [] { OpenSettingsWindow(); }});   // the one settings window for all three apps
+    return m;
+}
 Bar::Bar(HMONITOR m, int index) : hmon(m), idx(index) { noActivate = true; transparent = ThemeIsGlass(CurrentTheme()); }
 // ---- screen geometry, kept free of window calls so the self-test can run it on pretend screen layouts (mixed scaling, screens left of / above the main one)
 int BarHeightFor(float scale) { return (int)lroundf(48 * scale); }
@@ -210,13 +220,7 @@ bool Bar::Init() {
     if (transparent) ApplyGlass(hwnd);
     View* r = root; r->bg = FadeB(K::Bar); r->lay = Lay::Overlay; r->hit = true;
     if (transparent) { auto* line = MkBox(r); line->fh = 1; line->va = Al::Start; line->bg = SolidB(K::White, 0x1E); }   // glass: a faint light edge along the top, as on Start
-    r->onRight = [this] {
-        std::vector<MenuItem> m;
-        if (UpdateNewer()) m.push_back({L"Update DeskBar (a new version is out)", 0xE896, [] { UpdateNow(); }});
-        if (BugReportsOn()) m.push_back({L"Report a bug to Claude", 0xEBE8, [] { OpenBugReport(); }});
-        m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"DeskBar settings", 0xE713, [] { OpenSettingsWindow(); }});
-        MenuShow(std::move(m), [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale);
-    };
+    r->onRight = [this] { MenuShow(BarMenuItems(), [] { POINT p; GetCursorPos(&p); return RECT{p.x, p.y, p.x, p.y}; }(), !g_dev, scale); };
     auto* row = MkBox(r, Lay::H);
     left = MkBox(row, Lay::H); left->star = 1; left->pad = Thick(12, 0, 0, 0);
     right = MkBox(row, Lay::H);

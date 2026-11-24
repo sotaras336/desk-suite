@@ -64,7 +64,9 @@ bool IsFlashing(HWND h);
 ws PackageFamilyFromPath(const ws& exe);
 ws AumidOfShortcut(const ws& lnk);
 bool WinMoveSelfTest(ws& detail);                                      // winmove.cpp: the maximized-edge and hidden-window rules
-bool GuardThreadSelfTest(ws& detail);                                  // winmove.cpp: the touch guard strips on their own thread
+bool GuardThreadSelfTest(ws& detail);
+bool MenuGuardSelfTest(ws& detail);                                    // winmove.cpp: a right-click menu runs what you pick, and no touch strip sits over it
+std::vector<MenuItem> BarMenuItems();                           // bar.cpp: the bar's right-click menu                                  // winmove.cpp: the touch guard strips on their own thread
 bool WinMoveMoreSelfTest(ws& detail);                                  // winmove.cpp: touch on the bar edge, dropping and sending windows between screens
 void GesturesStart();                                                   // three-finger swipe down on the touchpad minimises everything (gesture.cpp)
 struct SwipeTracker { bool armed = false; float sx = 0, sy = 0, lx = 0, ly = 0; int Feed(int fingers, float x, float y); };   // 1 = a three-finger swipe down just ended
@@ -189,7 +191,8 @@ int RunInstall(); int RunUninstall();
 bool UpdateFetchLatest(ws& path); bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
-ws UpdateBuiltFor(const std::string& sums, const ws& file); ws UpdateStamp(int64_t unixSeconds);   // "# built <file> <yyyyMMddTHHmmssZ>" lines in the release list (update.cpp)
+ws UpdateBuiltFor(const std::string& sums, const ws& file); ws UpdateStamp(int64_t unixSeconds);
+bool UpdateReleaseNotNewer(const ws& releaseBuilt, const ws& mine);   // update.cpp: true = never offer that release (it is not later than this build; a list without build times is older than any build that has one)   // "# built <file> <yyyyMMddTHHmmssZ>" lines in the release list (update.cpp)
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);
 void BarsWorkAreaUpkeep();
 

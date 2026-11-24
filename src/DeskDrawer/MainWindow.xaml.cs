@@ -416,7 +416,7 @@ public partial class MainWindow : Window
         else if (ctrl && key == Key.H) ToggleHidden();
         else if (ctrl && key == Key.OemComma) ShowSettings();
         else if (ctrl && key == Key.N && !shift) OpenNewWindow();
-        else if (ctrl && shift && key == Key.D2) SideBySide();
+        else if (ctrl && shift && key == Key.S) SideBySide();   // was Ctrl+Shift+2, which is also Large icons: that view could never be picked from the keyboard
         else if (ctrl && key == Key.Z && Keyboard.FocusedElement is not TextBox) Undo();
         else if (ctrl && key is Key.OemPlus or Key.Add) Zoom(1);
         else if (ctrl && key is Key.OemMinus or Key.Subtract) Zoom(-1);

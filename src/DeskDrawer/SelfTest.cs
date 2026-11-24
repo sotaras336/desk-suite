@@ -29,6 +29,25 @@ public static partial class SelfTest
             Check("update: reads when a release file was built, ignores a bad date, and the dates don't break the checksums",
                 Updater.BuiltFor(dated, Updater.Asset.ToUpperInvariant()) == "20261125T101500Z" && Updater.BuiltFor(dated, "Other-Setup.exe") == null && Updater.BuiltFor(sums, Updater.Asset) == null && Updater.HashFor(dated, Updater.Asset) == new string('a', 64));
             Check("update: this build knows when it was built", Updater.SelfBuilt is { Length: 16 }, Updater.SelfBuilt ?? "(none)");
+            Check("update: a build that knows its time is never offered an older or undated release (only a later one)",
+                Updater.ReleaseNotNewer(null, "20261124T221200Z") && Updater.ReleaseNotNewer("20261120T100000Z", "20261124T221200Z") && Updater.ReleaseNotNewer("20261124T221200Z", "20261124T221200Z")
+                && !Updater.ReleaseNotNewer("20261126T080000Z", "20261124T221200Z") && !Updater.ReleaseNotNewer(null, null));
+            {   // install: a "dotnet build" copy (exe + dll + two .json) goes in whole; a single exe goes alone and clears an older build's dll; nothing is left half-copied
+                string t = Path.Combine(Path.GetTempPath(), "desk-install-test-" + Guid.NewGuid().ToString("N")[..8]), from = Path.Combine(t, "build"), to = Path.Combine(t, "Programs"), one = Path.Combine(t, "single");
+                try
+                {
+                    Directory.CreateDirectory(from); Directory.CreateDirectory(to); Directory.CreateDirectory(one);
+                    foreach (var ext in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" }) File.WriteAllText(Path.Combine(from, "DeskDrawer" + ext), "new" + ext);
+                    File.WriteAllText(Path.Combine(to, "DeskDrawer.exe"), "old");
+                    var got = Setup.CopyIn(Path.Combine(from, "DeskDrawer.exe"), to);
+                    bool whole = got.Count == 4 && File.ReadAllText(Path.Combine(to, "DeskDrawer.exe")) == "new.exe" && File.ReadAllText(Path.Combine(to, "DeskDrawer.dll")) == "new.dll" && !Directory.EnumerateFiles(to, "*.new").Any();
+                    File.WriteAllText(Path.Combine(one, "DeskDrawer-Setup.exe"), "single");
+                    var got2 = Setup.CopyIn(Path.Combine(one, "DeskDrawer-Setup.exe"), to);
+                    bool single = got2.Count == 1 && File.ReadAllText(Path.Combine(to, "DeskDrawer.exe")) == "single" && !File.Exists(Path.Combine(to, "DeskDrawer.dll"));
+                    Check("install: a build folder goes in whole, a single exe alone, never half", whole && single, $"whole {whole} single {single}");
+                }
+                finally { try { Directory.Delete(t, true); } catch { } }
+            }
             if (Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null)
             {
                 bool got = Task.Run(() => Updater.UpdateNowAsync()).GetAwaiter().GetResult();   // no earlier check: Update now must look at the release list itself (a checksum remembered from an older check once made it reject the newest file)

@@ -59,14 +59,18 @@ public static class Updater
         return null;
     }
 
+    /// The one rule, the same in all three apps (DeskBar: update.cpp UpdateReleaseNotNewer). A release list with no "built" line is from before 4.0, when builds
+    /// started carrying their time, so any copy that knows its own time is newer than it: a test build on the PC is never offered the older public release.
+    /// Only a copy without its own time (older than 4.0) still goes by "the file is different".
+    public static bool ReleaseNotNewer(string? releaseBuilt, string? self) => self != null && (releaseBuilt == null || string.CompareOrdinal(releaseBuilt, self) <= 0);
+
     /// "Different" is not "newer": a build made after the release (a fix not published yet) was offered the older release, and Update now put the old build back.
     /// A different file only counts as newer when the release says it was built later than this exe. Without the dates, different means newer, as before.
     static bool IsNewer(string sums, string? want, out bool ahead)
     {
         ahead = false;
         if (want == null || want == SelfHash()) return false;
-        var built = BuiltFor(sums, Asset);
-        if (built != null && SelfBuilt != null && string.CompareOrdinal(built, SelfBuilt) <= 0) { ahead = true; return false; }
+        if (ReleaseNotNewer(BuiltFor(sums, Asset), SelfBuilt)) { ahead = true; return false; }
         return true;
     }
 
