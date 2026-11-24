@@ -2,6 +2,10 @@
 param([switch]$Pink, [switch]$Debug, [string]$Out = "$PSScriptRoot\out")
 $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
 $vc = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+if (-not (Test-Path $vc)) {   # no Build Tools (e.g. the GitHub build machine has full Visual Studio): ask the VS installer where the C++ tools are
+    $vs = & vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if ($vs) { $vc = "$vs\VC\Auxiliary\Build\vcvars64.bat" }
+}
 $obj = "$PSScriptRoot\obj" + $(if ($Pink) { '-pink' } else { '' })
 New-Item -ItemType Directory -Force $obj, $Out | Out-Null
 Remove-Item "$obj\*.obj" -ErrorAction SilentlyContinue
