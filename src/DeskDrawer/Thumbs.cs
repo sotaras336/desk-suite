@@ -28,9 +28,13 @@ public static class Thumbs
         {
             var iid = typeof(IShellItemImageFactory).GUID;
             SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var f);
-            if (f.GetImage(new SIZE { cx = px, cy = px }, SIIGBF_BIGGERSIZEOK, out var hbm) != 0 || hbm == IntPtr.Zero) return null;
-            try { var bs = Imaging.CreateBitmapSourceFromHBitmap(hbm, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions()); bs.Freeze(); return bs; }
-            finally { DeleteObject(hbm); }
+            try
+            {
+                if (f.GetImage(new SIZE { cx = px, cy = px }, SIIGBF_BIGGERSIZEOK, out var hbm) != 0 || hbm == IntPtr.Zero) return null;
+                try { var bs = Imaging.CreateBitmapSourceFromHBitmap(hbm, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions()); bs.Freeze(); return bs; }
+                finally { DeleteObject(hbm); }
+            }
+            finally { Marshal.FinalReleaseComObject(f); }   // released now, on this thread: left to the garbage collector, the shell item (and the thumbnail handler behind it) lived on, from threads that had already ended
         }
         catch { return null; }
     }

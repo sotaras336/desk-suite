@@ -69,10 +69,11 @@ public static class Setup
               "$a = New-ScheduledTaskAction -Execute '" + Exe.Replace("'", "''") + "' -Argument '--background'; $g = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name); " +
               "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero); Register-ScheduledTask -TaskName 'DeskDrawer' -Action $a -Trigger $g -Settings $s -Force | Out-Null }"
             : "Unregister-ScheduledTask -TaskName 'DeskDrawer' -Confirm:$false -ErrorAction SilentlyContinue";
-        new Thread(() =>
-        {
-            try { Thread.Sleep(on ? 20000 : 0); Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + script + "\"") { UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(30000); } catch { }
-        }) { IsBackground = !on, Priority = ThreadPriority.BelowNormal }.Start();
+        // The wait happens inside PowerShell, which is not tied to this process. It used to be a foreground thread here that slept 20 s and then waited for PowerShell:
+        // a DeskDrawer told to quit in that time (Setup replacing it with a new version) stayed alive with the exe locked, so the copy could fail, and its
+        // folder pipe kept answering, so the freshly installed copy handed its start over to the dying one and nothing opened.
+        if (on) script = "Start-Sleep -Seconds 20; " + script;
+        try { using var p = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + script + "\"") { UseShellExecute = false, CreateNoWindow = true }); if (p != null) try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { } } catch { }
     }
 
     static void Link(string lnk, string target, string args, string description)

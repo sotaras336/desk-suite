@@ -28,6 +28,8 @@ public sealed class MainWindow : Window
     private List<Tweak> _tweaks = new();
     private Dictionary<string, long> _mb = new();
     private bool _busy, _appsScanned, _compact;
+    /// "Put everything back" asked for while the first look at the PC was still running (DeskBar's Desk settings start DeskTune with --undoall): done right after it.
+    private bool _scanning, _undoAllWaiting;
     private TextBlock _sub = null!;
     private UniformGrid _stats = null!;
     private const string Intro = "Make Windows lighter. Tick what you want off, then apply. Every change can be undone.";
@@ -128,11 +130,12 @@ public sealed class MainWindow : Window
     /// Everything but the preinstalled apps first (instant), then the app list, which needs a PowerShell call of 2–4 s, fills in on its own.
     private void Scan(string? after = null)
     {
-        _status.Text = "Looking at this PC…"; _busy = true;
+        _status.Text = "Looking at this PC…"; _busy = true; _scanning = true;
         Task.Run(() => { var t = Catalogue.Build(); var mb = Catalogue.MeasureMemory(); return (t, mb); })
             .ContinueWith(r => Dispatcher.Invoke(() =>
             {
-                _busy = false;
+                _busy = false; _scanning = false;
+                if (_undoAllWaiting) { _undoAllWaiting = false; Dispatcher.BeginInvoke(new Action(UndoAll), System.Windows.Threading.DispatcherPriority.ApplicationIdle); }   // queued: runs once this redraw is done
                 if (r.Exception != null) { _status.Text = "Scan failed: " + r.Exception.InnerException?.Message; return; }
                 (_tweaks, _mb) = r.Result; Draw();
                 _status.Text = after ?? $"Found {_tweaks.Count} things you can switch off." + (_appsScanned ? "" : " Checking preinstalled apps…");
@@ -288,9 +291,15 @@ public sealed class MainWindow : Window
 
     internal void UndoAll()
     {
+        if (_busy && _scanning) { _undoAllWaiting = true; return; }   // it used to be dropped silently here: --undoall arrives while the opening scan is still busy
         if (_busy || Log.Count == 0) return;
         if (MessageBox.Show(this, $"Put back all {Log.Count} changes DeskTune made?", "DeskTune", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        Work("Putting everything back…", () => { Log.UndoAll(); return "Everything DeskTune changed is back as it was. Removed apps open in the Microsoft Store to reinstall."; });
+        Work("Putting everything back…", () =>
+        {
+            var failed = Log.UndoAll();
+            if (failed.Count == 0) return "Everything DeskTune changed is back as it was. Removed apps open in the Microsoft Store to reinstall.";
+            return "Put back everything it could. Couldn't: " + string.Join("; ", failed) + "." + (Elevation.IsAdmin ? "" : " Some changes need administrator rights: use \"Unlock services\" at the top, then Undo all again.");
+        });
     }
 
     /// Runs changes off the UI thread (services and app removal can take seconds), then rescans so every switch shows the truth.
