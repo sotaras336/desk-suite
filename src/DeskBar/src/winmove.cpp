@@ -49,8 +49,11 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
 bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.top <= work.top + 8 && (work.bottom - r.bottom > 8 || work.right - r.right > 8) && r.bottom <= work.bottom && r.right <= work.right + 8; }
 std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
 bool GuardSaysTouch(bool sig, bool suppressed, bool device, bool away) { return sig || suppressed || device || away; }
-std::map<HWND, HWND> g_guards;   // bar window -> its guard strip
-std::atomic<HWND> g_anyGuard{nullptr};   // one live guard strip, for the move/size hook's log (it runs on another thread and must not touch g_guards)
+std::map<HWND, HWND> g_guards;   // bar window -> its guard strip. Belongs to the guard thread (GuardThread): nothing else reads or changes it
+std::atomic<HWND> g_anyGuard{nullptr};   // one live guard strip, for the move/size hook's log and the self-test (they run on other threads and must not touch g_guards)
+// Why the strips get made afresh (GuardRenew): 0 = no need. Set from any thread, acted on by the guard thread.
+enum GuardWhy { kGuardKeep = 0, kGuardSlipped, kGuardScreens, kGuardSettled, kGuardRoutine, kGuardWoke, kGuardTest };
+std::atomic<int> g_guardRenew{kGuardKeep};
 std::atomic<uint64_t> g_guardTouch{0};   // last time Windows asked the strip about a finger (WM_TOUCHHITTESTING) and it claimed it
 struct GuardHit { uint64_t at = 0; bool sig = false, supp = false, dev = false, away = false; int type = 0; POINT p{}, c{}; } g_lastGuard;   // the strip's last decision, for the log when a touch still got through
 void CALLBACK OnLocation(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
@@ -95,7 +98,7 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
             { DWORD wp = 0; GetWindowThreadProcessId(h, &wp); Log(L"edge drag on the bar cancelled, tap passed to the bar: %s in %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), FileNameOf(ExePathOfPid(wp)).c_str(), (int)IsZoomed(h), (int)fills, (int)touch); }   // the app's name: Chrome_WidgetWin_1 is every Chromium/Electron app
             {   // what Windows sees under the finger right now: which window is on top there, is the guard up and above the app, and what the app itself calls that spot
                 HWND top = WindowFromPoint(p); DWORD_PTR ht = 0; SendMessageTimeoutW(h, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y), SMTO_ABORTIFHUNG, 100, &ht);
-                HWND gd = g_anyGuard.load(); RECT gr{}; if (gd) GetWindowRect(gd, &gr);   // not g_guards: that map belongs to the UI thread, this hook runs on the snapper thread
+                HWND gd = g_anyGuard.load(); RECT gr{}; if (gd) GetWindowRect(gd, &gr);   // not g_guards: that map belongs to the guard thread, this hook runs on its own
                 bool above = false; for (HWND w = gd; w; w = GetWindow(w, GW_HWNDNEXT)) if (w == h) { above = true; break; }
                 RECT hr; GetWindowRect(h, &hr);
                 Log(L"  under the finger: top window %s; the app calls the spot %d (15 = bottom border, 1 = inside); guard %s at %d,%d,%d,%d, %s the app; app window %d,%d,%d,%d, topmost %d",
@@ -103,6 +106,7 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
                     (int)hr.left, (int)hr.top, (int)hr.right, (int)hr.bottom, (int)((GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0));
             }
             { auto& g = g_lastGuard; Log(L"  the guard strip let it through? last finger it claimed %llu ms ago; its last hit test %llu ms ago at %d,%d (cursor %d,%d): sig %d suppressed %d device %d(type %d) away %d", GetTickCount64() - g_guardTouch.load(), GetTickCount64() - g.at, (int)g.p.x, (int)g.p.y, (int)g.c.x, (int)g.c.y, (int)g.sig, (int)g.supp, (int)g.dev, g.type, (int)g.away); }
+            g_guardRenew = kGuardSlipped;   // the strip was there and still missed it: make it afresh, the way restarting DeskBar did (the bug came back after reboots and went away on a restart)
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
             return;
@@ -169,11 +173,19 @@ void CALLBACK OnShow(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, 
     if (obj != OBJID_WINDOW || child != 0 || !h || !S.popupsFollowOwner || (GetWindowLongPtrW(h, GWL_STYLE) & WS_CHILD)) return;
     if (MovePopup(h)) std::thread([h] { Sleep(300); if (IsWindow(h)) MovePopup(h); }).detach();   // some apps place the window again just after showing it
 }
-void SnapperThread() {
+// The start of a drag or resize is watched on a thread of its own. It shared one with the window-location watcher, and Windows reports a location change for
+// every pointer move and caret blink on the PC: a resize start that arrived behind a queue of those was cancelled late, after the maximized app had visibly
+// started to shrink. Alone, it is handled the moment it arrives.
+void SizeWatchThread() {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
     HWINEVENTHOOK hk = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, nullptr, OnMoveSize, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    if (!hk) Log(L"move/size watcher: hook not set (%lu)", GetLastError());
+    MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } if (hk) UnhookWinEvent(hk);
+}
+void SnapperThread() {
     SeedMaximized(); HWINEVENTHOOK hl = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnLocation, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS); (void)hl;
     HWINEVENTHOOK hs = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnShow, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-    MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } UnhookWinEvent(hk); UnhookWinEvent(hs);
+    MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) { TranslateMessage(&m); DispatchMessageW(&m); } UnhookWinEvent(hs);
 }
 
 // ---- rescue: unplugging the LG brings its windows to the Surface at the same relative size; plugging it back puts them where they were ----
@@ -314,25 +326,68 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(h, m, w, l);
 }
-void GuardsUpdate() {
+// The strips live on a thread of their own that does nothing else. Windows asks a window about a finger (WM_TOUCHHITTESTING, then WM_NCHITTEST) by sending it a
+// message and waiting for the answer; a window whose thread is busy is not waited for, and the finger goes to the next candidate: the maximized app's bottom edge.
+// On the bar's UI thread the strips answered only between drawing, icon loading and panel work, which is busiest right after sign-in (the bug came back after every
+// reboot) and at random moments later. Here they always answer at once. The UI thread only says where they go (GuardsUpdate); this thread makes and moves them.
+struct GuardWant { HWND bar; RECT r; };
+std::mutex g_guardMu; std::vector<GuardWant> g_guardWant;   // under g_guardMu: where the strips should be, from the UI thread
+std::atomic<DWORD> g_guardTid{0};
+const UINT WM_GUARD_SYNC = WM_APP + 0x47;
+bool GuardRenewDue(uint64_t now, uint64_t lastTouch) { return now - lastTouch >= 3000; }   // never under a finger: a strip destroyed mid-touch would drop that touch
+const wchar_t* GuardWhyText(int w) { switch (w) { case kGuardSlipped: return L"a touch got past it"; case kGuardScreens: return L"screens changed"; case kGuardSettled: return L"a minute after start";
+    case kGuardRoutine: return L"routine"; case kGuardWoke: return L"after sleep or a stall"; case kGuardTest: return L"self-test"; default: return L"?"; } }
+void GuardApply() {   // guard thread only
     static bool reg = false; if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = GuardProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.Guard"; RegisterClassW(&wc); reg = true; }
+    std::vector<GuardWant> want; { std::lock_guard<std::mutex> l(g_guardMu); want = g_guardWant; }
+    if (int why = g_guardRenew.load()) {
+        if (GuardRenewDue(GetTickCount64(), g_guardTouch.load())) {
+            g_guardRenew = kGuardKeep; int n = 0; for (auto& kv : g_guards) if (kv.second) { DestroyWindow(kv.second); n++; } g_guards.clear();
+            if (n) Log(L"touch guard: %d strip(s) made afresh (%s)", n, GuardWhyText(why));
+        }   // else: a finger is down or just was, try again on the next sync (every 500 ms)
+    }
     std::set<HWND> live;
+    for (auto& gw : want) {
+        HWND& g = g_guards[gw.bar]; if (g && !IsWindow(g)) { Log(L"touch guard: a strip was gone, made again"); g = nullptr; }
+        if (!g) { g = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, L"DB3.Guard", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (!g) { Log(L"touch guard: strip not created (%lu)", GetLastError()); continue; }
+            SetLayeredWindowAttributes(g, 0, 1, LWA_ALPHA); SetWindowLongPtrW(g, GWLP_USERDATA, (LONG_PTR)gw.bar);   // alpha 1: invisible, but still hit
+            if (!RegisterTouchHitTestingWindow(g, TOUCH_HIT_TESTING_CLIENT)) Log(L"guard strip: touch hit testing not registered (%lu)", GetLastError()); }
+        SetWindowPos(g, HWND_TOPMOST, gw.r.left, gw.r.top, W(gw.r), H(gw.r), SWP_NOACTIVATE | SWP_SHOWWINDOW); live.insert(gw.bar);
+    }
+    for (auto it = g_guards.begin(); it != g_guards.end();) { if (!live.count(it->first)) { if (it->second) DestroyWindow(it->second); it = g_guards.erase(it); } else ++it; }
+    HWND any = nullptr; for (auto& kv : g_guards) if (kv.second) { any = kv.second; break; } g_anyGuard = any;
+}
+void GuardThread() {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    MSG m; PeekMessageW(&m, nullptr, WM_USER, WM_USER, PM_NOREMOVE);   // the thread's message queue exists before anyone posts to it
+    g_guardTid = GetCurrentThreadId();
+    while (GetMessageW(&m, nullptr, 0, 0) > 0) { if (m.message == WM_GUARD_SYNC && !m.hwnd) { GuardApply(); continue; } TranslateMessage(&m); DispatchMessageW(&m); }
+}
+void GuardPost() {   // any thread: have the guard thread bring the strips in line with g_guardWant
+    static std::once_flag once; std::call_once(once, [] { std::thread(GuardThread).detach(); for (int i = 0; i < 200 && !g_guardTid; i++) Sleep(5); });
+    if (DWORD t = g_guardTid) PostThreadMessageW(t, WM_GUARD_SYNC, 0, 0);
+}
+void GuardsUpdate() {   // UI thread: where the strips should be; the guard thread does the rest
+    std::vector<GuardWant> want;
     for (Bar* b : AllBars()) {
         HWND bar = b->hwnd; RECT br; if (!bar || !IsWindowVisible(bar) || !GetWindowRect(bar, &br)) continue;
         MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(bar, MONITOR_DEFAULTTONEAREST), &mi) || br.bottom < mi.rcMonitor.bottom - 2) continue;   // a bar at the bottom of its screen only
         HWND fg = GetForegroundWindow(); RECT fr; if (fg && fg != bar && GetWindowRect(fg, &fr) && fr.left <= mi.rcMonitor.left && fr.top <= mi.rcMonitor.top && fr.right >= mi.rcMonitor.right && fr.bottom >= mi.rcMonitor.bottom && ClassOf(fg) != kWndClass && ClassOf(fg) != L"Progman" && ClassOf(fg) != L"WorkerW") continue;   // full-screen video or game: leave it alone
         UINT d = GetDpiForWindow(bar); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96);
-        HWND& g = g_guards[bar];
-        if (!g) { g = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, L"DB3.Guard", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr); if (!g) continue; SetLayeredWindowAttributes(g, 0, 1, LWA_ALPHA); SetWindowLongPtrW(g, GWLP_USERDATA, (LONG_PTR)bar); if (!RegisterTouchHitTestingWindow(g, TOUCH_HIT_TESTING_CLIENT)) Log(L"guard strip: touch hit testing not registered (%lu)", GetLastError()); }   // alpha 1: invisible, but still hit
-        SetWindowPos(g, HWND_TOPMOST, br.left, br.top - band, W(br), band, SWP_NOACTIVATE | SWP_SHOWWINDOW); live.insert(bar);
+        want.push_back({bar, {br.left, br.top - band, br.right, br.top}});
     }
-    for (auto it = g_guards.begin(); it != g_guards.end();) { if (!live.count(it->first)) { if (it->second) DestroyWindow(it->second); it = g_guards.erase(it); } else ++it; }
-    HWND any = nullptr; for (auto& kv : g_guards) if (kv.second) { any = kv.second; break; } g_anyGuard = any;
+    { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant = std::move(want); }
+    GuardPost();
 }
-void WinMoveStart() { std::thread(SnapperThread).detach(); g_screens = ScreenKeys(); g_sig = MonSignature(); Snapshot(); }
+void WinMoveStart() { std::thread(SnapperThread).detach(); std::thread(SizeWatchThread).detach(); g_screens = ScreenKeys(); g_sig = MonSignature(); Snapshot(); }
 void WinMoveTick(int n) {   // from the app tick (250 ms)
+    {   // the strips are made afresh now and then, the way a restart of DeskBar made them (that cleared the bug every time it came back)
+        static uint64_t last = 0; uint64_t t = Now(); if (last && t - last > 5000) g_guardRenew = kGuardWoke;   // the tick stopped for 5 s: the PC slept, or DeskBar was stalled
+        last = t; if (n == 240) g_guardRenew = kGuardSettled; else if (n % 3600 == 0) g_guardRenew = kGuardRoutine;   // a minute after start (sign-in is over), then every 15 min
+    }
     ClampForeground(); if (n % 2 == 0) GuardsUpdate(); if (n % 4 == 2) LiftHiddenWindows(); if (n % 12 == 6) FixMaximizedOverBar();
-    ws sig = MonSignature(); if (sig != g_sig) { g_sig = sig; g_changing = true; g_changeAt = Now() + 1800; }
+    ws sig = MonSignature(); if (sig != g_sig) { g_sig = sig; g_guardRenew = kGuardScreens; g_changing = true; g_changeAt = Now() + 1800; }
     if (g_changing && Now() >= g_changeAt) { g_changing = false; OnScreensChanged(); }
     else if (!g_changing && n % 12 == 0) Snapshot();   // every ~3 s
 }
@@ -355,5 +410,21 @@ bool WinMoveSelfTest(ws& detail) {
     RECT strip{0, 1780, 2880, 1824};   // the guard strip over a 96 px bar at 200 %
     POINT above = TouchPointInside(strip, {900, 1770}), on = TouchPointInside(strip, {900, 1800}), below = TouchPointInside(strip, {900, 1824});
     bool t = above.y == 1780 && above.x == 900 && on.y == 1800 && below.y == 1823;   // a finger just above the strip is moved onto it, not left in the app above
-    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d, touch guard %d, touch point on strip %d", (int)a, (int)b, (int)c, (int)e, (int)f, (int)g, (int)t); (void)d; return a && b && c && e && f && g && t;
+    bool rd = !GuardRenewDue(10000, 9000) && GuardRenewDue(10000, 7000) && GuardRenewDue(10000, 0);   // strips are never made afresh within 3 s of a finger
+    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d, touch guard %d, touch point on strip %d, renew timing %d", (int)a, (int)b, (int)c, (int)e, (int)f, (int)g, (int)t, (int)rd); (void)d; return a && b && c && e && f && g && t && rd;
+}
+// The guard thread for real: a strip is made for a stand-in bar, lives on its own thread, is topmost and in place; making it afresh gives a new strip; no bar, no strip.
+static bool WaitFor(const std::function<bool()>& f) { for (int i = 0; i < 200; i++) { if (f()) return true; Sleep(10); } return false; }
+bool GuardThreadSelfTest(ws& detail) {
+    HWND fake = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    RECT want{40, 300, 640, 344};
+    { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant = {{fake, want}}; } GuardPost();
+    HWND g1 = nullptr; bool made = WaitFor([&] { g1 = g_anyGuard.load(); return g1 != nullptr; });
+    RECT r{}; if (g1) GetWindowRect(g1, &r);
+    bool placed = made && EqualRect(&r, &want), top = made && (GetWindowLongW(g1, GWL_EXSTYLE) & WS_EX_TOPMOST), own = made && GetWindowThreadProcessId(g1, nullptr) == g_guardTid.load() && g_guardTid.load() != GetCurrentThreadId();
+    g_guardRenew = kGuardTest; GuardPost(); HWND g2 = nullptr; bool fresh = WaitFor([&] { g2 = g_anyGuard.load(); return g2 && g2 != g1; }) && !IsWindow(g1);
+    { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant.clear(); } GuardPost(); bool gone = WaitFor([] { return g_anyGuard.load() == nullptr; }) && !(g2 && IsWindow(g2));
+    if (fake) DestroyWindow(fake);
+    detail = Fmt(L"made %d, in place %d, topmost %d, own thread %d, made afresh %d, removed %d", (int)made, (int)placed, (int)top, (int)own, (int)fresh, (int)gone);
+    return made && placed && top && own && fresh && gone;
 }
