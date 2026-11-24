@@ -13,6 +13,7 @@ public partial class App : Application
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(InstalledExe)!);
+            CloseInstalledCopies();
             if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase))
                 for (int i = 0; ; i++) { try { System.IO.File.Copy(Environment.ProcessPath!, InstalledExe, true); break; } catch (System.IO.IOException) when (i < 30) { System.Threading.Thread.Sleep(200); } }   // an open DeskTune that is updating itself is still closing
             foreach (var dir in new[] { Programs, Desktop }) Link(System.IO.Path.Combine(dir, "DeskTune.lnk"), "", "DeskTune: make Windows lighter");
@@ -20,6 +21,25 @@ public partial class App : Application
             return true;
         }
         catch (Exception ex) { MessageBox.Show("DeskTune couldn't install: " + ex.Message, "DeskTune"); return false; }
+    }
+
+    /// An open DeskTune holds its exe, and nothing told it to close: an update from Desk settings > Desk apps (or Desk-Setup.exe) while DeskTune was open
+    /// waited 6 s for the file and then said "couldn't install". Its own "Update now" closes itself, the others don't. So the installer asks the installed
+    /// copy to close (as its window's X would) and only ends it if it doesn't within 5 s. A copy run from anywhere else (a dev build) is left alone.
+    internal static int CloseInstalledCopies()
+    {
+        int n = 0;
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("DeskTune"))
+            try
+            {
+                if (p.Id == Environment.ProcessId) continue;
+                string? path = null; try { path = p.MainModule?.FileName; } catch { }   // an elevated copy can't be read from here: its path is unknown, leave it
+                if (!string.Equals(path, InstalledExe, StringComparison.OrdinalIgnoreCase)) continue;
+                n++; if (p.CloseMainWindow() && p.WaitForExit(5000)) continue;
+                p.Kill(); p.WaitForExit(3000);
+            }
+            catch { }
+        return n;
     }
 
     private static string Programs => Environment.GetFolderPath(Environment.SpecialFolder.Programs);

@@ -103,8 +103,11 @@ bool IsFullscreenOn(const RECT& mb, ws* who, bool barHidden) {
 ws DeskDrawerExe() {
     auto get = [](const wchar_t* key) -> ws { wchar_t b[1024]; DWORD n = sizeof b; return RegGetValueW(HKEY_CURRENT_USER, key, nullptr, RRF_RT_REG_SZ, nullptr, b, &n) == ERROR_SUCCESS ? ws(b) : ws(); };
     if (get(L"Software\\Classes\\Directory\\shell") != L"deskdrawer") return {};
-    ws cmd = get(L"Software\\Classes\\Directory\\shell\\deskdrawer\\command");   // "C:\...\DeskDrawer.exe" "%1"
-    if (cmd.size() > 2 && cmd[0] == L'"') { size_t e = cmd.find(L'"', 1); if (e != ws::npos) { ws exe = cmd.substr(1, e - 1); if (FileExists(exe)) return exe; } }
+    ws exe = ExeOfOpenCommand(get(L"Software\\Classes\\Directory\\shell\\deskdrawer\\command"));   // "C:\...\DeskDrawer.exe" "%1"
+    return !exe.empty() && FileExists(exe) ? exe : ws();
+}
+ws ExeOfOpenCommand(const ws& cmd) {   // the program of a quoted open command, as DeskDrawer writes it (DefaultApp.cs): "C:\...\DeskDrawer.exe" "%1"
+    if (cmd.size() > 2 && cmd[0] == L'"') { size_t e = cmd.find(L'"', 1); if (e != ws::npos && e > 1) return cmd.substr(1, e - 1); }
     return {};
 }
 // Only the plain requests are taken over: no arguments (open Explorer) and /select,"file" (open its folder with the file selected; DeskDrawer takes the file path itself).

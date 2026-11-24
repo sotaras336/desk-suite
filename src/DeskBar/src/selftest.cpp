@@ -34,6 +34,7 @@ int RunSelfTest(const ws& outFile) {
         }
         { ws d; bool ok = WinMoveSelfTest(d); check(L"windows: maximized-size and hidden-under-bar rules", ok, d); }
         { ws d; bool ok = GuardThreadSelfTest(d); check(L"touch guard: strips on their own thread, made afresh on demand", ok, d); }
+        { ws d; bool ok = LaunchSelfTest(d); check(L"launch paths: DeskDrawer, DeskTune and the settings window are found and reached", ok, d); }   // launchtest.cpp
         { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
         if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)
             CatalogLoad(); int shown = 0; std::string rep; check(L"lookup: apps in the catalog", !CatalogApps().empty(), Fmt(L"%d", (int)CatalogApps().size()));

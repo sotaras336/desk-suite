@@ -4,7 +4,7 @@ void PreviewClose();   // app.h: the taskbar hover preview
 
 const wchar_t* kWndClass = L"DB3.Wnd";
 void (*g_onOpenSettings)(int) = nullptr;
-const LRESULT kOpenSettingsAck = 0x44534B;   // "DSK": DeskDrawer and DeskTune check for it (Theme.cs DeskSettings)
+extern const LRESULT kOpenSettingsAck = 0x44534B;   // "DSK": DeskDrawer and DeskTune check for it (Theme.cs DeskSettings)
 
 // ================= animation =================
 namespace {

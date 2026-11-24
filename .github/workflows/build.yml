@@ -19,6 +19,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  contract:
+    name: Launch contract (names and paths the apps share)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check
+        run: python3 .github/launch-contract.py
+
   deskbar:
     name: DeskBar (C++)
     runs-on: windows-2022
@@ -69,7 +78,7 @@ jobs:
   # (a draft is only visible to you; publishing it is still your click).
   package:
     name: Release files and Desk-Setup.exe
-    needs: [deskbar, wpf]
+    needs: [contract, deskbar, wpf]
     runs-on: windows-2022
     timeout-minutes: 30
     permissions:
@@ -99,6 +108,9 @@ jobs:
             if (Test-Path $f) { Write-Host "installed: $f" } else { Write-Host "::error::not installed: $f"; $bad++ }
           }
           if ($p.ExitCode -ne 0 -or $bad) { exit 1 }
+      - name: Launch paths (menus, Settings buttons, shortcuts, hotkeys, updates while open)
+        shell: powershell
+        run: ./.github/launch-test.ps1 -Report "$env:RUNNER_TEMP\release-log\launch-test.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: Desk-release
