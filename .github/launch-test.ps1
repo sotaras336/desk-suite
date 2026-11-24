@@ -24,6 +24,7 @@ public static class W {
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr h, int id, uint mods, uint vk);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr h, int id);
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
     public static string Class(IntPtr h) { var s = new StringBuilder(128); GetClassNameW(h, s, 128); return s.ToString(); }
@@ -162,6 +163,17 @@ $before = Visible; [W]::Keys([byte[]]@(0x11, 0x12, 0x44))   # Ctrl+Alt+D
 $panel = WaitFor { Visible | Where-Object { $before -notcontains $_ } | Select-Object -First 1 } 4000
 Check 'Ctrl+Alt+D opens the DeskMode panel' ([bool]$panel)
 if ($panel) { [W]::Keys([byte[]]@(0x11, 0x12, 0x44)); Start-Sleep -Milliseconds 500; [W]::Keys([byte[]]@(0x1B)) }
+
+# ---- 5b. one DeskTune window: a second start (Start, the desktop, Quick Settings, Desk settings > Open DeskTune) brings the open one forward ----
+Running 'DeskTune' | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500
+Start-Process $exe.DeskTune; $first = WaitFor { Running 'DeskTune' | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1 } 20000
+if ($first) {
+    Start-Sleep -Seconds 2; [W]::Keys([byte[]]@(0x5B, 0x44)); Start-Sleep -Seconds 1   # Win+D: something else in front, so coming forward can be seen
+    $second = Start-Process $exe.DeskTune -PassThru; $quit = $second.WaitForExit(20000); if (-not $quit) { $second.Kill() }
+    Start-Sleep -Seconds 1; $now = @(Running 'DeskTune'); $fpid = 0; [void][W]::GetWindowThreadProcessId([W]::GetForegroundWindow(), [ref]$fpid)
+    Check 'DeskTune opened again: the second start hands over and quits, one window stays' ($quit -and $second.ExitCode -eq 0 -and $now.Count -eq 1 -and $now[0].Id -eq $first.Id) "first $($first.Id); second quit $quit (exit $(if ($quit) { $second.ExitCode })); running now: $(@($now | ForEach-Object { $_.Id }) -join ',')"
+    Check 'DeskTune opened again: the open window comes to the front' ($fpid -eq $first.Id) "foreground window's process $fpid"
+} else { Check 'DeskTune opened again: the second start hands over and quits, one window stays' $false 'DeskTune did not open' }
 
 # ---- 6. an update or a reinstall while the app is open (what its updater, Settings > Desk apps and Desk-Setup.exe do: run <app>-Setup.exe) ----
 foreach ($app in 'DeskDrawer', 'DeskTune') {

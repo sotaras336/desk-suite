@@ -125,10 +125,11 @@ public partial class App : Application
             if (ok && setupName && !a.Contains("--nostart")) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstalledExe) { UseShellExecute = false });
             Shutdown(ok ? 0 : 1); return;
         }
+        if (SingleInstance.HandOver(a)) { Shutdown(0); return; }   // DeskTune is already open: that window comes forward (SingleInstance.cs)
         string? forced = null; for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--theme") forced = a[i + 1];   // dev: --theme glass (pictures without touching the suite's theme)
         Theme.Load(forced ?? SharedTheme.Read() ?? "black"); Theme.Apply();   // the suite's one theme (DeskBar / DeskDrawer pick it); Black when there is none
         CrashNet("DeskTune");
-        var w = new MainWindow(); w.Show();
+        var w = new MainWindow(); w.SourceInitialized += (_, _) => SingleInstance.Listen(w); w.Show();
         if (forced == null) try
         {   // a colour picked in another Desk app (or Desk settings > Colours) while DeskTune is open: wear it at once
             var fw = new System.IO.FileSystemWatcher(SharedTheme.Dir, "theme*.txt") { NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName, EnableRaisingEvents = true };

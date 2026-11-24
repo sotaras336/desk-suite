@@ -220,8 +220,8 @@ public static partial class SelfTest
         { var (l, r) = MainWindow.Halves(0, 0, 1921, 1040); Check("side by side splits a screen into two halves that cover it", l == "0,0,960,1040" && r == "960,0,961,1040", l + " | " + r); }
         DialogSafety((n, ok, x) => Check(n, ok, x));   // SelfTest.Guard.cs
         IndexSearchTest(Check);
-        sb.AppendLine($"{fail} failure(s)");
         foreach (var (n, ok, d) in LaunchCheck.Checks("deskdrawer", 1)) Check(n, ok, d);   // the Settings button's way to the Desk settings window (LaunchCheck.cs)
+        sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());
         return fail;
     }

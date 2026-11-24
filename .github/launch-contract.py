@@ -107,6 +107,7 @@ check("Settings > DeskDrawer switches -> the running DeskDrawer's pipe takes \"-
 check("DeskBar writes to DeskDrawer's own pipe (DeskDrawer-<user>-<session>)",
       'pipe\\\\DeskDrawer-%s-%lu", user, sid)' in deskapps and '"DeskDrawer-" + Environment.UserName + "-" + System.Diagnostics.Process.GetCurrentProcess().SessionId' in dd["Instance.cs"])
 check("DeskDrawer's setup closes the running DeskDrawer first (--quit on the pipe)", 'Instance.HandOff(new[] { "--quit" })' in dd["Setup.cs"] and 'paths is ["--quit"]' in dd["MainWindow.Undo.cs"])
+check("DeskTune keeps one window: a second start hands over to the open one", "SingleInstance.HandOver(a)" in dt["App.xaml.cs"] and "SingleInstance.Listen(w)" in dt["App.xaml.cs"])
 check("DeskTune's setup closes the installed DeskTune first", "CloseInstalledCopies();" in dt["App.xaml.cs"])
 for flag in sorted(set(re.findall(r'Launch\(DeskAppExe\(L"\w+"\), L"(--[\w-]+)', settingswin + deskapps))):
     check(f"every switch DeskBar passes is known to its app ({flag})", f'"{flag}"' in "".join(dd.values()) + "".join(dt.values()))
