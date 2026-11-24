@@ -24,7 +24,10 @@ public partial class MainWindow
         m.Items.Add(MI("New tab", "", () => NewTab(t.Current), "Ctrl+T"));
         m.Items.Add(MI("Duplicate tab", "", () => { if (t.Current != null) { AddTab(t.Current); _tabs.Move(_tabs.Count - 1, _tabs.IndexOf(t) + 1); Activate(_tabs[_tabs.IndexOf(t) + 1]); } }));
         m.Items.Add(MI("Open in new window", "", () => { Activate(t); OpenNewWindow(); }, "Ctrl+N"));
-        m.Items.Add(MI("Side by side", "", () => { Activate(t); SideBySide(); }, "Ctrl+Shift+S"));
+        if (SplitOn && (t == _partner || t == _tab)) { m.Items.Add(MI("Close split view", "", () => SetSplit(false), "Ctrl+\\")); m.Items.Add(MI("Swap sides", "", SwapSides)); }
+        else if (t == _tab) m.Items.Add(MI("Split view", "", () => SetSplit(true), "Ctrl+\\"));
+        else m.Items.Add(MI("Show on the other side", "", () => SetSplit(true, t)));   // split view with this tab next to the one you are in
+        m.Items.Add(MI("Side by side in two windows", "", () => { Activate(t); SideBySide(); }, "Ctrl+Shift+S"));
         m.Items.Add(new Separator());
         m.Items.Add(MI("Close tab", "", () => CloseTab(t), "Ctrl+W"));
         m.Items.Add(MI("Close other tabs", "", () => { foreach (var o in _tabs.Where(x => x != t).ToList()) CloseTab(o); }, enabled: _tabs.Count > 1));
@@ -43,6 +46,7 @@ public partial class MainWindow
         m.Items.Add(MI("Open", "", () => Navigate(path), bold: true));
         m.Items.Add(MI("Open in new tab", "", () => NewTab(path)));
         m.Items.Add(MI("Open in new window", "", () => OpenNewWindow(path)));
+        if (_pick == null) m.Items.Add(MI("Open on the other side", "", () => OpenOnOtherSide(path)));   // split view
         if (!IsVirtual(path))
         {
             bool pinned = _pinned.Contains(path);

@@ -97,9 +97,10 @@
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:TabRow/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border x:Name="T" Height="36" MinWidth="44" Margin="0,0,2,0" CornerRadius="8,8,0,0" Background="Transparent"
+                            <local:TapBorder x:Name="T" Height="36" MinWidth="44" Margin="0,0,2,0" CornerRadius="8,8,0,0" Background="Transparent"
                                     MouseLeftButtonDown="Tab_Down" MouseDown="Tab_MiddleDown" MouseRightButtonUp="Tab_RightUp" MouseMove="Tab_Move" ToolTip="{Binding Current}"
-                                    AllowDrop="True" DragEnter="Tab_DragEnter" DragOver="Tab_DragOver" Drop="Tab_Drop">
+                                    AllowDrop="True" DragEnter="Tab_DragEnter" DragOver="Tab_DragOver" Drop="Tab_Drop"
+                                    Loaded="Tab_Loaded" KeyDown="Tab_KeyDown" AutomationProperties.Name="{Binding Title}" AutomationProperties.ItemStatus="{Binding Status}" AutomationProperties.HelpText="{Binding Current}">
                                 <Grid Margin="12,0,4,0">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <Grid Width="16" Height="16" Margin="0,0,9,0" VerticalAlignment="Center">
@@ -111,11 +112,14 @@
                                     </Grid>
                                     <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                     <Button Grid.Column="2" Style="{StaticResource Tool}" Width="24" Height="24" FontSize="9" Content="&#xE711;" Margin="6,0,0,0" ToolTip="Close tab (Ctrl+W)" Click="TabClose_Click"/>
+                                    <!-- split view: the tab shown on the other side gets a line under it -->
+                                    <Border x:Name="PartnerMark" Grid.ColumnSpan="3" Height="3" Margin="-4,0,4,1" CornerRadius="1.5" VerticalAlignment="Bottom" Background="{DynamicResource Accent}" Opacity="0.75" Visibility="Collapsed" IsHitTestVisible="False"/>
                                 </Grid>
-                            </Border>
+                            </local:TapBorder>
                             <DataTemplate.Triggers>
                                 <Trigger SourceName="T" Property="IsMouseOver" Value="True"><Setter TargetName="T" Property="Background" Value="{DynamicResource Card}"/></Trigger>
                                 <DataTrigger Binding="{Binding IsActive}" Value="True"><Setter TargetName="T" Property="Background" Value="{DynamicResource TabBg}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding IsPartner}" Value="True"><Setter TargetName="PartnerMark" Property="Visibility" Value="Visible"/></DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -184,7 +188,15 @@
             </Border>
             <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="False"/>
 
-            <Grid Grid.Column="2" Background="Transparent" MouseRightButtonUp="Background_RightClick">
+            <!-- One side, or two in split view (MainWindow.Split.cs): the full list is always the side you are working on; the other side is PeerPane -->
+            <Grid x:Name="Panes" Grid.Column="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="PaneACol" Width="*"/>
+                <ColumnDefinition x:Name="PaneSplitCol" Width="0"/>
+                <ColumnDefinition x:Name="PaneBCol" Width="0"/>
+            </Grid.ColumnDefinitions>
+            <GridSplitter x:Name="PaneSplit" Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="{DynamicResource CardLine}" ShowsPreview="False" Visibility="Collapsed" Focusable="False"/>
+            <Grid x:Name="MainPane" Grid.Column="0" Background="Transparent" MouseRightButtonUp="Background_RightClick">
                 <ListView x:Name="List" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Fg}" SelectionMode="Extended" AllowDrop="True"
                           SelectionChanged="List_SelectionChanged" MouseDoubleClick="List_DoubleClick" KeyDown="List_KeyDown"
                           PreviewMouseLeftButtonDown="List_PreviewDown" PreviewMouseMove="List_PreviewMove" PreviewMouseDown="List_MiddleDown"
@@ -263,6 +275,65 @@
                         </StackPanel>
                     </Grid>
                 </Border>
+                <!-- split view: a line along the top of the side you are working on -->
+                <Border x:Name="ActiveMark" VerticalAlignment="Top" Height="3" Background="{DynamicResource Accent}" Visibility="Collapsed" IsHitTestVisible="False"/>
+            </Grid>
+
+            <!-- Split view: the other side. Click its top bar (or press F6) to work on it; drag files across either way; double-click a folder to open it here -->
+            <Border x:Name="PeerPane" Grid.Column="2" Visibility="Collapsed" Background="Transparent">
+                <DockPanel>
+                    <local:TapBorder x:Name="PeerHead" DockPanel.Dock="Top" MinHeight="44" Background="{DynamicResource Card}" BorderBrush="{DynamicResource CardLine}" BorderThickness="0,0,0,1"
+                                     Cursor="Hand" MouseLeftButtonUp="PeerHead_Up" ToolTip="Click to work on this side (F6)" AllowDrop="True" DragOver="Peer_DragOver" Drop="Peer_Drop">
+                        <Grid Margin="12,0,4,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid Width="16" Height="16" Margin="0,0,10,0" VerticalAlignment="Center">
+                                <Image x:Name="PeerIcon" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <TextBlock x:Name="PeerGlyph" FontFamily="{StaticResource IconFont}" FontSize="14" Foreground="#FFC83D" VerticalAlignment="Center"/>
+                            </Grid>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,4">
+                                <TextBlock x:Name="PeerTitle" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Fg}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="PeerPath" FontSize="11.5" Foreground="{DynamicResource FgDim}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="PeerBackBtn" Style="{StaticResource Tool}" Content="&#xE72B;" ToolTip="Back on the other side" Click="PeerBack_Click"/>
+                                <Button x:Name="PeerUpBtn" Style="{StaticResource Tool}" Content="&#xE74A;" ToolTip="Up a folder on the other side" Click="PeerUp_Click"/>
+                                <Button Style="{StaticResource Tool}" Content="&#xE8AB;" ToolTip="Swap the two sides" Click="PeerSwap_Click"/>
+                                <Button Style="{StaticResource Tool}" Content="&#xE711;" FontSize="10" ToolTip="Close split view (Ctrl+\)" Click="PeerClose_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </local:TapBorder>
+                    <Grid>
+                        <ListView x:Name="PeerList" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Fg}" SelectionMode="Extended" AllowDrop="True"
+                                  MouseDoubleClick="PeerList_DoubleClick" KeyDown="PeerList_KeyDown"
+                                  PreviewMouseLeftButtonDown="PeerList_PreviewDown" PreviewMouseMove="PeerList_PreviewMove" PreviewMouseLeftButtonUp="PeerList_PreviewUp"
+                                  PreviewMouseRightButtonUp="PeerList_RightUp" DragOver="Peer_DragOver" Drop="Peer_Drop"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.ScrollUnit="Pixel"
+                                  IsTextSearchEnabled="True" TextSearch.TextPath="Name">
+                            <ListView.View>
+                                <GridView AllowsColumnReorder="False">
+                                    <GridViewColumn Header="Name" Width="250">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Style="{StaticResource Dim}">
+                                                    <Image Source="{Binding Icon}" Width="16" Height="16" Margin="6,0,10,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="Date modified" Width="140">
+                                        <GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding ModifiedText}" Foreground="{DynamicResource FgDim}" Margin="6,0,0,0"/></DataTemplate></GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="Size" Width="80">
+                                        <GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding SizeText}" Foreground="{DynamicResource FgDim}" Margin="6,0,0,0"/></DataTemplate></GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock x:Name="PeerMessage" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="24" Foreground="{DynamicResource FgDim}" FontSize="13" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    </Grid>
+                </DockPanel>
+            </Border>
             </Grid>
         </Grid>
 

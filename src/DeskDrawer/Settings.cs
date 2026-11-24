@@ -27,6 +27,12 @@ public sealed class Settings
     public double PreviewWidth { get; set; } = 320;
     public string SortKey { get; set; } = "Name";
     public bool SortAscending { get; set; } = true;
+    /// Split view (MainWindow.Split.cs): the number of the tab on the other side (-1 = off), whether you were working on the right-hand side, and the left side's share of the width.
+    public int SplitWith { get; set; } = -1;
+    public bool SplitRight { get; set; }
+    public double SplitShare { get; set; } = 0.5;
+    /// Self-tests that drive a real window set this, so they never overwrite your own tabs and folder views.
+    internal static bool NoSave;
 
     private static readonly string FilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskDrawer", "settings.json");
 
@@ -69,6 +75,7 @@ public sealed class Settings
 
     public void Save()
     {
+        if (NoSave) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
