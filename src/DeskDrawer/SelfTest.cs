@@ -219,6 +219,24 @@ public static partial class SelfTest
         }
         { var (l, r) = MainWindow.Halves(0, 0, 1921, 1040); Check("side by side splits a screen into two halves that cover it", l == "0,0,960,1040" && r == "960,0,961,1040", l + " | " + r); }
         DialogSafety((n, ok, x) => Check(n, ok, x));   // SelfTest.Guard.cs
+        {   // a broken settings file: kept aside as .unreadable, the copy from the save before is used; a file held open by another program is waited for, never written over
+            string d = Path.Combine(Path.GetTempPath(), "dd-settings-test-" + Environment.ProcessId); Directory.CreateDirectory(d); string f = Path.Combine(d, "settings.json");
+            try
+            {
+                new Settings { Tabs = { @"C:\one" } }.SaveTo(f); new Settings { Tabs = { @"C:\good" } }.SaveTo(f); new Settings { Tabs = { @"C:\third" } }.SaveTo(f);   // the spare copy now holds C:\good
+                File.WriteAllText(f, "{ \"Tabs\": [ \"C:\\\\cut");
+                var a = Settings.ReadFrom(f, out bool rec1); bool aside = File.ReadAllText(f + ".unreadable").StartsWith("{ \"Tabs\": [");
+                File.WriteAllBytes(f, new byte[64]); File.Delete(f + ".bak"); var z = Settings.ReadFrom(f, out bool rec2);   // zeros, no spare: the defaults
+                File.WriteAllText(f, "null"); var n = Settings.ReadFrom(f, out bool rec3);
+                new Settings { Tabs = { @"C:\held" } }.SaveTo(f); Settings h;
+                using (new FileStream(f, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) h = Settings.ReadFrom(f, out _);   // held open the whole time: no spare copy of "held" yet, so the defaults
+                h.SaveTo(f); bool keptHeld = File.ReadAllText(f + ".unreadable").Contains("held");
+                Check("settings: a broken file is kept aside and the copy from the save before is used", rec1 && a.Tabs.SequenceEqual(new[] { @"C:\good" }) && aside && rec2 && z.Tabs.Count == 0 && rec3 && keptHeld,
+                    $"tabs {string.Join(",", a.Tabs)}, aside {aside}, held kept {keptHeld}");
+            }
+            catch (Exception ex) { Check("settings: a broken file is kept aside and the copy from the save before is used", false, ex.Message); }
+            finally { try { Directory.Delete(d, true); } catch { } }
+        }
         IndexSearchTest(Check);
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());

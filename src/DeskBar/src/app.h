@@ -34,7 +34,10 @@ RECT BarWorkAreaOn(const RECT& monitor, float scale);                     // bar
 int MainMonIndex(const std::vector<Mon>& mons);                           // bar.cpp: which of these screens is the main (primary) one
 RECT SettingsRectOn(const RECT& work, float scale);                       // settingswin.cpp: the settings window's first place and size on a screen
 RECT FlyoutRectOn(const RECT& work, const RECT& monitor, float scale, float widthDip, float heightDip, bool anchorRight, float* maxHDip = nullptr);   // flyout.cpp: Start / Quick Settings on a screen
-bool BugReportsOn(); void OpenBugReport(); int BugSendTest(const ws& text);   // bugreport.cpp
+bool BugReportsOn(); void OpenBugReport(const ws& prefill = {}, const ws& status = {}, bool activate = true); int BugSendTest(const ws& text);   // bugreport.cpp
+struct CrashSeen { ws app, when; };   // the newest crash not offered yet (empty app = none)
+CrashSeen CrashNewest(const ws& seen, const ws& cutoff); bool CrashReportCheck();   // bugreport.cpp: after a crash of DeskBar, DeskDrawer or DeskTune, offer Report a bug once
+void WriteCrashReport(EXCEPTION_POINTERS* e);   // watchdog.cpp: crash.txt
 bool IsFullscreenOn(const RECT& monBounds, ws* who = nullptr, bool barHidden = false);   // who: class, title and exe of the window that covers the screen
 HWND MainTray();                         // Windows' own Shell_TrayWnd (never ours)
 namespace Explorer { void Hide(); void KeepHidden(); void Restore(); }
@@ -209,7 +212,7 @@ void SendToNextScreen(HWND h);
 // ---------- icons ----------
 // key forms: "exe:<path>", "aum:<AUMID>", "file:<path>" (any shell path).  Returns null until the image has arrived; onReady runs on the UI thread.
 ImgP IconGet(const ws& key, int px); size_t IconTrim(size_t keep, uint64_t idleMs = 600000); bool IconTrimSelfTest(ws& detail);
-void IconInit();
+void IconInit(); ws IconCachedFile(const ws& key, int px);   // icons.cpp: the cached picture for the stand-in bar (empty = none)
 bool IconSettled(const ws& key, int px);   // arrived or failed for good (starts the fetch if neither)
 ws ShellNameOf(const ws& key);          // display name for "aum:..." / "exe:..." keys (blocking: call from workers)
 

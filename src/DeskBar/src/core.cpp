@@ -163,8 +163,12 @@ void UiOnce(UINT ms, std::function<void()> f) {
 
 // ================= JSON =================
 namespace {
+// Never reads past the end and never throws: a settings file cut short (a crash, a full disk, a sync tool) used to throw out_of_range
+// from the \u code below, which crashed DeskBar at every start until the supervisor gave up. `bad` says the text was not well-formed.
 struct JP {
-    const std::string& s; size_t i = 0;
+    const std::string& s; size_t i = 0; bool bad = false; int depth = 0;
+    char at(size_t k) const { return k < s.size() ? s[k] : '\0'; }
+    unsigned hex4(size_t k) { unsigned v = 0; for (size_t n = 0; n < 4; n++) { char c = at(k + n); int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; if (d < 0) { bad = true; return 0xFFFD; } v = v * 16 + d; } return v; }
     void ws_() { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n' || (unsigned char)s[i] == 0xEF || (unsigned char)s[i] == 0xBB || (unsigned char)s[i] == 0xBF)) i++; }
     ws str() {
         std::string out; i++;   // opening quote
@@ -174,9 +178,9 @@ struct JP {
                 switch (c) {
                 case 'n': out += '\n'; break; case 't': out += '\t'; break; case 'r': out += '\r'; break; case 'b': out += '\b'; break; case 'f': out += '\f'; break;
                 case 'u': {
-                    unsigned cp = (unsigned)strtoul(s.substr(i + 1, 4).c_str(), nullptr, 16); i += 4;
-                    if (cp >= 0xD800 && cp < 0xDC00 && s.compare(i + 1, 2, "\\u") == 0) { unsigned lo = (unsigned)strtoul(s.substr(i + 3, 4).c_str(), nullptr, 16); i += 6; cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); }
-                    wchar_t w[2]; int n = 0; if (cp >= 0x10000) { cp -= 0x10000; w[0] = (wchar_t)(0xD800 + (cp >> 10)); w[1] = (wchar_t)(0xDC00 + (cp & 0x3FF)); n = 2; } else { w[0] = (wchar_t)cp; n = 1; }
+                    unsigned cp = hex4(i + 1); i += 4;
+                    if (cp >= 0xD800 && cp < 0xDC00 && at(i + 1) == '\\' && at(i + 2) == 'u') { unsigned lo = hex4(i + 3); i += 6; cp = lo >= 0xDC00 && lo < 0xE000 ? 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00) : 0xFFFD; }
+                    wchar_t w[2]; int n = 0; if (cp >= 0x10000 && cp <= 0x10FFFF) { cp -= 0x10000; w[0] = (wchar_t)(0xD800 + (cp >> 10)); w[1] = (wchar_t)(0xDC00 + (cp & 0x3FF)); n = 2; } else { w[0] = (wchar_t)(cp < 0x10000 ? cp : 0xFFFD); n = 1; }
                     out += Narrow(ws(w, n)); break;
                 }
                 default: out += c;
@@ -184,25 +188,27 @@ struct JP {
             } else out += s[i];
             i++;
         }
+        if (i >= s.size()) bad = true;   // no closing quote
         i++; return Widen(out);
     }
     Json val() {
-        ws_(); Json j; if (i >= s.size()) return j;
+        ws_(); Json j; if (i >= s.size()) { bad = true; return j; }
+        if (++depth > 200) { bad = true; i = s.size(); depth--; return j; }   // a broken file of "[[[[..." must not run the stack out
         char c = s[i];
         if (c == '{') {
             j.t = Json::Obj; i++; ws_();
-            while (i < s.size() && s[i] != '}') { ws_(); if (s[i] != '"') break; ws k = str(); ws_(); if (s[i] == ':') i++; j.o.emplace_back(k, val()); ws_(); if (s[i] == ',') i++; ws_(); }
-            i++;
+            while (i < s.size() && s[i] != '}') { ws_(); if (at(i) != '"') { bad = true; break; } ws k = str(); ws_(); if (at(i) == ':') i++; else bad = true; j.o.emplace_back(k, val()); ws_(); if (at(i) == ',') i++; else if (at(i) != '}') { bad = true; break; } ws_(); }
+            if (at(i) != '}') bad = true; i++;
         } else if (c == '[') {
             j.t = Json::Arr; i++; ws_();
-            while (i < s.size() && s[i] != ']') { j.a.push_back(val()); ws_(); if (s[i] == ',') i++; ws_(); }
-            i++;
+            while (i < s.size() && s[i] != ']') { size_t was = i; j.a.push_back(val()); ws_(); if (at(i) == ',') i++; else if (at(i) != ']') { bad = true; break; } ws_(); if (i == was) { bad = true; break; } }
+            if (at(i) != ']') bad = true; i++;
         } else if (c == '"') { j.t = Json::Str; j.s = str(); }
         else if (s.compare(i, 4, "true") == 0) { j.t = Json::Bool; j.b = true; i += 4; }
         else if (s.compare(i, 5, "false") == 0) { j.t = Json::Bool; i += 5; }
         else if (s.compare(i, 4, "null") == 0) { i += 4; }
-        else { char* e; j.n = strtod(s.c_str() + i, &e); j.t = Json::Num; i = e - s.c_str(); if (e == s.c_str() + i && i < s.size() && !isdigit((unsigned char)s[i]) && s[i] != '-') i++; }
-        return j;
+        else { const char* b = s.c_str() + i; char* e; j.n = strtod(b, &e); j.t = Json::Num; if (e == b) { bad = true; i++; } else i += (size_t)(e - b); }
+        depth--; return j;
     }
 };
 void DumpStr(std::string& o, const ws& w) {
@@ -225,7 +231,7 @@ void DumpJ(const Json& j, std::string& o, int ind, int lvl) {
     }
 }
 }
-Json Json::Parse(const std::string& u8) { JP p{u8}; return p.val(); }
+Json Json::Parse(const std::string& u8, bool* ok) { JP p{u8}; Json j = p.val(); p.ws_(); if (ok) *ok = !p.bad && p.i >= u8.size(); return j; }
 std::string Json::Dump(int indent) const { std::string o; DumpJ(*this, o, indent, 0); return o; }
 const Json* Json::Find(const wchar_t* k) const { for (auto& p : o) if (p.first == k) return &p.second; return nullptr; }
 Json& Json::Set(const wchar_t* k, Json v) {
@@ -265,12 +271,26 @@ static void ApplySettings(const Json& j) {
     S.launchCounts.clear();
     if (auto lc = j.Find(L"LaunchCounts")) if (lc->t == Json::Obj) for (auto& p : lc->o) S.launchCounts[p.first] = (int)p.second.n;
 }
+// settings.json is kept twice: the file itself and settings.bak.json, the copy from the save before. A file that can't be read (cut short,
+// zeros after a power cut, a bad hand edit, a sync tool's conflict) is set aside as settings.broken.json and the copy is used: pins, Start
+// and the theme survive instead of starting over (and the next save no longer writes the defaults over what was there).
+static bool g_setRecovered = false;
+bool SettingsRecovered() { return g_setRecovered; }
+static bool ReadSettingsFile(const ws& path, Json& out) { std::string raw; if (!ReadAll(path, raw)) return false; bool ok = false; out = Json::Parse(raw, &ok); return ok && out.t == Json::Obj; }
 void LoadSettings() {
-    std::string raw; ws path = DataPath(L"settings.json");
-    if (ReadAll(path, raw)) { ApplySettings(Json::Parse(raw)); }
-    else {   // first run: take what DeskBar2 had
+    std::string raw; ws path = DataPath(L"settings.json"), bak = DataPath(L"settings.bak.json"); Json j;
+    if (FileExists(path)) {
+        if (ReadSettingsFile(path, j)) ApplySettings(j);
+        else {
+            MoveFileExW(path.c_str(), DataPath(L"settings.broken.json").c_str(), MOVEFILE_REPLACE_EXISTING);
+            if (ReadSettingsFile(bak, j)) { ApplySettings(j); CopyFileW(bak.c_str(), path.c_str(), FALSE); Log(L"settings.json could not be read: set aside as settings.broken.json, the copy from the save before is used"); }
+            else { ApplySettings(Json::O()); Log(L"settings.json could not be read and there is no good copy: set aside as settings.broken.json, starting from the defaults"); }
+            g_setRecovered = true;
+        }
+    } else {   // first run: take what DeskBar2 had
         ws old = KnownFolder(FOLDERID_LocalAppData) + L"\\DeskBar2\\settings.json";
         if (ReadAll(old, raw)) { ApplySettings(Json::Parse(raw)); Log(L"settings imported from DeskBar2"); }
+        else if (ReadSettingsFile(bak, j)) { ApplySettings(j); Log(L"settings.json was missing: the copy from the save before is used"); g_setRecovered = true; }
     }
     WIN32_FILE_ATTRIBUTE_DATA d{}; if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &d)) g_setStamp = ((ULONGLONG)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
 }
@@ -290,6 +310,7 @@ void SaveSettingsNow() {
     Json lc = Json::O(); for (auto& p : S.launchCounts) lc.Set(p.first.c_str(), Json::N(p.second));
     j.Set(L"LaunchCounts", lc);
     ws path = DataPath(L"settings.json");
+    { Json cur; if (ReadSettingsFile(path, cur)) CopyFileW(path.c_str(), DataPath(L"settings.bak.json").c_str(), FALSE); }   // the save before becomes the spare copy (only a good one)
     WriteAtomic(path, j.Dump(2));
     WIN32_FILE_ATTRIBUTE_DATA d{}; if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &d)) g_setStamp = ((ULONGLONG)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
 }

@@ -16,6 +16,7 @@ static LONG WINAPI CrashFilter(EXCEPTION_POINTERS* e) {
     void* at = e->ExceptionRecord->ExceptionAddress; HMODULE mod = nullptr; wchar_t name[MAX_PATH] = L"?";   // which file and where in it: maps straight onto DeskBar.pdb
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)at, &mod)) GetModuleFileNameW(mod, name, MAX_PATH);
     Log(L"CRASH code=%08lx addr=%p in %s +0x%llx", e->ExceptionRecord->ExceptionCode, at, FileNameOf(name).c_str(), (unsigned long long)((uintptr_t)at - (uintptr_t)mod));
+    WriteCrashReport(e);                   // crash.txt: the stack with function names; the next start offers to send it (Report a bug)
     if (!g_dev) Explorer::Restore();       // never leave the user without a taskbar if we can't continue (the supervisor will start us again)
     Sleep(300); return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -24,13 +25,34 @@ void AppQuit(bool restart) { g_exitCode = restart ? 3 : 0; g_restoreOnExit = !re
 // "Ready" = the real bar has drawn 3 frames AND its pinned-app icons are decoded (max 8 s): the supervisor's stand-in bar then goes away.
 static void CheckReady() {
     if (g_readySent || !g_readyEv) return; bool ok = true;
-    for (auto* b : AllBars()) { if (b->frames < 3) ok = false; for (auto* t : b->btns) if (!IconSettled(t->e.iconKey, (int)lroundf(24 * b->scale))) ok = false; }
-    if (ok || Now() - g_start > 8000) { g_readySent = true; SetEvent(g_readyEv); Boot(L"ready signalled"); }
+    ws late; int frames = 0;
+    for (auto* b : AllBars()) { if (b->frames < 3) ok = false; frames = std::max(frames, b->frames); for (auto* t : b->btns) if (!IconSettled(t->e.iconKey, (int)lroundf(24 * b->scale))) { ok = false; if (late.size() < 300) late += t->e.iconKey + L"; "; } }
+    if (ok || Now() - g_start > 8000) {
+        g_readySent = true; SetEvent(g_readyEv); Boot(ok ? L"ready signalled" : L"ready signalled (gave up waiting after 8 s)");
+        if (!ok) Log(L"startup: still waiting at 8 s for %s", frames < 3 ? L"the bar to draw" : (L"icons: " + late).c_str());   // what made a slow start slow, for the next bug report
+    }
 }
 static void StartSafetyNet() {   // Windows' own Start / Search host must never end up on top of ours
     if (OpenPanel() != Panel::Start) return; HWND fg = GetForegroundWindow(); if (!fg) return; DWORD pid; GetWindowThreadProcessId(fg, &pid); if (pid == GetCurrentProcessId()) return;
     ws exe = Lower(FileNameOf(ExePathOfPid(pid)));
     if (exe == L"startmenuexperiencehost.exe" || exe == L"searchhost.exe" || exe == L"shellhost.exe") { SendKeys({VK_ESCAPE}); if (auto* f = Panel_(Panel::Start)) ForceForeground(f->hwnd); }
+}
+// Explorer restarting (it crashed, or Task Manager > Restart) used to cost the bar its reserved strip (maximized windows ran under it for a few
+// seconds), brought Windows' taskbar back for a moment and moved every tray icon to Windows' hidden tray, where they stayed. Watched by its
+// taskbar window: a new one means a new Explorer.
+static void ExplorerRestartCheck() {
+    static bool init = false; static HWND last = nullptr; HWND t = MainTray();
+    if (!init) { init = true; last = t; return; }
+    if (t == last) return; HWND was = last; last = t;
+    if (!t) { Log(L"Windows Explorer has gone (its taskbar window closed)"); return; }
+    Log(L"Windows Explorer restarted (taskbar %p, was %p): hiding its taskbar again, docking the bars again, asking apps for their tray icons", (void*)t, (void*)was);
+    UiOnce(1500, [] { Explorer::Hide(); BarsRedock(); TrayAnnounce(); });   // not at once: a just-started Explorer answers slowly, and these wait for it
+    UiOnce(6000, [] { Explorer::Hide(); TrayAnnounce(); });   // apps (and Explorer itself) that come back slower
+}
+// The friendly crash report: once things have settled, and not over a game or a video.
+static void CrashOfferLater(int tries) {
+    for (auto* b : AllBars()) if (b->hiddenFs) { if (tries < 30) UiOnce(60000, [tries] { CrashOfferLater(tries + 1); }); return; }
+    CrashReportCheck();
 }
 static void AppTick() {
     static int n = 0; n++; WatchdogBeat();
@@ -43,6 +65,7 @@ static void AppTick() {
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
         if (Panel p = OpenPanel(); p != Panel::None) Panel_(p)->Snapshot(DataPath(L"live_panel.png")); } }
+    if (!g_dev && n % 4 == 2) ExplorerRestartCheck();   // once a second
     if (!g_dev) { WinMoveTick(n); StartSafetyNet(); if (n % 12 == 0) BarsWorkAreaUpkeep(); if (n % 8 == 0) DeskModeTick(); }
 }
 
@@ -72,7 +95,7 @@ int RunTaskbar(bool real) {
     // everything below is deferred: the bar is what you are waiting for
     UiOnce(100, [real] {
         SysStart(); MirrorStart();
-        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); RestoreMinAnimate(); DeskModeHotkeysStart(); UiOnce(1500, [] { SettingsReopenCheck(); }); g_onOpenSettings = SettingsOpenFromApp; GesturesStart(); }
+        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); RestoreMinAnimate(); DeskModeHotkeysStart(); UiOnce(1500, [] { SettingsReopenCheck(); }); UiOnce(20000, [] { CrashOfferLater(0); }); g_onOpenSettings = SettingsOpenFromApp; GesturesStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
         if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own

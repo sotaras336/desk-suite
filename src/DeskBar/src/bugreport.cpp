@@ -10,6 +10,12 @@ namespace {
 const wchar_t* kFormPost = L"https://docs.google.com/forms/d/e/1FAIpQLSerXcJ-ztyA7ffOJmqfYZWivIRIr5ByGf7IG-ByocP2SqNf3A/formResponse";   // https://docs.google.com/forms/d/e/<form id>/formResponse
 const char* kFormEntry = "entry.563252164";      // entry.<number> of the form's paragraph question
 
+// Where each app writes down a crash. DeskDrawer and DeskTune: "yyyy-MM-dd HH:mm:ss fatal" heads an entry that closed the app ("window" and
+// "task" ones were caught and the app went on). DeskBar: every entry of crash.txt is one (crash.txt is written by the crash filter and the watchdog).
+std::vector<std::pair<ws, ws>> CrashFiles() {
+    ws la = KnownFolder(FOLDERID_LocalAppData);
+    return {{L"DeskBar crash.txt", DataPath(L"crash.txt")}, {L"DeskBar stuck.txt", DataPath(L"stuck.txt")}, {L"DeskDrawer crash.log", la + L"\\DeskDrawer\\crash.log"}, {L"DeskTune crash.log", la + L"\\DeskTune\\crash.log"}};
+}
 HWND g_wnd = nullptr, g_edit = nullptr, g_send = nullptr, g_status = nullptr; HFONT g_font = nullptr;
 const UINT WM_SENT = WM_APP + 0x61;
 
@@ -58,8 +64,8 @@ void Send() {
     ws text(n + 1, L'\0'); GetWindowTextW(g_edit, text.data(), n + 1); text.resize(n);
     EnableWindow(g_send, FALSE); SetWindowTextW(g_status, L"Sending…");
     ws info = Fmt(L"\r\n\r\n---\r\nDeskBar build: %s\r\nWindows: %s\r\nScreens: %s\r\nTheme: %s\r\n--- recent log ---\r\n", [] { wchar_t m[MAX_PATH]; GetModuleFileNameW(nullptr, m, MAX_PATH); std::string d; return ReadAll(m, d) ? Sha256HexOf(d).substr(0, 12) : ws(L"?"); }().c_str(), WindowsVersion().c_str(), MonSignature().c_str(), CurrentTheme().id);
-    std::string crashes;   // what DeskDrawer and DeskTune wrote down when something went wrong (their crash.log), newest part
-    for (const wchar_t* app : {L"DeskDrawer", L"DeskTune"}) { std::string d; if (ReadAll(KnownFolder(FOLDERID_LocalAppData) + L"\\" + app + L"\\crash.log", d) && !d.empty()) crashes += "\r\n--- " + Narrow(app) + " crash.log ---\r\n" + (d.size() > 4000 ? d.substr(d.size() - 4000) : d); }
+    std::string crashes;   // what DeskBar, DeskDrawer and DeskTune wrote down when something went wrong (crash.txt / crash.log, stuck.txt), newest part
+    for (auto& [name, file] : CrashFiles()) { std::string d; if (ReadAll(file, d) && !d.empty()) crashes += "\r\n--- " + Narrow(name) + " ---\r\n" + (d.size() > 4000 ? d.substr(d.size() - 4000) : d); }
     std::string body = std::string(kFormEntry) + "=" + UrlEncode(Narrow(text + info) + LogTail(12000) + crashes);
     HWND w = g_wnd;
     std::thread([body, w] { bool ok = Post(body); Log(L"bug report: %s", ok ? L"sent" : L"FAILED"); PostMessageW(w, WM_SENT, ok, 0); }).detach();
@@ -89,12 +95,42 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 }
 
+// The newest crash entry after `seen` and not before `cutoff` (both "yyyy-MM-dd HH:mm:ss", which sort as text). Lines that start an entry:
+// "<time>  DeskBar ..." in crash.txt, "<time> fatal" in the two crash.logs.
+CrashSeen CrashNewest(const ws& seen, const ws& cutoff) {
+    CrashSeen best; auto files = CrashFiles();
+    for (size_t k = 0; k < files.size(); k++) {
+        if (k == 1) continue;   // stuck.txt: freezes, already in crash.txt when the watchdog had to restart DeskBar
+        std::string d; if (!ReadAll(files[k].second, d)) continue;
+        const wchar_t* app = k == 0 ? L"DeskBar" : k == 2 ? L"DeskDrawer" : L"DeskTune";
+        for (auto& line : Split(Widen(d), L'\n')) {
+            if (line.size() < 20 || line[4] != L'-' || line[7] != L'-' || line[10] != L' ' || line[13] != L':' || line[16] != L':') continue;
+            ws when = line.substr(0, 19), rest = Trim(line.substr(19));
+            if (k == 0 ? !StartsI(rest, L"DeskBar") : !StartsI(rest, L"fatal")) continue;
+            if (when > seen && when >= cutoff && when > best.when) best = {app, when};
+        }
+    }
+    return best;
+}
+// At most once per crash, and only where reports are switched on: the Report a bug window, filled in and not in the way (it doesn't take the keyboard).
+bool CrashReportCheck() {
+    ws seenFile = DataPath(L"crash-seen.txt"); std::string seen; ReadAll(seenFile, seen); seen = Narrow(Trim(Widen(seen)));
+    SYSTEMTIME st; GetLocalTime(&st); FILETIME ft; SystemTimeToFileTime(&st, &ft); ULARGE_INTEGER u{ft.dwLowDateTime, ft.dwHighDateTime}; u.QuadPart -= 2ULL * 24 * 3600 * 10000000; ft = {u.LowPart, u.HighPart}; FileTimeToSystemTime(&ft, &st);
+    ws cutoff = Fmt(L"%04d-%02d-%02d %02d:%02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);   // older than 2 days: not worth a window
+    CrashSeen c = CrashNewest(Widen(seen), cutoff); if (c.app.empty()) return false;
+    WriteAtomic(seenFile, Narrow(c.when)); Log(L"crash report: %s crashed at %s%s", c.app.c_str(), c.when.c_str(), BugReportsOn() ? L", offering Report a bug" : L"");
+    if (!BugReportsOn()) return false;
+    OpenBugReport(c.app + L" closed by itself at " + c.when.substr(11, 5) + L" on " + c.when.substr(0, 10) + L".\r\nWhat I was doing: ",
+        c.app + L" had a problem and was restarted. Press Send to tell Claude (the details are added for you), or just close this window.", false);
+    return true;
+}
+
 int BugSendTest(const ws& text) { return Post(std::string(kFormEntry) + "=" + UrlEncode(Narrow(text))) ? 0 : 1; }
 
 bool BugReportsOn() { return S.bugReports && *kFormPost && *kFormEntry; }
 
-void OpenBugReport() {
-    if (g_wnd) { ShowWindow(g_wnd, SW_RESTORE); SetForegroundWindow(g_wnd); return; }
+void OpenBugReport(const ws& prefill, const ws& status, bool activate) {
+    if (g_wnd) { ShowWindow(g_wnd, SW_RESTORE); if (activate) SetForegroundWindow(g_wnd); return; }
     static bool reg = false;
     if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = Proc; wc.hInstance = g_inst; wc.lpszClassName = L"DeskBarBugReport"; wc.hCursor = LoadCursorW(nullptr, IDC_ARROW); wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
         wc.hIcon = LoadIconW(g_inst, MAKEINTRESOURCEW(1)); RegisterClassW(&wc); reg = true; }
@@ -102,5 +138,7 @@ void OpenBugReport() {
     UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy); int w = MulDiv(560, dx, 96), hgt = MulDiv(420, dx, 96);
     g_wnd = CreateWindowExW(0, L"DeskBarBugReport", L"Report a bug to Claude", WS_OVERLAPPEDWINDOW, mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - w) / 2, mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - hgt) / 2, w, hgt, nullptr, nullptr, g_inst, nullptr);
     if (!g_wnd) return;
-    ShowWindow(g_wnd, SW_SHOW); SetForegroundWindow(g_wnd);
+    if (!prefill.empty()) { SetWindowTextW(g_edit, prefill.c_str()); int n = GetWindowTextLengthW(g_edit); SendMessageW(g_edit, EM_SETSEL, n, n); }
+    if (!status.empty()) SetWindowTextW(g_status, status.c_str());
+    ShowWindow(g_wnd, activate ? SW_SHOW : SW_SHOWNOACTIVATE); if (activate) SetForegroundWindow(g_wnd);
 }
