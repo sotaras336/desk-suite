@@ -107,6 +107,11 @@ public static partial class SelfTest
             var plan = MainWindow.BatchPlan(new[] { ("x/a.jpg", false), ("x/b.png", false), ("x/c.jpg", false) }, "Trip.jpg", p => p.EndsWith("Trip (2).png"));
             Check("renaming a group numbers the files and keeps each extension", plan.Select(p => Path.GetFileName(p.To)).SequenceEqual(new[] { "Trip (1).jpg", "Trip (3).png", "Trip (4).jpg" }), string.Join(", ", plan.Select(p => Path.GetFileName(p.To))));
         }
+        {   // a Save As dialog in Downloads shows only "Downloads" (in the system's language): the picker must open there, not wherever DeskDrawer is
+            string dl = MainWindow.KnownDownloads(); var fi = new Native.SHFILEINFO(); Native.SHGetFileInfo(dl, 0, ref fi, (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.SHFILEINFO>(), Native.SHGFI_DISPLAYNAME);
+            string shown = fi.szDisplayName ?? "", got = DialogSwitch.FolderPathOf(shown);
+            Check("save as: a known folder shown by its name is found as a path", string.Equals(got, dl, StringComparison.OrdinalIgnoreCase) && DialogSwitch.FolderPathOf(@"C:\Windows") == @"C:\Windows" && DialogSwitch.FolderPathOf("") == "" && DialogSwitch.FolderPathOf("This PC") == "", $"\"{shown}\" -> \"{got}\"");
+        }
         { var (l, r) = MainWindow.Halves(0, 0, 1921, 1040); Check("side by side splits a screen into two halves that cover it", l == "0,0,960,1040" && r == "960,0,961,1040", l + " | " + r); }
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());

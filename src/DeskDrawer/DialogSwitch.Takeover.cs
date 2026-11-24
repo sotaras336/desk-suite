@@ -19,22 +19,31 @@ public static partial class DialogSwitch
     private static readonly Dictionary<IntPtr, Mutex> Owned = new();   // one named lock per dialog: with two DeskDrawers running (a trial and the installed one) only one answers
     private static MainWindow? _picker;
     private static readonly Dictionary<IntPtr, string> LastIn = new();   // app window -> folder its last Save / Open went to: the next dialog from that same window starts there
+    private static readonly HashSet<IntPtr> LeftAlone = new();   // dialogs that stayed on screen as Windows' own (the picker was busy with another): you may have used them already
 
     private static bool TryTakeOver(IntPtr dlg)
     {
         foreach (var h in Taken.Where(h => !IsWindow(h)).ToList()) { Taken.Remove(h); Faded.Remove(h); if (Owned.Remove(h, out var old)) old.Dispose(); }
-        if (_picker != null || Taken.Contains(dlg)) return false;
+        LeftAlone.RemoveWhere(h => !IsWindow(h));
+        if (Taken.Contains(dlg)) return false;
+        if (_picker != null) { LeftAlone.Add(dlg); return false; }
         var d = Describe(dlg);
         var mx = new Mutex(true, "Local\\DeskDrawerPicker" + dlg.ToInt64(), out bool mine);
         if (!mine) { mx.Dispose(); return false; }   // another DeskDrawer already took this one
         Owned[dlg] = mx; Taken.Add(dlg);
         try
         {
-            var places = _folders?.Invoke() ?? new();
             foreach (var w in LastIn.Keys.Where(w => !IsWindow(w)).ToList()) LastIn.Remove(w);
             IntPtr owner = GetWindow(dlg, 4 /*GW_OWNER*/);
-            string start = owner != IntPtr.Zero && LastIn.TryGetValue(owner, out var last) && Reach.Dir(last) ? last
-                : Reach.Dir(d.Folder) ? d.Folder : places.FirstOrDefault() ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            // Where the picker starts: always somewhere the dialog itself points to, never where your DeskDrawer window happens to be. It used to fall back to DeskDrawer's
+            // open tab whenever the dialog's folder could not be read, and it can't be for Downloads, Documents, Desktop... (the address bar shows only their name).
+            // So with several Save As waiting, browsing elsewhere in DeskDrawer moved the next one, and files were saved in the wrong place.
+            string here = FolderPathOf(d.Folder); bool own = Reach.Dir(here);
+            bool used = LeftAlone.Remove(dlg);   // it was on screen as Windows' own dialog: it starts where you left it
+            string fallback = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string start = used && own ? here
+                : owner != IntPtr.Zero && LastIn.TryGetValue(owner, out var last) && Reach.Dir(last) ? last
+                : own ? here : fallback;
             GetWindowRect(dlg, out var r);
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
@@ -42,7 +51,7 @@ public static partial class DialogSwitch
             ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             p.OnAnswer = pw => Answer(dlg, pw);
             long built = sw0.ElapsedMilliseconds;
-            p.PickShow(); LateName(dlg, p, d.Name, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
+            p.PickShow(); LateName(dlg, p, d.Name, 0); if (start == fallback && !own) LateFolder(dlg, p, start, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
         catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); return false; }
@@ -83,6 +92,40 @@ public static partial class DialogSwitch
         LateName(dlg, pw, shown, n + 1);
     });
 
+    /// Taken over so early that its address bar was still empty: for two seconds it is read again, and the folder that turns up is opened in the picker, unless you have
+    /// already gone somewhere else in it yourself.
+    private static void LateFolder(IntPtr dlg, MainWindow pw, string openedIn, int n) => After(n == 0 ? 60 : 100, () =>
+    {
+        if (_picker != pw || !IsWindow(dlg) || n >= 20) return;
+        string now = FolderPathOf(Describe(dlg).Folder);
+        if (Reach.Dir(now)) { if (pw.PickLateFolder(openedIn, now)) Note(dlg, $"the dialog's folder could be read {(n + 1) * 100} ms after it appeared"); return; }
+        LateFolder(dlg, pw, openedIn, n + 1);
+    });
+
+    /// The folder the dialog's address bar shows, as a path. Ordinary folders show their path, but Windows' own folders show only their name ("Downloads", "Λήψεις" in Greek,
+    /// "Documents" even when OneDrive keeps it): those names are matched against the known folders' display names. "" = not a real folder (This PC, Home, a library...).
+    internal static string FolderPathOf(string shown)
+    {
+        shown = shown.Trim();
+        if (shown.Length == 0) return "";
+        try { if (Path.IsPathFullyQualified(shown)) return shown; } catch { return ""; }
+        var known = new List<string?>
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), MainWindow.KnownDownloads(),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        };
+        try { known.AddRange(MainWindow.CloudRoots(false).Select(c => c.Path)); } catch { }
+        foreach (var f in known)
+        {
+            if (string.IsNullOrEmpty(f)) continue;
+            var fi = new Native.SHFILEINFO(); string shell = "";
+            try { if (Native.SHGetFileInfo(f, 0, ref fi, (uint)Marshal.SizeOf<Native.SHFILEINFO>(), Native.SHGFI_DISPLAYNAME) != IntPtr.Zero) shell = fi.szDisplayName ?? ""; } catch { }
+            if (string.Equals(shell, shown, StringComparison.CurrentCultureIgnoreCase) || string.Equals(Path.GetFileName(f.TrimEnd('\\')), shown, StringComparison.OrdinalIgnoreCase)) return f;
+        }
+        return "";
+    }
+
     /// Some apps show their dialog again by themselves (Word does, now and then): while the picker is open it is put away again.
     private static void KeepHidden(IntPtr dlg) => After(250, () => { if (_picker == null || !IsWindow(dlg)) return; if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg); });
 
@@ -103,7 +146,7 @@ public static partial class DialogSwitch
         EnumChildWindows(dlg, (c, _) =>
         {
             string cls = ClassOf(c);
-            if (cls == "ToolbarWindow32") { var t = TextOf(c); int i = t.IndexOf(": ", StringComparison.Ordinal); if (i >= 0 && t.StartsWith("Address", StringComparison.OrdinalIgnoreCase)) folder = t[(i + 2)..]; }
+            if (cls == "ToolbarWindow32") { var t = TextOf(c); int i = t.IndexOf(": ", StringComparison.Ordinal); if (i >= 0 && (t.StartsWith("Address", StringComparison.OrdinalIgnoreCase) || ClassOf(GetParent(c)) == "Breadcrumb Parent")) folder = t[(i + 2)..]; }   // the address bar; its label is in the system's language ("Διεύθυνση: ...")
             else if (cls == "Button" && GetDlgCtrlID(c) == 1) button = TextOf(c).Replace("&", "");
             else if (cls == "ComboBox" && GetDlgCtrlID(c) == 0x470) { combo = c; filter = TextOf(c); }   // "file type" box
             return true;
