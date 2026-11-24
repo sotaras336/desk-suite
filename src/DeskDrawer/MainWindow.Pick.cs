@@ -108,7 +108,9 @@ public partial class MainWindow
     /// The file-type filter of the list: the dialog's patterns for the chosen type (none = everything).
     private bool _pickFolder;
     public bool PickIsFolder => _pickFolder;
-    private bool PickShows(FileEntry e) => e.IsDir || !_pickFolder && _pickAll || _pickPatterns.Length == 0 || _pickPatterns.Any(p => FileSystemName.MatchesSimpleExpression(p, e.Name, true));
+    private bool PickShows(FileEntry e) => PickMatches(e.Name, e.IsDir, _pickFolder, _pickAll, _pickPatterns);
+    /// Folders always show; files when "All files" is on (not in a folder picker), or they match the chosen type.
+    internal static bool PickMatches(string name, bool isDir, bool folderPicker, bool all, string[] patterns) => isDir || !folderPicker && all || patterns.Length == 0 || patterns.Any(p => FileSystemName.MatchesSimpleExpression(p, name, true));
 
     private void PickShowType()
     {
@@ -133,9 +135,7 @@ public partial class MainWindow
     /// When saving, the extension in the file name follows the type (report.docx -> report.pdf), like Windows' dialog does.
     private void PickSetType(int k)
     {
-        string? Ext(string[] pats) => pats.FirstOrDefault(x => x.StartsWith("*.") && x.IndexOfAny(new[] { '*', '?' }, 1) < 0) is { } x0 ? x0[1..] : null;
-        string? from = Ext(_pickPatterns), to = Ext(DialogSwitch.PatternsOf(_pick!.Types[k])); var name = PickName.Text.Trim();
-        if (_pickSave && from != null && to != null && !name.Contains('"') && name.EndsWith(from, StringComparison.OrdinalIgnoreCase)) PickName.Text = name[..^from.Length] + to;
+        if (_pickSave && SwapExt(PickName.Text.Trim(), _pickPatterns, DialogSwitch.PatternsOf(_pick!.Types[k])) is { } swapped) PickName.Text = swapped;
         _pickType = k; _pickAll = false; _pickPatterns = DialogSwitch.PatternsOf(_pick.Types[k]); PickShowType(); foreach (var t in _tabs) ApplyFilter(t);
     }
 
@@ -159,7 +159,8 @@ public partial class MainWindow
         NavigateTab(_tab, folder, push: false); return true;
     }
     /// Like Windows' dialog: the name is selected without its extension, so typing replaces "report" and keeps ".docx".
-    private void PickSelectStem() { var t = PickName.Text; int dot = t.LastIndexOf('.'); PickName.Select(0, dot > 0 && !t.Contains('"') ? dot : t.Length); }
+    private void PickSelectStem() => PickName.Select(0, StemLength(PickName.Text));
+    internal static int StemLength(string t) { int dot = t.LastIndexOf('.'); return dot > 0 && !t.Contains('"') ? dot : t.Length; }
 
     private void PickName_KeyDown(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { PickCommit(); e.Handled = true; } }
     private void PickOk_Click(object s, RoutedEventArgs e) => PickCommit();
@@ -177,8 +178,7 @@ public partial class MainWindow
         }
         if (_pickFolder) { var p = Path.IsPathRooted(typed) ? typed : _tab.Current != null && !IsVirtual(_tab.Current) ? Path.Combine(_tab.Current, typed) : typed; if (Directory.Exists(p)) PickDone(new List<string> { p }); else Flash("No such folder"); return; }
         if (typed.Length == 0) { if (sel.Count == 1 && sel[0].IsDir) Navigate(sel[0].FullPath); return; }
-        var names = new List<string>();
-        if (typed.Contains('"')) foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(typed, "\"([^\"]+)\"")) names.Add(m.Groups[1].Value); else names.Add(typed);
+        var names = PickNames(typed);
         string? here = _tab.Current != null && !IsVirtual(_tab.Current) ? _tab.Current : null;
         if (names.Any(n => !Path.IsPathRooted(n)) && here == null)   // Home, This PC, search results: no folder to put a bare name in; selected files carry their own
         {
@@ -191,6 +191,21 @@ public partial class MainWindow
     }
 
     private void PickDone(List<string> paths) { Result = paths; Close(); }
+
+    /// The new name when the file type changes while saving (report.docx -> report.pdf); null = the name stays.
+    internal static string? SwapExt(string name, string[] fromPatterns, string[] toPatterns)
+    {
+        static string? Ext(string[] pats) => pats.FirstOrDefault(x => x.StartsWith("*.") && x.IndexOfAny(new[] { '*', '?' }, 1) < 0) is { } x0 ? x0[1..] : null;
+        string? from = Ext(fromPatterns), to = Ext(toPatterns);
+        return from != null && to != null && !name.Contains('"') && name.EndsWith(from, StringComparison.OrdinalIgnoreCase) ? name[..^from.Length] + to : null;
+    }
+    /// What was typed in the name box: one name, or several in quotes.
+    internal static List<string> PickNames(string typed)
+    {
+        var names = new List<string>();
+        if (typed.Contains('"')) foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(typed, "\"([^\"]+)\"")) names.Add(m.Groups[1].Value); else names.Add(typed);
+        return names;
+    }
 
     /// Every way out (the buttons, Esc, the window's X) comes here first: the picker steps off screen but keeps the foreground until the dialog it answers is gone,
     /// so DialogSwitch can hand the foreground back to the app that asked. FinishPick closes it for real.

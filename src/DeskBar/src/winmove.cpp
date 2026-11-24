@@ -49,6 +49,34 @@ void Animate(HWND h, const RECT& from, const RECT& to) {   // a short ease so th
 bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 && r.top <= work.top + 8 && (work.bottom - r.bottom > 8 || work.right - r.right > 8) && r.bottom <= work.bottom && r.right <= work.right + 8; }
 std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
 bool GuardSaysTouch(bool sig, bool suppressed, bool device, bool away) { return sig || suppressed || device || away; }
+// The rules below are small on purpose: the self-test (WinMoveMoreSelfTest) checks each with the numbers from real screens.
+bool GuardClaims(bool sig, bool suppressed, bool device, bool away, uint64_t msSinceClaim) { return GuardSaysTouch(sig, suppressed, device, away) || msSinceClaim < 1500; }   // a finger the strip claimed: the clicks that follow are its too
+int EdgeBand(int frame, int padded, UINT dpi, int extra) { return frame + padded + MulDiv(extra, (int)dpi, 96); }   // a window's bottom resize band (its frame), plus a little more for a finger
+int EdgeBandPx(UINT dpi, int extra) { return EdgeBand(GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi), GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi), dpi, extra); }
+RECT GuardStripRect(const RECT& bar, int band) { return {bar.left, bar.top - band, bar.right, bar.top}; }   // as wide as the bar, sitting right on top of it
+bool CoversMonitor(const RECT& r, const RECT& mon) { return r.left <= mon.left && r.top <= mon.top && r.right >= mon.right && r.bottom >= mon.bottom; }   // full-screen video or game
+bool OnBarGrown(RECT bar, int up, POINT p) { bar.top -= up; return PtInRect(&bar, p) != 0; }   // a finger a few px above the bar still counts as on it
+bool OnMaxEdge(const RECT& r, POINT p, int band) { return p.x <= r.left + band || p.x >= r.right - band || p.y >= r.bottom - band; }   // a maximized window's left, right or bottom edge
+RECT LiftedRect(const RECT& r, const RECT& work) { RECT c = r; c.top = std::max(work.top, work.bottom - (r.bottom - r.top)); c.bottom = std::min(c.top + (r.bottom - r.top), work.bottom); return c; }   // a window hidden under the bar, lifted whole
+bool PullBackOverBar(const RECT& r, const RECT& work, const RECT& mon) {   // the front window hangs into the bar far enough to pull its bottom edge back up
+    if (CoversMonitor(r, mon) || Sliver(r, work, mon)) return false;
+    return !(r.bottom - work.bottom <= (mon.bottom - work.bottom) / 4 || r.bottom > mon.bottom || r.top >= work.bottom - 40);   // a window's own invisible border hanging a few px over is not "in the bar" (pulling it back fought apps that draw their own frame)
+}
+int BestScreen(const RECT& r, const std::vector<RECT>& screens, int& touching) {   // the screen most of a dropped window is on, and how many it touches
+    int best = 0; long long most = -1; touching = 0;
+    for (int i = 0; i < (int)screens.size(); i++) { long long o = Overlap(r, screens[i]); if (o > most) { most = o; best = i; } if (o > 0) touching++; }
+    return best;
+}
+// Where a window let go of goes: on another screen it keeps its size relative to the screen, centred on where it was dropped; spilling over two screens it is pushed
+// onto the one it is mostly on. False = it stays where it is.
+bool DropSpot(const RECT& r, const RECT& startRect, const RECT& startWork, const RECT& targetWork, bool changed, bool spills, bool keepRatio, bool snap, RECT& res) {
+    res = r;
+    if (changed && keepRatio) {
+        double fw = W(startRect) / (double)W(startWork), fh = H(startRect) / (double)H(startWork); int w = (int)lround(std::min(1.0, fw) * W(targetWork)), hh = (int)lround(std::min(1.0, fh) * H(targetWork));
+        int cx = (r.left + r.right) / 2, cy = std::max((int)targetWork.top + hh / 2, (int)r.top + hh / 2); res = FitInside({cx - w / 2, cy - hh / 2, cx - w / 2 + w, cy - hh / 2 + hh}, targetWork);
+    } else if (snap && spills) res = FitInside(r, targetWork); else return false;
+    return !EqualRect(&res, &r);
+}
 std::map<HWND, HWND> g_guards;   // bar window -> its guard strip. Belongs to the guard thread (GuardThread): nothing else reads or changes it
 std::atomic<HWND> g_anyGuard{nullptr};   // one live guard strip, for the move/size hook's log and the self-test (they run on other threads and must not touch g_guards)
 // Why the strips get made afresh (GuardRenew): 0 = no need. Set from any thread, acted on by the guard thread.
@@ -90,8 +118,8 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
         // A snapped or plain window resting on the bar has the same band: with a finger (Windows hides the cursor during touch) it's grown for any window; the mouse can still resize those from the bottom.
         CURSORINFO ci{sizeof ci}; bool touch = GetCursorInfo(&ci) && (ci.flags & 0x2 /*CURSOR_SUPPRESSED*/);
         MONITORINFO wm{sizeof wm}; bool fills = GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &wm) && NearlyFull(VisibleRect(h), wm.rcWork);
-        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch || fills) { UINT d = GetDpiForWindow(h); up = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96); }
-        for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && (br.top -= up, PtInRect(&br, p))) { bar = w; break; } }
+        HWND bar = nullptr; GetCursorPos(&p); int up = 0; if (IsZoomed(h) || touch || fills) up = EdgeBandPx(GetDpiForWindow(h), 14);
+        for (HWND w = nullptr; (w = FindWindowExW(nullptr, w, kWndClass, nullptr));) { DWORD pid = 0; GetWindowThreadProcessId(w, &pid); RECT br; if (pid == GetCurrentProcessId() && IsWindowVisible(w) && GetWindowRect(w, &br) && OnBarGrown(br, up, p)) { bar = w; break; } }
         if (bar || ((pm = MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) && GetMonitorInfoW(pm, &pi) && p.y >= pi.rcWork.bottom && p.y < pi.rcMonitor.bottom)) {
             // a maximized window that draws its own frame (Chrome) restores itself as the drag starts: Esc alone left it restored, so put it back at the drag's end
             if (IsZoomed(h)) { WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp; }
@@ -112,8 +140,8 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
             return;
         }
         if (IsZoomed(h)) {   // a maximized window is not resized from its left, right or bottom edge (dragging the title bar off still works): cancel that resize
-            RECT r = VisibleRect(h); UINT dpi = GetDpiForWindow(h); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) + MulDiv(6, (int)dpi, 96);
-            if (p.x <= r.left + band || p.x >= r.right - band || p.y >= r.bottom - band) {
+            RECT r = VisibleRect(h); int band = EdgeBandPx(GetDpiForWindow(h), 6);
+            if (OnMaxEdge(r, p, band)) {
                 // apps that draw their own frame (Chrome, WPF) un-maximize themselves as the resize starts, so Esc alone leaves a restored window
                 // that only looks maximized: keep the placement and put it back when the cancelled drag ends
                 WINDOWPLACEMENT wp{sizeof wp}; GetWindowPlacement(h, &wp); g_keepMax[h] = wp;
@@ -137,13 +165,9 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
     }
     if (abs(W(r) - W(st.rect)) > 2 || abs(H(r) - H(st.rect)) > 2) { if (MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) == st.mon) return; }   // a resize: leave it (unless DPI changed the size crossing screens)
     auto mons = Monitors(); if (mons.empty()) return;
-    const Mon* target = &mons[0]; long long best = -1; int touching = 0; for (auto& m : mons) { long long o = Overlap(r, m.bounds); if (o > best) { best = o; target = &m; } if (o > 0) touching++; }
-    bool changed = target->h != st.mon, spills = touching > 1; RECT res = r;
-    if (changed && S.keepSizeRatio) {   // same size relative to the screen, centred on where you dropped it
-        double fw = W(st.rect) / (double)W(st.work), fh = H(st.rect) / (double)H(st.work); int w = (int)lround(std::min(1.0, fw) * W(target->work)), hh = (int)lround(std::min(1.0, fh) * H(target->work));
-        int cx = (r.left + r.right) / 2, cy = std::max((int)target->work.top + hh / 2, (int)r.top + hh / 2); res = FitInside({cx - w / 2, cy - hh / 2, cx - w / 2 + w, cy - hh / 2 + hh}, target->work);
-    } else if (S.snapOnRelease && spills) res = FitInside(r, target->work); else return;
-    if (EqualRect(&res, &r)) return; Animate(h, r, res);
+    std::vector<RECT> bounds; for (auto& m : mons) bounds.push_back(m.bounds); int touching = 0; const Mon* target = &mons[BestScreen(r, bounds, touching)];
+    RECT res; if (!DropSpot(r, st.rect, st.work, target->work, target->h != st.mon, touching > 1, S.keepSizeRatio, S.snapOnRelease, res)) return;
+    Animate(h, r, res);
 }
 // ---- popups: a dialog or popup shows up on the screen of the window that opened it (Quartus II's popups opened on the other screen than its main window) ----
 void MoveOnly(HWND h, const RECT& v) { RECT o; GetWindowRect(h, &o); RECT vis = VisibleRect(h); SetWindowPos(h, nullptr, v.left + (o.left - vis.left), v.top + (o.top - vis.top), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER); }   // position only: a different DPI on the other screen resizes it the Windows way
@@ -242,7 +266,7 @@ void SendToNextScreen(HWND h) {
 // FOREGROUND window only, so one that was not in front (clicked away from, or opened behind another) stayed stuck behind the bar. The log line names it.
 bool LiftSliver(HWND h, const RECT& r, const MONITORINFO& mi) {
     if (!Sliver(r, mi.rcWork, mi.rcMonitor)) return false;
-    RECT c = r; c.top = std::max(mi.rcWork.top, mi.rcWork.bottom - (r.bottom - r.top)); c.bottom = std::min(c.top + (r.bottom - r.top), mi.rcWork.bottom);
+    RECT c = LiftedRect(r, mi.rcWork);
     wchar_t t[80] = L""; GetWindowTextW(h, t, 80); DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
     Log(L"window hidden under the bar (top %d px above it), lifted: %s \"%s\" %s at %d,%d,%d,%d%s", (int)(mi.rcWork.bottom - r.top), ClassOf(h).c_str(), t, FileNameOf(ExePathOfPid(pid)).c_str(), (int)r.left, (int)r.top, (int)r.right, (int)r.bottom, GetForegroundWindow() == h ? L"" : L" (not the front window)");
     SetVisibleRect(h, c); return true;
@@ -263,9 +287,9 @@ void ClampForeground() {
     GUITHREADINFO gi{sizeof gi}; if (GetGUIThreadInfo(GetWindowThreadProcessId(h, nullptr), &gi) && (gi.flags & GUI_INMOVESIZE)) return;   // still being dragged
     MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) || mi.rcWork.bottom >= mi.rcMonitor.bottom) return;
     RECT r = VisibleRect(h);
-    if (r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return;   // a full-screen app
+    if (CoversMonitor(r, mi.rcMonitor)) return;   // a full-screen app
     if (LiftSliver(h, r, mi)) return;
-    if (r.bottom - mi.rcWork.bottom <= (mi.rcMonitor.bottom - mi.rcWork.bottom) / 4 || r.bottom > mi.rcMonitor.bottom || r.top >= mi.rcWork.bottom - 40) return;   // a window's own invisible border hanging a few px over is not "in the bar" (pulling it back fought apps that draw their own frame)
+    if (!PullBackOverBar(r, mi.rcWork, mi.rcMonitor)) return;
     typedef BOOL(WINAPI * Arr)(HWND); static Arr arranged = (Arr)GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"); if (arranged && arranged(h)) return;   // snapped by Windows: it fits it to the work area itself
     Log(L"window overlapped the bar by %d px, pulled back: %s", (int)(r.bottom - mi.rcWork.bottom), ClassOf(h).c_str());
     RECT c = r; c.bottom = mi.rcWork.bottom; SetVisibleRect(h, c);
@@ -305,7 +329,7 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         bool sig = (GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700;
         INPUT_MESSAGE_SOURCE src{}; bool dev = GetCurrentInputMessageSource(&src) && (src.deviceType == IMDT_TOUCH || src.deviceType == IMDT_PEN);
         POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)}, c{}; GetCursorPos(&c); bool away = abs(p.x - c.x) > 8 || abs(p.y - c.y) > 8;
-        bool touch = GuardSaysTouch(sig, supp, dev, away) || GetTickCount64() - g_guardTouch < 1500;   // a finger the strip claimed: the clicks that follow are its too
+        bool touch = GuardClaims(sig, supp, dev, away, GetTickCount64() - g_guardTouch);
         g_lastGuard = {GetTickCount64(), sig, supp, dev, away, (int)src.deviceType, p, c};
         return touch ? HTCLIENT : HTTRANSPARENT; }
     case WM_TOUCHHITTESTING: {
@@ -373,9 +397,9 @@ void GuardsUpdate() {   // UI thread: where the strips should be; the guard thre
     for (Bar* b : AllBars()) {
         HWND bar = b->hwnd; RECT br; if (!bar || !IsWindowVisible(bar) || !GetWindowRect(bar, &br)) continue;
         MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(MonitorFromWindow(bar, MONITOR_DEFAULTTONEAREST), &mi) || br.bottom < mi.rcMonitor.bottom - 2) continue;   // a bar at the bottom of its screen only
-        HWND fg = GetForegroundWindow(); RECT fr; if (fg && fg != bar && GetWindowRect(fg, &fr) && fr.left <= mi.rcMonitor.left && fr.top <= mi.rcMonitor.top && fr.right >= mi.rcMonitor.right && fr.bottom >= mi.rcMonitor.bottom && ClassOf(fg) != kWndClass && ClassOf(fg) != L"Progman" && ClassOf(fg) != L"WorkerW") continue;   // full-screen video or game: leave it alone
-        UINT d = GetDpiForWindow(bar); int band = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d) + MulDiv(14, (int)d, 96);
-        want.push_back({bar, {br.left, br.top - band, br.right, br.top}});
+        HWND fg = GetForegroundWindow(); RECT fr; if (fg && fg != bar && GetWindowRect(fg, &fr) && CoversMonitor(fr, mi.rcMonitor) && ClassOf(fg) != kWndClass && ClassOf(fg) != L"Progman" && ClassOf(fg) != L"WorkerW") continue;   // full-screen video or game: leave it alone
+        int band = EdgeBandPx(GetDpiForWindow(bar), 14);
+        want.push_back({bar, GuardStripRect(br, band)});
     }
     { std::lock_guard<std::mutex> l(g_guardMu); g_guardWant = std::move(want); }
     GuardPost();
@@ -427,4 +451,43 @@ bool GuardThreadSelfTest(ws& detail) {
     if (fake) DestroyWindow(fake);
     detail = Fmt(L"made %d, in place %d, topmost %d, own thread %d, made afresh %d, removed %d", (int)made, (int)placed, (int)top, (int)own, (int)fresh, (int)gone);
     return made && placed && top && own && fresh && gone;
+}
+
+// Touch on the bar's edge and window moves between screens, with the numbers of the real setup: a Surface 2880x1920 at 200% (bar 96 px) and an LG 1920x1080 at
+// 100% to its right. Each rule is checked on its own; the detail names the ones that failed.
+bool WinMoveMoreSelfTest(ws& detail) {
+    std::vector<std::pair<const wchar_t*, bool>> r;
+    auto is = [](const RECT& a, int l, int t, int rr, int b) { return a.left == l && a.top == t && a.right == rr && a.bottom == b; };
+    RECT sWork{0, 0, 2880, 1824}, sMon{0, 0, 2880, 1920}, lgWork{2880, 0, 4800, 1032}, lgMon{2880, 0, 4800, 1080}, bar{0, 1824, 2880, 1920};
+    // the touch guard strip: as tall as a window's bottom resize band plus a finger's margin, at every scale, right on top of the bar
+    r.push_back({L"band 100%", EdgeBand(4, 4, 96, 14) == 22});
+    r.push_back({L"band 150%", EdgeBand(6, 4, 144, 14) == 31});
+    r.push_back({L"band 200%", EdgeBand(8, 8, 192, 14) == 44});
+    { bool ok = true; int last = 0; for (UINT d : {96u, 120u, 144u, 168u, 192u, 240u}) { int frame = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d), g = EdgeBandPx(d, 14); ok = ok && g >= frame + 14 && g >= last; last = g; }
+      r.push_back({L"guard covers the resize band at 100-250%", ok}); }
+    r.push_back({L"guard strip sits on the bar", is(GuardStripRect(bar, 44), 0, 1780, 2880, 1824)});
+    r.push_back({L"mouse passes through", !GuardClaims(false, false, false, false, 5000)});
+    r.push_back({L"finger is claimed", GuardClaims(false, false, true, false, 5000) && GuardClaims(true, false, false, false, 5000) && GuardClaims(false, true, false, false, 5000)});
+    r.push_back({L"clicks right after a finger stay claimed", GuardClaims(false, false, false, false, 300) && !GuardClaims(false, false, false, false, 1500)});
+    // a tap a few px above the bar (in the band) reaches the bar; higher up it is the window's
+    r.push_back({L"tap just above the bar", OnBarGrown(bar, 44, {100, 1800}) && !OnBarGrown(bar, 44, {100, 1779}) && !OnBarGrown(bar, 0, {100, 1800}) && OnBarGrown(bar, 0, {100, 1900})});
+    r.push_back({L"maximized edges", OnMaxEdge(sWork, {1440, 1810}, 20) && OnMaxEdge(sWork, {5, 900}, 20) && OnMaxEdge(sWork, {2875, 900}, 20) && !OnMaxEdge(sWork, {1440, 900}, 20) && !OnMaxEdge(sWork, {1440, 5}, 20)});
+    r.push_back({L"full screen", CoversMonitor(sMon, sMon) && CoversMonitor({-8, -8, 2888, 1928}, sMon) && !CoversMonitor(sWork, sMon)});
+    // windows left under the bar
+    r.push_back({L"lift hidden window", is(LiftedRect({100, 1790, 900, 2400}, sWork), 100, 1214, 900, 1824) && is(LiftedRect({0, 1800, 800, 3800}, sWork), 0, 0, 800, 1824)});
+    r.push_back({L"pull back over the bar", PullBackOverBar({100, 200, 900, 1860}, sWork, sMon) && !PullBackOverBar({100, 200, 900, 1840}, sWork, sMon) && !PullBackOverBar(sMon, sWork, sMon) && !PullBackOverBar({100, 200, 900, 1950}, sWork, sMon) && !PullBackOverBar({0, 1790, 800, 2300}, sWork, sMon)});
+    // dropping a window: which screen, and where it lands
+    { int t = 0; int a = BestScreen({2700, 100, 3700, 800}, {sMon, lgMon}, t); int t2 = 0; int b = BestScreen({100, 100, 900, 800}, {sMon, lgMon}, t2);
+      r.push_back({L"screen under a dropped window", a == 1 && t == 2 && b == 0 && t2 == 1}); }
+    { RECT res; bool moved = DropSpot({3000, 100, 4440, 1012}, {0, 0, 1440, 912}, sWork, lgWork, true, false, true, true, res);
+      r.push_back({L"drop on the other screen keeps its share of the screen", moved && is(res, 3240, 100, 4200, 616)}); }
+    { RECT res; bool moved = DropSpot({2700, 100, 3700, 800}, {2700, 100, 3700, 800}, lgWork, lgWork, false, true, true, true, res);
+      r.push_back({L"drop across two screens is pushed onto one", moved && is(res, 2880, 100, 3880, 800)}); }
+    { RECT res; r.push_back({L"drop inside one screen stays", !DropSpot({100, 100, 900, 800}, {50, 50, 850, 750}, sWork, sWork, false, false, true, true, res) && !DropSpot({3000, 100, 3500, 600}, {0, 0, 500, 500}, sWork, lgWork, true, false, false, true, res)}); }
+    // Win+Shift+Arrow and an unplugged screen: the same place and size relative to the screen
+    r.push_back({L"send to the other screen", is(Proportional({720, 456, 2160, 1368}, sWork, lgWork), 3360, 258, 4320, 774) && is(Proportional({-100, 0, 3000, 1824}, sWork, lgWork), 2880, 0, 4800, 1032)});
+    r.push_back({L"rescued window spot", is(SpotRect({L"x", .25, .25, .5, .5, false}, lgWork), 3360, 258, 4320, 774)});
+    r.push_back({L"fit inside", is(FitInside({-50, -50, 150, 150}, {0, 0, 100, 100}), 0, 0, 100, 100) && is(FitInside({90, 90, 140, 140}, {0, 0, 100, 100}), 50, 50, 100, 100)});
+    bool all = true; detail.clear(); for (auto& [n, ok] : r) if (!ok) { all = false; detail += (detail.empty() ? L"failed: " : L", ") + ws(n); }
+    if (all) detail = Fmt(L"%d rules", (int)r.size()); return all;
 }

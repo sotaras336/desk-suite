@@ -135,6 +135,10 @@ public static partial class DialogSwitch
     /// Some apps show their dialog again by themselves (Word does, now and then): while the picker is open it is put away again.
     private static void KeepHidden(IntPtr dlg) => After(250, () => { if (_picker == null || !IsWindow(dlg)) return; if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg); });
 
+    /// Several files from one folder go to the dialog together, in quotes; files from different folders can't be picked together in these dialogs: the first one.
+    internal static bool SeveralInOneFolder(List<string> paths) { string dir = Path.GetDirectoryName(paths[0]) ?? ""; return paths.Count > 1 && paths.All(p => string.Equals(Path.GetDirectoryName(p), dir, StringComparison.OrdinalIgnoreCase)); }
+    internal static string AnswerText(List<string> paths) => SeveralInOneFolder(paths) ? string.Join(" ", paths.Select(p => "\"" + p + "\"")) : paths[0];
+
     /// The file patterns inside a file-type name such as "Word Documents (*.docx;*.doc)"; empty = all files.
     public static string[] PatternsOf(string type)
     {
@@ -195,11 +199,9 @@ public static partial class DialogSwitch
             SendMessage(edit, 0x000C /*WM_SETTEXT*/, IntPtr.Zero, text);
             if (ok != IntPtr.Zero) SendMessage(ok, 0x00F5 /*BM_CLICK*/, IntPtr.Zero, IntPtr.Zero); else SendMessage(dlg, 0x0111 /*WM_COMMAND*/, (IntPtr)1, IntPtr.Zero);
         }
-        string dir = Path.GetDirectoryName(paths[0]) ?? "";
-        bool several = paths.Count > 1 && paths.All(p => string.Equals(Path.GetDirectoryName(p), dir, StringComparison.OrdinalIgnoreCase));
+        bool several = SeveralInOneFolder(paths);
         string shownBefore = folder ? Describe(dlg).Folder : "";
-        if (several) Press(string.Join(" ", paths.Select(p => "\"" + p + "\"")));
-        else Press(paths[0]);   // files from different folders can't be picked together in these dialogs: the first one
+        Press(AnswerText(paths));
         // (it used to press again after a fixed 350 ms: on a slow folder that was before the dialog had gone there, and it chose the folder it was still in)
         if (folder) WhenIn(dlg, paths[0], shownBefore, 0, () => { if (IsWindow(dlg)) Press(""); });   // a folder picker opens a typed folder instead of choosing it: pressed again with an empty name, it chooses the folder it is in
         // still there a moment later = it had something to say (replace this file? bad name?): show it again so the app's answer is visible

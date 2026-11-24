@@ -8,7 +8,7 @@
 // - One installer: Settings > Desk apps installs and updates DeskDrawer and DeskTune from the same GitHub release DeskBar updates from, each file
 //   checked against the release's SHA256SUMS before it runs (the same download as DeskBar's own update).
 
-static ws DeskDir() { return KnownFolder(FOLDERID_LocalAppData) + L"\\Desk"; }
+static ws DeskDir() { wchar_t t[MAX_PATH]; if (GetEnvironmentVariableW(L"DESK_DIR", t, MAX_PATH)) return t; return KnownFolder(FOLDERID_LocalAppData) + L"\\Desk"; }   // DESK_DIR: the self-test's own folder, never the real colours
 static ws ThemePath(const ws& app) { return DeskDir() + (app.empty() ? ws(L"\\theme.txt") : L"\\theme-" + app + L".txt"); }
 static ws ReadId(const ws& path) { std::string d; if (!ReadAll(path, d)) return {}; ws t = Trim(Widen(d)); return t.size() < 200 ? t : ws(); }
 static void WriteId(const ws& path, const ws& id) { if (id.empty() || ReadId(path) == id) return; CreateDirectoryW(DeskDir().c_str(), nullptr); WriteAtomic(path, Narrow(id)); }

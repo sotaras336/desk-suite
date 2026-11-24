@@ -16,7 +16,7 @@ public static class ColourWindow
         string before = Theme.FullId; bool ok = false;
         string? baseId = Theme.Current.Kind == 0 && !Theme.Current.Id.StartsWith("custom:") ? Theme.Current.Id : null; bool moved = false;
         var cur = Theme.Current;
-        double hue = cur.Kind != 0 ? 300 : cur.Hue >= 0 ? cur.Hue : 205, t0 = cur.Kind == 1 ? 0.96 : cur.Kind == 2 ? 0.04 : cur.Val >= 1 ? 0.25 : 0.92 - cur.Val * 0.62;
+        double hue = cur.Kind != 0 ? 300 : cur.Hue >= 0 ? cur.Hue : 205, t0 = Theme.LightStart(cur);
         var win = new Window { Title = "DeskTune colour", Owner = owner, Width = 460, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false };
         win.SetResourceReference(Window.BackgroundProperty, "MenuBg");
         win.SourceInitialized += (_, _) => { int dark = Theme.IsLight ? 0 : 1; MainWindow.DwmSetWindowAttribute(new WindowInteropHelper(win).Handle, 20, ref dark, 4); };
@@ -49,13 +49,7 @@ public static class ColourWindow
         var fadeBar = new GradBar(100, Theme.Grad > 0 ? Theme.Grad : 0) { Sample = f => f < 1 ? Base() : Theme.Shift(Base(), f, 0.002) };
         fadeBox.Children.Add(fadeBar);
 
-        string Id()
-        {
-            int z = LightZone(light.T); if (z != 0) return z == 1 ? "black" : "white";
-            string fade = ":" + (int)fadeBar.Value; if (baseId != null && !moved) return baseId + fade;
-            int sv = (int)Math.Round(pad.Sat), v = (int)Math.Round(LightVal(light.T) * 100);
-            return "custom:" + (int)pad.Hue + fade + (sv < 100 || v < 100 ? ":" + sv + ":" + v : "");
-        }
+        string Id() => Theme.ColourId(light.T, baseId, moved, pad.Hue, fadeBar.Value, pad.Sat);
         void Refresh()
         {
             double f = fadeBar.Value; int z = LightZone(light.T); bool plain = z != 0;
@@ -88,8 +82,8 @@ public static class ColourWindow
     }
 
     // what the light bar position means: under 0.10 the White theme, over 0.92 Black, 0.2-0.3 the colour as it is, darker below (as in DeskDrawer)
-    static int LightZone(double t) => t < 0.10 ? 2 : t > 0.92 ? 1 : 0;
-    static double LightVal(double t) => t <= 0.30 ? 1 : Math.Clamp((0.92 - t) / 0.62, 0, 1);
+    static int LightZone(double t) => Theme.LightZone(t);
+    static double LightVal(double t) => Theme.LightVal(t);
 
     sealed class GradBar : Grid
     {

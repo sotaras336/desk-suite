@@ -100,6 +100,8 @@ float ThemeGrad();                                  // >= 0: the custom colour's
 inline bool ThemeIsGlass(const ThemeDef& t) { return t.kind == 3; }
 void SetTheme(const ws& id);
 void SetDeskModeTheme(const ws& id); const ThemeDef& DeskModeTheme(); float DeskModeGrad();   // DeskMode's own colour (Desk settings > Colours), else the bar's                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
+ThemeDef ThemeFromId(const ws& id, float& grad);   // what a theme id means ("blue:40", "custom:200:40:80:90"), the fade in grad; nothing changes (core.cpp)
+float LightStart(const ThemeDef& cur); ws ColourIdOf(float t, const ws& base, bool moved, float hue, float fade, float sat);   // the colour picker's light bar and the id it makes (quickpages.cpp)
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a = 255);   // for swatches that show a theme other than the current one
 D2D1_COLOR_F Col(uint32_t rgb, int a = 255);   // 0xRRGGBB, alpha 0..255; mapped through the current theme
 bool DuoTone(uint32_t rgb);                     // true: the colour is a light accent, filled as a two-tone gradient (SolidB does it)

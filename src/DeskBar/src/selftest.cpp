@@ -120,5 +120,59 @@ int RunSelfTest(const ws& outFile) {
         check(L"explorer: other programs are never touched", !ExplorerAsDeskDrawer(L"notepad.exe", L"", a) && !ExplorerAsDeskDrawer(L"C:\\x\\myexplorer.exe", L"", a));
         ws dd = DeskDrawerExe(); check(L"explorer: DeskDrawer's exe is empty or a real file", dd.empty() || FileExists(dd), dd);
     }
+    { ws d; bool ok = WinMoveMoreSelfTest(d); check(L"windows: touch on the bar's edge, drops and moves between screens", ok, d); }
+    {   // colours: what each theme id means and the colours it gives. DeskDrawer's and DeskTune's self-tests check the very same table, so the three apps look like one.
+        const uint32_t ins[6] = {0x1167C4, 0x0A4096, 0x4CC2FF, 0xFFFFFF, 0x000000, 0x2BB673};   // the accent, a background, a light accent, white, black, a green (greens never move)
+        struct Row { const wchar_t* id; uint32_t want[6]; };   // 0xAARRGGBB
+        const Row rows[] = {
+            {L"pink", {0xFFC67299, 0xFFC46890, 0xFFFA6AC2, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}}, {L"blue", {0xFF1167C4, 0xFF0A4096, 0xFF4CC2FF, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}},
+            {L"teal", {0xFF11C4AE, 0xFF0A9688, 0xFF4CFFE1, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}}, {L"red:30", {0xFFC4112D, 0xFF960A1D, 0xFFFF4C70, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}},
+            {L"black", {0xFF353535, 0xFF282828, 0xFF4CC2FF, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}}, {L"white", {0xFFDFDFDF, 0xFFE7E7E7, 0xFF009DEE, 0xFF1B1B1B, 0xFFFFFFFF, 0xFF2BB673}},
+            {L"glass", {0x3D202020, 0x3D181818, 0xFF4CC2FF, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}}, {L"custom:200", {0xFF1193C4, 0xFF0A6C96, 0xFF4CD6FF, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}},
+            {L"custom:120:40:50:60", {0xFF285B25, 0xFF1C451B, 0xFF82D279, 0xFFFFFFFF, 0xFF000000, 0xFF2BB673}},
+        };
+        ws bad;
+        for (auto& r : rows) { float g; ThemeDef t = ThemeFromId(r.id, g);
+            for (int i = 0; i < 6; i++) { auto c = ColFor(t, ins[i]); int got[4] = {(int)lroundf(c.a * 255), (int)lroundf(c.r * 255), (int)lroundf(c.g * 255), (int)lroundf(c.b * 255)}; bool same = true;
+                for (int k = 0; k < 4; k++) same = same && abs(got[k] - (int)((r.want[i] >> (24 - 8 * k)) & 255)) <= 2;   // float here, double in the C# apps: a step or two apart at most
+                if (!same) bad += Fmt(L"%s %06X gave %02X%02X%02X%02X, want %08X; ", r.id, ins[i], got[0], got[1], got[2], got[3], r.want[i]); } }
+        check(L"colours: every theme gives the suite's colours (the table all three apps check)", bad.empty(), bad);
+        float g1, g2, g3, g4; ThemeDef a = ThemeFromId(L"blue:40", g1), b = ThemeFromId(L"custom:-30", g2), c = ThemeFromId(L"custom:200:150:120:-5", g3), d = ThemeFromId(L"PURPLE", g4);
+        check(L"colours: theme ids are read the same way as in DeskDrawer and DeskTune", EqI(a.id, L"blue") && g1 == 40 && b.hue == 330 && g2 == -1 && c.hue == 200 && g3 == 100 && c.sat == 1 && c.val == 0 && EqI(d.id, L"purple") && g4 == -1,
+              Fmt(L"blue:40 -> %s %.0f; custom:-30 -> hue %.0f; clamped -> fade %.0f sat %.2f val %.2f", a.id, g1, b.hue, g3, c.sat, c.val));
+#ifdef PINK
+        const wchar_t* fallback = L"pink";
+#else
+        const wchar_t* fallback = L"blue";
+#endif
+        { float g; ThemeDef x = ThemeFromId(L"nonsense", g), y = ThemeFromId(L"x:40", g); check(L"colours: a broken theme name falls back to this build's colour (DeskDrawer and DeskTune do the same)", EqI(x.id, fallback) && EqI(y.id, fallback), ws(x.id) + L" " + y.id); }
+        check(L"colour picker: the colour and the fade are rounded (DeskDrawer and DeskTune round the same way)", ColourIdOf(0.25f, L"", true, 199.6f, 39.5f, 100) == L"custom:200:40" && ColourIdOf(0.25f, L"", true, 200.4f, 0.4f, 100) == L"custom:200:0", ColourIdOf(0.25f, L"", true, 199.6f, 39.5f, 100));
+        bool ends = ColourIdOf(0.05f, L"", true, 200, 30, 100) == L"white" && ColourIdOf(0.95f, L"blue", false, 200, 30, 100) == L"black";
+        bool named = ColourIdOf(0.25f, L"blue", false, 205, 40, 100) == L"blue:40" && ColourIdOf(0.25f, L"blue", true, 200, 0, 100) == L"custom:200:0" && ColourIdOf(0.25f, L"", true, 200, 40, 80) == L"custom:200:40:80:100";
+        check(L"colour picker: the ids it makes (black and white ends, a ready-made colour with a fade, a custom one)", ends && named, ColourIdOf(0.25f, L"", true, 200, 40, 80));
+        ws back;   // open the picker on a colour and press OK without touching it: the same colour comes back
+        for (const wchar_t* id : {L"custom:120:40:50:60", L"custom:200:0", L"custom:10:25:100:30", L"black", L"white"}) { float g; ThemeDef t = ThemeFromId(id, g); ws got = ColourIdOf(LightStart(t), L"", false, t.hue, g > 0 ? g : 0, t.sat * 100); if (got != id) back += ws(id) + L" -> " + got + L"; "; }
+        check(L"colour picker: reopened on a colour, it gives the same colour back", back.empty(), back);
+    }
+    {   // one colour for every app, or each app its own: the files DeskDrawer and DeskTune read the same way (here in the test's own folder, never the real one)
+        wchar_t dd[MAX_PATH] = L""; GetEnvironmentVariableW(L"DESK_DIR", dd, MAX_PATH); ws dir = dd;
+        auto clean = [&] { DeleteFileW((dir + L"\\theme.txt").c_str()); for (const wchar_t* a : {L"deskbar", L"deskmode", L"deskdrawer", L"desktune"}) DeleteFileW((dir + L"\\theme-" + a + L".txt").c_str()); };
+        if (dir.empty()) check(L"shared colours: the test has its own folder", false, L"DESK_DIR not set");
+        else {
+            clean(); std::vector<std::pair<const wchar_t*, bool>> r;
+            ThemeSet(L"deskbar", L"teal");
+            r.push_back({L"one colour: every app wears it", !ThemesSeparate() && ThemeOf(L"") == L"teal" && ThemeOf(L"deskdrawer") == L"teal" && ThemeOf(L"desktune") == L"teal" && FileExists(dir + L"\\theme.txt")});
+            ThemesSetSeparate(true);
+            r.push_back({L"separate: each app starts from the suite's colour", ThemesSeparate() && ThemeOf(L"deskdrawer") == L"teal" && ThemeOf(L"desktune") == L"teal" && FileExists(dir + L"\\theme-desktune.txt")});
+            ThemeSet(L"deskdrawer", L"custom:120:40");
+            r.push_back({L"separate: one app's colour leaves the others alone", ThemeOf(L"deskdrawer") == L"custom:120:40" && ThemeOf(L"deskbar") == L"teal" && ThemeOf(L"desktune") == L"teal" && ThemeOf(L"") == L"teal"});
+            ThemesSetSeparate(false);
+            r.push_back({L"one colour again: the bar's, and the apps' own files are gone", !ThemesSeparate() && ThemeOf(L"") == L"teal" && ThemeOf(L"deskdrawer") == L"teal" && !FileExists(dir + L"\\theme-deskdrawer.txt")});
+            WriteAtomic(dir + L"\\theme.txt", "  pink\r\n"); WriteAtomic(dir + L"\\theme-desktune.txt", std::string(300, 'x'));
+            r.push_back({L"a colour file with spaces and a line end is read; a broken one is ignored", ThemeOf(L"deskbar") == L"pink" && ThemeOf(L"desktune") == L"pink"});
+            clean(); ws bad; for (auto& [n, ok] : r) if (!ok) bad += ws(n) + L"; ";
+            check(L"shared colours: one for all, or each app its own", bad.empty(), bad);
+        }
+    }
     out += Narrow(Fmt(L"%d failure(s)\r\n", fails)); WriteAtomic(outFile, out); return fails;
 }
