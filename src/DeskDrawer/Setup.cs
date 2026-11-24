@@ -21,10 +21,11 @@ public static class Setup
         try
         {
             Directory.CreateDirectory(Dir);
+            try { File.Delete(Path.Combine(Dir, UninstallMark)); } catch { }   // an uninstall a moment ago: its delayed folder removal must not take this new copy with it
             Instance.HandOff(new[] { "--quit" });   // a copy kept ready in the background holds the exe open
             WaitForInstalledCopies();
-            if (!string.Equals(Environment.ProcessPath, Exe, StringComparison.OrdinalIgnoreCase))
-                for (int i = 0; ; i++) { try { File.Copy(Environment.ProcessPath!, Exe, true); break; } catch (IOException) when (i < 25) { Thread.Sleep(200); } }
+            if (!string.Equals(Environment.ProcessPath, Exe, StringComparison.OrdinalIgnoreCase)) CopyIn(Environment.ProcessPath!, Dir);
+            if (!File.Exists(Exe)) { Message("DeskDrawer couldn't install: the program file didn't arrive in " + Dir); return 1; }
             Link(Path.Combine(StartMenu, Name + ".lnk"), Exe, "", "DeskDrawer, a file manager");
             Link(Path.Combine(Desktop, Name + ".lnk"), Exe, "", "DeskDrawer, a file manager");
             Link(Path.Combine(StartMenu, "Uninstall " + Name + ".lnk"), Exe, "--uninstall", "Remove DeskDrawer");
@@ -34,23 +35,31 @@ public static class Setup
         catch (Exception ex) { Message("DeskDrawer couldn't install:\n" + ex.Message); return 1; }
     }
 
-    /// The open DeskDrawer was asked to quit (--quit on its pipe), but the copy below only waited 5 s: on the test machine an open DeskDrawer was still
-    /// holding its exe then, the copy failed and the update stopped at "couldn't install" (launch-test.ps1). So: wait up to 10 s for every DeskDrawer
-    /// running from the installed exe to end, and end one that doesn't (it was told to quit; this is an update or a reinstall). Other copies are left alone.
-    internal static int WaitForInstalledCopies()
+            WaitForInstalledCopies();
+    const string UninstallMark = "uninstalling";
+
+    /// Puts this build into the program folder. Each file is copied next to its place first and then swapped in, so a copy that fails (the old one is still
+    /// running, a full disk) leaves the old file where it was: the folder never ends up without DeskDrawer.exe (4.0 night on the PC: the old exe was set aside,
+    /// the new one never arrived, and DeskBar, the taskbar and the desktop shortcut all found nothing).
+    /// A build made with "dotnet build" is DeskDrawer.exe plus DeskDrawer.dll and two .json files; the published one is a single exe. Whatever sits beside the
+    /// running exe with its name goes along, so both kinds install whole (before, only the exe went, and a "build" copy could not start).
+    internal static List<string> CopyIn(string fromExe, string toDir)
     {
-        int n = 0;
-        foreach (var p in Process.GetProcessesByName(Name))
-            try
+        string src = Path.GetDirectoryName(fromExe)!, me = Path.GetFileNameWithoutExtension(fromExe), done = Path.Combine(toDir, Name + ".exe");
+        var pairs = new List<(string from, string to)> { (fromExe, done) };
+        foreach (var ext in new[] { ".dll", ".deps.json", ".runtimeconfig.json" })
+        {
+            var f = Path.Combine(src, me + ext); var t = Path.Combine(toDir, Name + ext);
+            if (File.Exists(f)) pairs.Add((f, t)); else if (File.Exists(t)) try { File.Delete(t); } catch { }   // a single-file build: an older build's leftovers would confuse it
+        }
+        var copied = new List<string>();
+        foreach (var (from, to) in pairs)
+            for (int i = 0; ; i++)
             {
-                if (p.Id == Environment.ProcessId) continue;
-                string? path = null; try { path = p.MainModule?.FileName; } catch { }
-                if (!string.Equals(path, Exe, StringComparison.OrdinalIgnoreCase)) continue;
-                n++; if (p.WaitForExit(10000)) continue;
-                p.Kill(); p.WaitForExit(3000);
+                try { File.Copy(from, to + ".new", true); File.Move(to + ".new", to, true); copied.Add(to); break; }
+                catch (Exception) when (i < 25) { Thread.Sleep(200); }   // the old copy is still closing
             }
-            catch { }
-        return n;
+        return copied;
     }
 
     /// Gives folders and Win+E back to File Explorer first, removes the shortcuts, then deletes the program folder once this process has exited.
@@ -62,7 +71,8 @@ public static class Setup
         Instance.HandOff(new[] { "--quit" }); StartAtSignIn(false);
         foreach (var l in new[] { Path.Combine(StartMenu, Name + ".lnk"), Path.Combine(Desktop, Name + ".lnk"), Path.Combine(StartMenu, "Uninstall " + Name + ".lnk"), Path.Combine(Desktop, "Dexplorer.lnk"), Path.Combine(StartMenu, "Dexplorer.lnk") })
             try { File.Delete(l); } catch { }
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 3 > nul & rmdir /s /q \"{Dir}\"") { CreateNoWindow = true, UseShellExecute = false });
+        try { File.WriteAllText(Path.Combine(Dir, UninstallMark), ""); } catch { }   // an install in the next 3 s deletes this, and the folder stays
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 3 > nul & if exist \"{Path.Combine(Dir, UninstallMark)}\" rmdir /s /q \"{Dir}\"") { CreateNoWindow = true, UseShellExecute = false });
         return 0;
     }
 

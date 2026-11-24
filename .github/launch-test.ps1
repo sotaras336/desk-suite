@@ -95,7 +95,8 @@ foreach ($code in 1, 2, 3, 0) {
 }
 CloseSettings
 
-# ---- 3. the taskbar's right-click menu: a real click on each row reaches it ----
+# ---- 3. the taskbar's right-click menu: a real click on each row reaches it and does what it says ----
+$settingsRow = $null
 function BarMenu {   # right-clicks an empty part of the bar; returns the menu window, or $null
     if (-not $br) { return $null }
     $y = [int](($br.T + $br.B) / 2)
@@ -103,7 +104,7 @@ function BarMenu {   # right-clicks an empty part of the bar; returns the menu w
         $before = Visible; $x = [int]($br.L + ($br.R - $br.L) * $f)
         [W]::Click($x, $y, $true)
         $m = WaitFor { Visible | Where-Object { $before -notcontains $_ } | Select-Object -First 1 } 2000
-        if ($m -and (FindByName $m 'DeskBar settings')) { return $m }
+        if ($m) { foreach ($n in 'Desk settings', 'DeskBar settings') { if (FindByName $m $n) { $script:settingsRow = $n; return $m } } }
         if ($m) { [W]::Keys([byte[]]@(0x1B)); Start-Sleep -Milliseconds 300 }   # a pin's or a window's menu: Esc, try another spot
     }
     return $null
@@ -114,20 +115,23 @@ function RowSpot($menu, [string]$name, [int]$fromBottom) {   # the row's centre:
     $r = RectOf $menu; return @([int](($r.L + $r.R) / 2), [int]($r.B - (5 + 1 + 18 + 38 * $fromBottom) * $scale), 'layout')
 }
 $menu = BarMenu
-Check 'right-click on the taskbar shows its menu (with DeskBar settings)' ([bool]$menu)
-if ($menu) {
-    $x, $y, $how = RowSpot $menu 'DeskBar settings' 0; $under = [W]::Under($x, $y)
-    [W]::Click($x, $y, $false); $win = WaitFor { SettingsWindow } 6000
-    Check 'taskbar menu > DeskBar settings: a click on the row opens the settings window' ([bool]$win) "row at $x,$y by $how; under the pointer: $under; menu $($(RectOf $menu).T)..$($(RectOf $menu).B), bar top $($br.T)"
-    CloseSettings
-}
-$menu = BarMenu
-if ($menu) {
-    $x, $y, $how = RowSpot $menu 'Task Manager' 1; $under = [W]::Under($x, $y)
-    $tmBefore = @(Get-Process Taskmgr -ErrorAction SilentlyContinue).Count
-    [W]::Click($x, $y, $false); $tm = WaitFor { @(Get-Process Taskmgr -ErrorAction SilentlyContinue).Count -gt $tmBefore } 8000
-    Check 'taskbar menu > Task Manager: a click on the row starts it' ([bool]$tm) "row at $x,$y by $how; under the pointer: $under"
-    Get-Process Taskmgr -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Check 'right-click on the taskbar shows its menu (with the settings row)' ([bool]$menu) "$settingsRow"
+if ($menu) { [W]::Keys([byte[]]@(0x1B)); Start-Sleep -Milliseconds 300 }
+$tmBefore = @(Get-Process Taskmgr -ErrorAction SilentlyContinue).Count
+$rows = @(
+    @{ Row = $settingsRow; Up = 0; Done = { [bool](SettingsWindow) }; After = { CloseSettings } },
+    @{ Row = 'Task Manager'; Up = 1; Done = { @(Get-Process Taskmgr -ErrorAction SilentlyContinue).Count -gt $tmBefore }; After = { Get-Process Taskmgr -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } },
+    @{ Row = 'DeskTune'; Up = 2; Optional = $true; Done = { [bool](Running 'DeskTune') }; After = { Running 'DeskTune' | Stop-Process -Force -ErrorAction SilentlyContinue } },
+    @{ Row = 'DeskDrawer'; Up = 3; Optional = $true; Done = { [bool](Running 'DeskDrawer') }; After = { Running 'DeskDrawer' | Stop-Process -Force -ErrorAction SilentlyContinue } })
+foreach ($t in $rows) {
+    if (-not $t.Row) { continue }
+    if ($t.Optional) { Running $t.Row | Stop-Process -Force -ErrorAction SilentlyContinue }
+    $menu = BarMenu; if (-not $menu) { Check "taskbar menu > $($t.Row)" $false 'the menu did not open'; continue }
+    if ($t.Optional -and -not (FindByName $menu $t.Row)) { $results.Add("SKIP taskbar menu > $($t.Row): this DeskBar has no such row"); Write-Host "SKIP taskbar menu > $($t.Row)"; [W]::Keys([byte[]]@(0x1B)); continue }
+    $x, $y, $how = RowSpot $menu $t.Row $t.Up; $under = [W]::Under($x, $y); $mr = RectOf $menu
+    [W]::Click($x, $y, $false); $ok = WaitFor $t.Done 15000
+    Check "taskbar menu > $($t.Row): a real click on the row does it" ([bool]$ok) "row at $x,$y by $how; under the pointer: $under; menu $($mr.T)..$($mr.B), bar top $($br.T)"
+    & $t.After; Start-Sleep -Milliseconds 400
 }
 
 # ---- 4. Desk settings > DeskDrawer / DeskTune: "Open ..." starts the installed app ----

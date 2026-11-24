@@ -35,6 +35,7 @@ int RunSelfTest(const ws& outFile) {
         { ws d; bool ok = WinMoveSelfTest(d); check(L"windows: maximized-size and hidden-under-bar rules", ok, d); }
         { ws d; bool ok = GuardThreadSelfTest(d); check(L"touch guard: strips on their own thread, made afresh on demand", ok, d); }
         { ws d; bool ok = LaunchSelfTest(d); check(L"launch paths: DeskDrawer, DeskTune and the settings window are found and reached", ok, d); }   // launchtest.cpp
+        { ws d; bool ok = MenuGuardSelfTest(d); check(L"right-click menu: what you pick runs, no touch strip over the menu", ok, d); }
         { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
         if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)
             CatalogLoad(); int shown = 0; std::string rep; check(L"lookup: apps in the catalog", !CatalogApps().empty(), Fmt(L"%d", (int)CatalogApps().size()));
@@ -116,6 +117,9 @@ int RunSelfTest(const ws& outFile) {
         check(L"update: reads when a release file was built, ignores a bad date, and the dates don't break the checksums",
             UpdateBuiltFor(dated, L"deskbar-setup.exe") == L"20261125T101500Z" && UpdateBuiltFor(dated, L"DeskTune-Setup.exe").empty() && UpdateBuiltFor(sums, L"DeskBar-Setup.exe").empty() && UpdateHashFor(dated, L"DeskBar-Setup.exe") == Sha256HexOf("abc"),
             UpdateBuiltFor(dated, L"DeskBar-Setup.exe"));
+        check(L"update: a build that knows its time is never offered an older or undated release (only a later one)",
+            UpdateReleaseNotNewer(L"", L"20261124T221200Z") && UpdateReleaseNotNewer(L"20261120T100000Z", L"20261124T221200Z") && UpdateReleaseNotNewer(L"20261124T221200Z", L"20261124T221200Z")
+            && !UpdateReleaseNotNewer(L"20261126T080000Z", L"20261124T221200Z") && !UpdateReleaseNotNewer(L"", L"") && !UpdateReleaseNotNewer(L"20261120T100000Z", L""));
         check(L"update: link time stamps are written as UTC dates", UpdateStamp(1764065700) == L"20251125T101500Z" && UpdateStamp(0).empty(), UpdateStamp(1764065700));
     }
     {   // File Explorer requests that DeskDrawer takes over (when it is the folder handler), and the ones that stay with Explorer

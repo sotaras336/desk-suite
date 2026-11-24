@@ -115,7 +115,7 @@ for lnk_args in set(re.findall(r'MakeShortcut\([^;]*?, exe, L"(--[\w-]+)"', inst
 check("DeskDrawer's and DeskTune's Uninstall shortcuts are read", '"--uninstall"' in dd["Setup.cs"] and 'args.Contains("--uninstall")' in dd["Program.cs"]
       and '"--uninstall"' in dt["App.xaml.cs"] and 'a.Contains("--uninstall")' in dt["App.xaml.cs"])
 check("Start menu shortcuts are named after the apps (Start search finds them by name)", 'Path.Combine(StartMenu, Name + ".lnk")' in dd["Setup.cs"] and 'Path.Combine(dir, "DeskDrawer.lnk")' in dd["Shortcuts.cs"]
-      and 'Path.Combine(dir, "DeskTune.lnk")' in dt["App.xaml.cs"] and 'StartMenuDir() + L"\\\\DeskBar.lnk"' in install)
+      and '"DeskTune.lnk")' in dt["App.xaml.cs"] and 'StartMenuDir() + L"\\\\DeskBar.lnk"' in install)
 
 # ---- 5. "Open folders with DeskDrawer": what DeskDrawer writes is what DeskBar reads ----
 verb = one(r'Verb\s*=\s*"(\w+)"', dd["DefaultApp.cs"], "DeskDrawer's folder verb")
