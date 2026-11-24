@@ -81,11 +81,11 @@ void Flyout::Close(bool instant) {
 }
 
 // ---------- registry ----------
-static std::unique_ptr<Flyout> g_fly[3];
+static std::unique_ptr<Flyout> g_fly[4];
 Flyout* Panel_(Panel p) {
-    int i = (int)p - 1; if (i < 0 || i > 2) return nullptr;
+    int i = (int)p - 1; if (i < 0 || i > 3) return nullptr;
     if (!g_fly[i]) {
-        g_fly[i].reset(p == Panel::Start ? MakeStartPanel() : p == Panel::Quick ? MakeQuickPanel() : MakeClockPanel());
+        g_fly[i].reset(p == Panel::Start ? MakeStartPanel() : p == Panel::Quick ? MakeQuickPanel() : p == Panel::Clip ? MakeClipPanel() : MakeClockPanel());   // Clip: built the first time it opens, never prewarmed
         g_fly[i]->Build();
     }
     return g_fly[i].get();
@@ -97,7 +97,7 @@ void PrewarmPanels() {   // built at idle after start-up so the first open is in
 }
 void PanelsSysChanged() { for (auto& f : g_fly) if (f && f->shown) f->OnSysChange(); }
 HMONITOR RecentPanelScreen() { for (auto& f : g_fly) if (f && f->mon && (f->shown || Now() - f->closedAt < 1500)) return f->mon; return nullptr; }   // Start closes as you pick an app: still counts for a moment
-Panel OpenPanel() { for (int i = 0; i < 3; i++) if (g_fly[i] && g_fly[i]->shown && !g_fly[i]->hiding) return (Panel)(i + 1); return Panel::None; }
+Panel OpenPanel() { for (int i = 0; i < 4; i++) if (g_fly[i] && g_fly[i]->shown && !g_fly[i]->hiding) return (Panel)(i + 1); return Panel::None; }
 void ClosePanels() { for (auto& f : g_fly) if (f) f->Close(); }
 void TogglePanel(Panel p, Wnd* from, const char* page) {
     Flyout* f = Panel_(p); if (!f) return; (void)page;
@@ -106,7 +106,7 @@ void TogglePanel(Panel p, Wnd* from, const char* page) {
     for (auto& o : g_fly) if (o && o.get() != f) o->Close();
     PreviewClose();
     HMONITOR m = nullptr;
-    if (p == Panel::Start && !g_dev) { HWND fg = GetForegroundWindow(); if (fg && ClassOf(fg) != kWndClass) m =MonitorFromWindow(fg, MONITOR_DEFAULTTONULL); if (!m) { POINT c; GetCursorPos(&c); m = MonitorFromPoint(c, MONITOR_DEFAULTTONEAREST); } }
+    if ((p == Panel::Start || (p == Panel::Clip && !from)) && !g_dev) { HWND fg = GetForegroundWindow(); if (fg && ClassOf(fg) != kWndClass) m =MonitorFromWindow(fg, MONITOR_DEFAULTTONULL); if (!m) { POINT c; GetCursorPos(&c); m = MonitorFromPoint(c, MONITOR_DEFAULTTONEAREST); } }
     else m = from && from->hwnd ? MonitorFromWindow(from->hwnd, MONITOR_DEFAULTTONEAREST) : MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
     f->Open(m);
 }

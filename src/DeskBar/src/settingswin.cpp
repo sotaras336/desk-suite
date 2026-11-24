@@ -84,6 +84,14 @@ void PageTaskbar(View* col) {
     Row(c, 0xE768, L"Media player", L"Song, artist and play controls while something plays.", S.showMedia, [](bool v) { S.showMedia = v; });
     Row(c, 0, L"DeskMode button", L"Next to the keyboard language; opens DeskMode.", S.dmButton, [](bool v) { S.dmButton = v; for (auto* b : AllBars()) if (b->dmBtn) b->dmBtn->Show(v); }, IconRes(2, 32));
     for (int i = 0; i < kWidgetCount; i++) { ws id = kWidgets[i].id; Row(c, 0xE721, L"Search box", id == L"search" ? ws(L"Next to the Windows key. Type, press Enter: searches Google.") : ws(kWidgets[i].name), HasWidget(id), [id](bool v) { SetWidget(id, v); }); }
+    c = Card(col, L"Clipboard");
+    Row(c, 0xE77F, L"Clipboard history", L"Keeps the last 25 texts you copied, until you sign out. Pin what you use often. Copies from password managers are never kept.", S.clipHistory, [](bool v) { ClipSetOn(v); });
+    Row(c, 0xE765, L"Windows key + V opens it", L"Off: Windows key + V opens Windows' own clipboard.", S.clipWinV, [](bool v) { S.clipWinV = v; });
+    Sep(c);
+    { auto* r = MkBox(c, Lay::H); r->pad = Thick(12, 10); r->gap = 10;
+      auto* d = Dim(r, L"Pinned snippets are saved on this PC, locked to your Windows account.", 13); d->star = 1; d->va = Al::Center;
+      Btn(r, L"Open", 0xE77F, false, [] { if (Bar* b = BarHere()) OpenClipboardPanel(b); })->va = Al::Center;
+      Btn(r, L"Clear history", 0xE74D, false, [] { ClipClearHistory(); })->va = Al::Center; }
     c = Card(col, L"Effects");
     Row(c, 0xE71E, L"Magnify apps under the mouse", L"An app's icon swells with a liquid bounce while you point at it.", S.hoverMagnify, [](bool v) { S.hoverMagnify = v; for (auto* b : AllBars()) for (auto* t : b->btns) t->Invalidate(); });
 }

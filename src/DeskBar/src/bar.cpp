@@ -199,6 +199,7 @@ std::vector<MenuItem> BarMenuItems() {
     if (BugReportsOn()) m.push_back({L"Report a bug to Claude", 0xEBE8, [] { OpenBugReport(); }});
     if (FileExists(DeskAppExe(L"DeskDrawer"))) m.push_back({L"DeskDrawer", 0xEC50, [] { Launch(DeskAppExe(L"DeskDrawer")); }});   // the suite's other apps, one right-click away
     if (FileExists(DeskAppExe(L"DeskTune"))) m.push_back({L"DeskTune", 0xE9F5, [] { Launch(DeskAppExe(L"DeskTune")); }});
+    if (S.clipHistory) m.push_back({L"Clipboard history", 0xE77F, [] { OpenClipboardPanel(BarHere()); }});
     m.push_back({L"Task Manager", 0xE9D9, [] { Launch(L"taskmgr.exe"); }}); m.push_back({L"Desk settings", 0xE713, [] { OpenSettingsWindow(); }});   // the one settings window for all three apps
     return m;
 }

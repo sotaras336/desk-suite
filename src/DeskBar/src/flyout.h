@@ -27,5 +27,6 @@ void PanelsSysChanged();
 Flyout* MakeClockPanel();
 Flyout* MakeQuickPanel();
 Flyout* MakeStartPanel();
+Flyout* MakeClipPanel();   // clipboard.cpp
 Brush PanelBrush(bool right = true);   // right: the panel sits over the bar's lighter right end, false: over its left end (Start)
 bool MenuContains(POINT p);

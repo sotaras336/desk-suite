@@ -70,6 +70,7 @@ struct Settings {
     bool dmMaxSaverOff = true, dmEasySaverOn = true;
     bool showMedia = true, showBatteryPercent = true;
     bool hoverMagnify = false;   // optional, off by default: app icons grow under the mouse with a liquid bounce
+    bool clipHistory = true, clipWinV = true;   // clipboard history (clipboard.cpp) and Win+V opening it instead of Windows' own
     std::vector<ws> mirrorDevices;
     std::vector<ws> quickFolders; bool foldersInit = false;
     std::vector<ws> startPins; bool startPinsInit = false, startPinsImported = false;   // imported: this PC's own Start pins were read once

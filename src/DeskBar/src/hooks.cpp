@@ -9,6 +9,7 @@ void TypeAheadBegin(); bool TypeAheadActive(); bool TypeAheadPress(UINT vk, UINT
 namespace {
 const ULONG_PTR kTag = 0xDB3DB3;       // our own injected keys: the hook lets them through
 HANDLE g_winKeyEv = nullptr; HHOOK g_kb = nullptr, g_ms = nullptr;
+HANDLE g_clipKeyEv = nullptr; bool g_vSwallowed = false;
 bool g_winDown = false, g_comboUsed = false; uint64_t g_lastWinDown = 0; bool g_testInject = false;
 
 void SendTagged(std::initializer_list<std::pair<WORD, bool>> keys) {   // (vk, isUp)
@@ -21,8 +22,16 @@ bool Down(int vk) { return GetAsyncKeyState(vk) & 0x8000; }
 LRESULT CALLBACK KbProc(int code, WPARAM w, LPARAM l) {
     if (code < 0) return CallNextHookEx(g_kb, code, w, l);
     auto* k = (KBDLLHOOKSTRUCT*)l;
-    if (k->dwExtraInfo == kTag || !S.winKeyOpensStart) return CallNextHookEx(g_kb, code, w, l);
+    bool clipKey = S.clipHistory && S.clipWinV;   // Win+V opens DeskBar's clipboard history (clipboard.cpp)
+    if (k->dwExtraInfo == kTag || (!S.winKeyOpensStart && !clipKey)) return CallNextHookEx(g_kb, code, w, l);
     bool down = w == WM_KEYDOWN || w == WM_SYSKEYDOWN, up = w == WM_KEYUP || w == WM_SYSKEYUP; UINT vk = k->vkCode;
+    if (vk == 'V' && up && g_vSwallowed) { g_vSwallowed = false; return 1; }   // the V of a Win+V we took: Windows never sees it
+    if (down && ClipKeyIsOurs(vk, g_winDown, Down(VK_CONTROL), Down(VK_MENU), Down(VK_SHIFT), clipKey)) {
+        // Windows saw Win go down; a dummy key makes the coming Win-up a "Win+something", so neither Windows' Start nor its own Win+V opens
+        g_comboUsed = true; g_vSwallowed = true; SendTagged({{0xE8, false}, {0xE8, true}});
+        AllowSetForegroundWindow(ASFW_ANY); if (g_clipKeyEv) SetEvent(g_clipKeyEv);
+        return 1;
+    }
     if (vk == VK_LWIN || vk == VK_RWIN) {
         if (down) {   // held keys repeat every ~30 ms; a gap means a fresh press (even if we missed the last key-up)
             uint64_t now = GetTickCount64(); if (!g_winDown || now - g_lastWinDown > 700) { g_winDown = true; g_comboUsed = false; } g_lastWinDown = now;
@@ -30,7 +39,7 @@ LRESULT CALLBACK KbProc(int code, WPARAM w, LPARAM l) {
         }
         if (up && g_winDown) {
             g_winDown = false; bool injectedByOthers = !g_testInject && (k->flags & LLKHF_INJECTED);
-            if (!g_comboUsed && !injectedByOthers && !Down(VK_LBUTTON) && !Down(VK_RBUTTON) && !Down(VK_MBUTTON)) {
+            if (S.winKeyOpensStart && !g_comboUsed && !injectedByOthers && !Down(VK_LBUTTON) && !Down(VK_RBUTTON) && !Down(VK_MBUTTON)) {
                 // Swallow this Win-up and replay it after a dummy key, so Windows sees "Win+something" and doesn't open its own Start. Then open ours.
                 // Right here, not later: the replay must reach Windows before the next key press does.
                 SendTagged({{0xE8, false}, {0xE8, true}, {(WORD)vk, true}});
@@ -45,7 +54,7 @@ LRESULT CALLBACK KbProc(int code, WPARAM w, LPARAM l) {
         if (up && TypeAheadSwallowed(vk)) return 1;
     }
     if (g_winDown && down) g_comboUsed = true;
-    if (vk == VK_ESCAPE && down && Down(VK_CONTROL) && !Down(VK_MENU) && !Down(VK_SHIFT) && !g_winDown) { SetEvent(g_winKeyEv); return 1; }   // Ctrl+Esc, the classic Start shortcut
+    if (S.winKeyOpensStart && vk == VK_ESCAPE && down && Down(VK_CONTROL) && !Down(VK_MENU) && !Down(VK_SHIFT) && !g_winDown) { SetEvent(g_winKeyEv); return 1; }   // Ctrl+Esc, the classic Start shortcut
     return CallNextHookEx(g_kb, code, w, l);
 }
 
@@ -166,7 +175,7 @@ int RunHooks(DWORD parentPid) {
     HANDLE single = CreateMutexW(nullptr, TRUE, N_HOOKS); if (GetLastError() == ERROR_ALREADY_EXISTS) return 0; (void)single;
     LogInit(false); LoadSettings(); Boot(Fmt(L"helper main (parent %lu)", parentPid).c_str());
     wchar_t e[8]; g_testInject = GetEnvironmentVariableW(L"DB3_TEST_INJECT", e, 8) && e[0] == L'1';   // test injection is ignored unless this is set
-    g_winKeyEv = CreateEventW(nullptr, FALSE, FALSE, N_WINKEY);
+    g_winKeyEv = CreateEventW(nullptr, FALSE, FALSE, N_WINKEY); g_clipKeyEv = CreateEventW(nullptr, FALSE, FALSE, N_CLIPKEY);
     std::thread(KeyThread).detach(); std::thread(MouseThread).detach();
     HANDLE parent = parentPid ? OpenProcess(SYNCHRONIZE, FALSE, parentPid) : nullptr; ws sig = MonSignature(); int n = 0;
     for (;;) {
@@ -184,5 +193,8 @@ void HooksEnsure(DWORD parentPid) {
     STARTUPINFOW si{sizeof si}; PROCESS_INFORMATION pi{}; if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
 }
 void HooksListen() {
-    std::thread([] { HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, N_WINKEY); for (;;) { WaitForSingleObject(ev, INFINITE); UiPost([] { TogglePanel(Panel::Start, nullptr); }); } }).detach();
+    std::thread([] {
+        HANDLE ev[2] = {CreateEventW(nullptr, FALSE, FALSE, N_WINKEY), CreateEventW(nullptr, FALSE, FALSE, N_CLIPKEY)};
+        for (;;) { DWORD r = WaitForMultipleObjects(2, ev, FALSE, INFINITE); if (r == WAIT_OBJECT_0) UiPost([] { TogglePanel(Panel::Start, nullptr); }); else if (r == WAIT_OBJECT_0 + 1) UiPost([] { TogglePanel(Panel::Clip, nullptr); }); else Sleep(100); }
+    }).detach();
 }

@@ -6,6 +6,7 @@
 #define N_INSTANCE L"DB3.Instance"
 #define N_HOOKS L"DB3.Hooks"
 #define N_WINKEY L"DB3.WinKey"
+#define N_CLIPKEY L"DB3.ClipKey"   // Win+V: the input helper asks for the clipboard history
 #define N_READY L"DB3.Ready"
 #define N_TYPEAHEAD L"DB3.TypeAhead"
 #define N_TYPEAHEAD_LOCK L"DB3.TypeAheadLock"
@@ -156,7 +157,24 @@ void SysPoke();                                  // something changed on the UI 
 ws KeyboardLabel(HWND fg);                       // "ENG", "ΕΛ", ... ("" if only one layout is installed)
 
 // ---------- panels (flyouts) ----------
-enum class Panel { None, Start, Quick, Clock };
+enum class Panel { None, Start, Quick, Clock, Clip };
+// clipboard.cpp: clipboard history (Win+V), pinned snippets saved encrypted, private copies never kept
+constexpr size_t kClipMaxRecent = 25, kClipMaxPinned = 50, kClipMaxChars = 20000;   // ~1 MB at most for a full history of the longest texts
+struct ClipItem { ws text; bool pinned = false; uint64_t at = 0; };          // at: unix seconds it was copied (0 = unknown)
+struct ClipStore {
+    std::vector<ClipItem> pinned, recent;                                     // newest first
+    bool Add(const ws& t, uint64_t at);                                       // false = not kept (blank or too long)
+    bool Pin(const ws& t, bool on); void Remove(const ws& t); void ClearRecent();
+    std::vector<const ClipItem*> Find(const ws& q) const;                     // pinned first, then recent; case-insensitive
+    size_t Bytes() const;
+};
+struct ClipFlags { bool exclude = false, viewerIgnore = false; int canInclude = -1; };   // what the copying app said about privacy (-1: nothing)
+ws ClipSkipReason(const ClipFlags& f, const ws& ownerExe, const ws& text);   // "" = keep it
+bool ClipIsPasswordApp(const ws& exe);
+bool ClipKeyIsOurs(UINT vk, bool winDown, bool ctrl, bool alt, bool shift, bool on);   // hooks.cpp: Win+V opens DeskBar's clipboard
+bool ClipSavePins(const std::vector<ClipItem>& pins, const ws& path); bool ClipLoadPins(std::vector<ClipItem>& pins, const ws& path);
+ws ClipPreview(const ws& t, size_t maxChars);
+void ClipStart(); void ClipClearHistory(); void ClipSetOn(bool on); ClipStore& ClipHistory(); bool ClipSelfTest(ws& detail); void OpenClipboardPanel(Wnd* from);
 // webwidget.cpp: extras you switch on in DeskBar settings, drawn on the bar
 struct WidgetDef { const wchar_t* id; const wchar_t* name; };
 extern const WidgetDef kWidgets[]; extern const int kWidgetCount;
