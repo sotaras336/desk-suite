@@ -71,6 +71,7 @@ public static partial class SelfTest
                 Check("settings file round trip", back.Theme == "teal" && back.Tabs.SequenceEqual(s.Tabs) && back.Folders["c:\\x"] is { Group: "Date modified", Icon: 48 } && json.Contains("\"Theme\": \"teal\""));
             }
             A11y.SelfTest(Check);   // keyboard and screen reader basics (A11y.cs)
+            SplitTest((n, ok, x) => Check(n, ok, x));   // tabs and split view (SelfTest.Split.cs): the rules, then a real window off screen
             Check("new folder name", Path.GetFileName(ShellOps.NewFolder(root)) == "New folder");
             Check("new folder, second one", Path.GetFileName(ShellOps.NewFolder(root)) == "New folder (2)");
             Check("new text file", File.Exists(ShellOps.NewTextFile(root)));
