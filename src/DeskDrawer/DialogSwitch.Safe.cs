@@ -115,6 +115,7 @@ public static partial class DialogSwitch
     internal static string TestTextOf(IntPtr h) => TextOf(h);
     internal static void TestFade(IntPtr h) => FadeOut(h);
     internal static void TestReveal(IntPtr h) => Reveal(h);
+    internal static bool TestStylesDone(int ms) { var done = new ManualResetEventSlim(); Restyle(done.Set); return done.Wait(ms); }
     internal static void TestForget(IntPtr h) { Faded.Remove(h); foreach (var t in Unanswered.Keys) Unanswered.TryRemove(t, out _); }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW")] private static extern IntPtr SendMessageTimeout(IntPtr h, int m, IntPtr w, string l, uint flags, uint ms, out IntPtr result);

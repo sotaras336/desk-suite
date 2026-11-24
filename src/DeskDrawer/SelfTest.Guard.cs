@@ -30,7 +30,9 @@ public static partial class SelfTest
             sw.Restart(); DialogSwitch.TestFade(h); DialogSwitch.TestReveal(h); long styles = sw.ElapsedMilliseconds;
             check("dialog safety: a hung app can't freeze DeskDrawer (reading its dialog gives up, then skips it)", first < 1600 && second < 150, $"({first} ms, then {second} ms; it used to wait as long as the app hung)");
             check("dialog safety: making a hung app's dialog see-through and back doesn't wait for it", styles < 150, $"({styles} ms)");
-            bool back = false; for (int i = 0; i < 60 && !(back = Visible(h) && !Layered(h)); i++) Thread.Sleep(100);
+            d.Invoke(() => { });   // waits until the "app" has woken up
+            bool settled = DialogSwitch.TestStylesDone(5000);   // and the queued see-through on / off has reached it
+            bool back = settled && Visible(h) && !Layered(h);
             check("dialog safety: once the app answers again, its dialog is shown normally", back, "");
             DialogSwitch.TestForget(h);
             check("dialog safety: an app that answers is read normally", DialogSwitch.TestTextOf(h) == "DeskDrawer guard test", "");
