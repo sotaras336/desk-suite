@@ -123,7 +123,7 @@ public static partial class SelfTest
             var two = new List<string> { @"C:\x\a.txt", @"c:\X\b.txt" };
             bool answer = DialogSwitch.AnswerText(two) == "\"C:\\x\\a.txt\" \"c:\\X\\b.txt\"" && DialogSwitch.AnswerText(new List<string> { @"C:\x\a.txt", @"C:\y\b.txt" }) == @"C:\x\a.txt" && DialogSwitch.AnswerText(new List<string> { @"C:\x\a b.txt" }) == @"C:\x\a b.txt";
             Check("picker: what the app's dialog is given (several files from one folder in quotes, else the first)", answer, DialogSwitch.AnswerText(two));
-            bool size = MainWindow.PickSize(1920, 1032, 1, 400, 300) == (820, 560) && MainWindow.PickSize(2880, 1824, 1.5, 400, 300) == (1230, 840) && MainWindow.PickSize(1280, 680, 1, 400, 300) == (768, 476) && MainWindow.PickSize(1920, 1032, 1, 1000, 700) == (1000, 700)
+            bool size = MainWindow.PickSize(1920, 1032, 1, 400, 300) == (820, 560) && MainWindow.PickSize(2880, 1824, 1.5, 400, 300) == (1230, 840) && MainWindow.PickSize(1366, 600, 1, 400, 300) == (819, 420) && MainWindow.PickSize(1920, 1032, 1, 1000, 700) == (1000, 700)
                 && MainWindow.PickSize(2880, 1824, 1.5, 400, 300, 600, 400) == (900, 600) && MainWindow.PickSize(2880, 1824, 1.5, 400, 300, 100, 100) == (720, 540) && MainWindow.PickSize(1920, 1032, 1, 400, 300, 5000, 5000) == (1896, 1008);
             Check("picker: its size on small, large and scaled screens, and the size you gave it", size, MainWindow.PickSize(2880, 1824, 1.5, 400, 300).ToString());
         }

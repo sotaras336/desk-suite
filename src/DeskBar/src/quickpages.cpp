@@ -469,10 +469,10 @@ struct HueBar : View {
 struct PadState { float hue = 300, sat = 100, t = 0.25f; };
 static int LightZone(float t) { return t < 0.10f ? 2 : t > 0.92f ? 1 : 0; }   // the theme kind it lands on: 2 = white, 1 = black, 0 = a colour
 static float LightVal(float t) { return t <= 0.30f ? 1.f : std::clamp((0.92f - t) / 0.62f, 0.f, 1.f); }
-float LightStart(const ThemeDef& cur) { return cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f; }   // where the light bar's handle starts for the colour in use
+float LightStartOf(const ThemeDef& cur) { return cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f; }   // where the light bar's handle starts for the colour in use
 // The theme id the colour picker gives (the same ids DeskDrawer and DeskTune's pickers make): black and white at the light bar's ends; a ready-made colour not moved
 // keeps its name with the fade ("blue:40"); anything else is "custom:<hue>:<fade>", with ":<vividness>:<light>" when either is below 100.
-ws ColourIdOf(float t, const ws& base, bool moved, float hue, float fade, float sat) {
+ws ColourIdFrom(float t, const ws& base, bool moved, float hue, float fade, float sat) {
     if (int z = LightZone(t)) return z == 1 ? L"black" : L"white";   // black and white: no fade
     ws f = Fmt(L":%d", (int)lroundf(fade)); int sv = (int)lroundf(sat), val = (int)lroundf(LightVal(t) * 100);
     if (!base.empty() && !moved) return base + f;
@@ -535,7 +535,7 @@ struct ThemePage : PageBase {
         QuickPanel* qp = q; const ThemeDef cur = dm ? DeskModeTheme() : CurrentTheme(); float curGrad = dm ? DeskModeGrad() : ThemeGrad();
         auto st = std::make_shared<St>();
         st->pad.hue = cur.kind != 0 ? 300.f : cur.hue >= 0 ? cur.hue : 205.f;   // the pad sits on the colour in use (Blue is the unshifted original, about 205)
-        st->pad.sat = cur.sat * 100; st->pad.t = LightStart(cur);
+        st->pad.sat = cur.sat * 100; st->pad.t = LightStartOf(cur);
         st->fade = curGrad > 0 ? curGrad : 0.f;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
         st->base = cur.kind == 0 && !EqI(cur.id, L"custom") ? ws(cur.id) : ws();   // a ready-made colour keeps its exact look until the colour bar is moved ("blue:40")
         bool previewing = !dm && !EqI(ThemeIdNow(), S.theme);
@@ -557,7 +557,7 @@ struct ThemePage : PageBase {
         auto* fadeBox = MkBox(card, Lay::V); fadeBox->gap = 8; fadeBox->visible = !LightZone(st->pad.t);
         auto* fv = head(fadeBox, L"Fade", st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off"));
         auto* bar2 = fadeBox->Add(new HueBar()); bar2->value = st->fade * 359.f / 100.f; bar2->strength = true;
-        auto id = [st]() -> ws { return ColourIdOf(st->pad.t, st->base, st->moved, st->pad.hue, st->fade, st->pad.sat); };
+        auto id = [st]() -> ws { return ColourIdFrom(st->pad.t, st->base, st->moved, st->pad.hue, st->fade, st->pad.sat); };
         auto paint = [qp, id, show, lite, pad, fadeBox, st, dm] {   // DeskMode: only the preview strip takes the colour (the bar is not DeskMode's)
             fadeBox->Show(!LightZone(st->pad.t));
             if (dm) { SetDeskModeTheme(id()); show(DeskModeTheme()); } else { ThemeRepaintLive(qp, id()); show(CurrentTheme()); }
@@ -908,3 +908,7 @@ struct DeskModeSettings : PageBase {
     void Reload() { GUARD UiOnce(0, [this, w_] { IFALIVE q->ShowDetail(MakeDeskModeSettings(q), true); }); }
 };
 View* MakeDeskModeSettings(QuickPanel* q) { dm::Scope s; return new DeskModeSettings(q); }
+
+// the colour picker's rules, for the self-test (core.h)
+float LightStart(const ThemeDef& cur) { return LightStartOf(cur); }
+ws ColourIdOf(float t, const ws& base, bool moved, float hue, float fade, float sat) { return ColourIdFrom(t, base, moved, hue, fade, sat); }

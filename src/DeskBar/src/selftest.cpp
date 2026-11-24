@@ -132,9 +132,9 @@ int RunSelfTest(const ws& outFile) {
         };
         ws bad;
         for (auto& r : rows) { float g; ThemeDef t = ThemeFromId(r.id, g);
-            for (int i = 0; i < 6; i++) { auto c = ColFor(t, ins[i]); int got[4] = {(int)lroundf(c.a * 255), (int)lroundf(c.r * 255), (int)lroundf(c.g * 255), (int)lroundf(c.b * 255)}; bool near = true;
-                for (int k = 0; k < 4; k++) near = near && abs(got[k] - (int)((r.want[i] >> (24 - 8 * k)) & 255)) <= 2;   // float here, double in the C# apps: a step or two apart at most
-                if (!near) bad += Fmt(L"%s %06X gave %02X%02X%02X%02X, want %08X; ", r.id, ins[i], got[0], got[1], got[2], got[3], r.want[i]); } }
+            for (int i = 0; i < 6; i++) { auto c = ColFor(t, ins[i]); int got[4] = {(int)lroundf(c.a * 255), (int)lroundf(c.r * 255), (int)lroundf(c.g * 255), (int)lroundf(c.b * 255)}; bool same = true;
+                for (int k = 0; k < 4; k++) same = same && abs(got[k] - (int)((r.want[i] >> (24 - 8 * k)) & 255)) <= 2;   // float here, double in the C# apps: a step or two apart at most
+                if (!same) bad += Fmt(L"%s %06X gave %02X%02X%02X%02X, want %08X; ", r.id, ins[i], got[0], got[1], got[2], got[3], r.want[i]); } }
         check(L"colours: every theme gives the suite's colours (the table all three apps check)", bad.empty(), bad);
         float g1, g2, g3, g4; ThemeDef a = ThemeFromId(L"blue:40", g1), b = ThemeFromId(L"custom:-30", g2), c = ThemeFromId(L"custom:200:150:120:-5", g3), d = ThemeFromId(L"PURPLE", g4);
         check(L"colours: theme ids are read the same way as in DeskDrawer and DeskTune", EqI(a.id, L"blue") && g1 == 40 && b.hue == 330 && g2 == -1 && c.hue == 200 && g3 == 100 && c.sat == 1 && c.val == 0 && EqI(d.id, L"purple") && g4 == -1,
