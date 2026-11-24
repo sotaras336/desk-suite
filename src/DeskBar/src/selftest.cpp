@@ -82,6 +82,7 @@ int RunSelfTest(const ws& outFile) {
     }
     { Settings keep = S; S.taskbarPins = {L"a", L"b"}; S.edgeResistance = 3; S.launchCounts[L"x"] = 4; SaveSettingsNow(); S = Settings(); LoadSettings(); check(L"settings roundtrip", S.taskbarPins.size() == 2 && S.edgeResistance == 3 && S.launchCounts[L"x"] == 4); S = keep; SaveSettingsNow(); }   // write the real settings back: run against the real data folder, the test pins "a", "b" stayed in the file and replaced the user's pins at the next start
     check(L"measure text", MeasureText(L"Hello", FText(12)).w > 10);
+    { ws d; bool ok = ClipSelfTest(d); check(L"clipboard history: list, pins, privacy, Win+V, panel", ok, d); }   // clipboard.cpp
     { ws d; bool ok = AccSelfTest(d); check(L"accessibility: Tab reaches every button, each has a name, high contrast colours", ok, d); }   // ui_access.cpp
     {   // panels on short screens: a 1080p screen leaves ~806 dip at 125% and ~664 at 150% (Start's footer with the power button used to be cut off)
         std::unique_ptr<Flyout> st(MakeStartPanel());

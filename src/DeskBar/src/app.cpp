@@ -95,7 +95,7 @@ int RunTaskbar(bool real) {
     // everything below is deferred: the bar is what you are waiting for
     UiOnce(100, [real] {
         SysStart(); MirrorStart();
-        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); WinMoveStart(); RestoreMinAnimate(); DeskModeHotkeysStart(); UiOnce(1500, [] { SettingsReopenCheck(); }); UiOnce(20000, [] { CrashOfferLater(0); }); g_onOpenSettings = SettingsOpenFromApp; GesturesStart(); }
+        if (real) { if (!g_sup) HooksEnsure(GetCurrentProcessId()); HooksListen(); ClipStart(); WinMoveStart(); RestoreMinAnimate(); DeskModeHotkeysStart(); UiOnce(1500, [] { SettingsReopenCheck(); }); UiOnce(20000, [] { CrashOfferLater(0); }); g_onOpenSettings = SettingsOpenFromApp; GesturesStart(); }
         PrewarmPanels();
         CatalogLoad(); UiOnce(CatalogApps().empty() ? 500 : 4000, [] { CatalogRefresh([] { InvalidateAllWnds(); }); }); UiOnce(10000, ProgramsLoadAsync); FileIndexStart();
         if (!S.pinsImported) {   // first run: start with the pins Windows' taskbar had; a DeskBar that already has pins keeps its own
@@ -138,7 +138,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     auto val = [&](const wchar_t* a) -> ws { for (int i = 1; i + 1 < argc; i++) if (EqI(argv[i], a)) return argv[i + 1]; return {}; };
     if (!val(L"--screen").empty()) g_devScreen = val(L"--screen");
     if (!val(L"--snap").empty()) { g_snapMs = _wtoi(val(L"--snap").c_str()); g_snapDir = val(L"--snapdir"); if (g_snapDir.empty()) g_snapDir = DataDir(); }
-    { ws o = val(L"--open"); g_openPanel = o == L"start" ? Panel::Start : o == L"quick" ? Panel::Quick : o == L"clock" ? Panel::Clock : Panel::None; g_openPreview = o == L"preview"; g_openSettings = o == L"settings"; g_stall = o == L"stall"; }
+    { ws o = val(L"--open"); g_openPanel = o == L"start" ? Panel::Start : o == L"quick" ? Panel::Quick : o == L"clock" ? Panel::Clock : o == L"clip" ? Panel::Clip : Panel::None; g_openPreview = o == L"preview"; g_openSettings = o == L"settings"; g_stall = o == L"stall"; }
     { ws c = val(L"--click"); if (c.find(L',') != ws::npos) { g_clickX = _wtoi(c.c_str()); g_clickY = _wtoi(c.c_str() + c.find(L',') + 1); } }
     g_wifiPreview = val(L"--wifipreview"); g_page = val(L"--page"); g_withTray = has(L"--tray"); g_sup = has(L"--sup");
     if (has(L"--restore")) { LogInit(false); LoadSettings(); Explorer::Restore(); Sleep(400); return 0; }
