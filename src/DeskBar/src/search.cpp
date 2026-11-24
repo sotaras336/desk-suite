@@ -27,25 +27,37 @@ static int Edit1(const ws& a, const ws& b) {
     const ws& lo = a.size() > b.size() ? a : b; const ws& sh = a.size() > b.size() ? b : a;
     return lo.compare(i + 1, ws::npos, sh, i, ws::npos) == 0 ? 1 : 2;
 }
-static double ScoreOne(const ws& t, const std::vector<ws>& words, const ws& tok) {
+static double ScoreOne(const ws& t, const std::vector<ws>& words, const ws& acr, const ws& tok) {
     if (t == tok) return 120;
     if (t.compare(0, tok.size(), tok) == 0) return 100 - std::min<double>(20, t.size() - tok.size()) * 0.3;
     for (auto& w : words) if (w.compare(0, tok.size(), tok) == 0) return 85;
-    ws acr; for (auto& w : words) acr += w[0];
     if (tok.size() >= 2 && acr.compare(0, tok.size(), tok) == 0) return 75;
     if (t.find(tok) != ws::npos) return 55;
     if (tok.size() >= 5) for (auto& w : words) if (w.size() >= 4 && Edit1(w.size() > tok.size() ? w.substr(0, tok.size()) : w, tok) <= 1) return 40;   // a small typo still finds the app
     return 0;
 }
 static std::vector<ws> Words(const ws& s) { std::vector<ws> v; for (auto& w : Split(s, L' ')) if (!w.empty()) v.push_back(w); return v; }
+// A name as Score compares it: normalized, split into words, with its acronym. Names of apps, programs and Settings pages are kept here once worked out,
+// so typing in Start normalizes only what you typed, not every name again on every key.
+struct NText { ws t, acr; std::vector<ws> words; };
+static NText MakeNText(const ws& text) { NText n; n.t = Trim(Norm(text)); n.words = Words(n.t); for (auto& w : n.words) n.acr += w[0]; return n; }
+static const NText& NormCached(const ws& text) {
+    static std::unordered_map<ws, NText> cache; static std::mutex mu; std::lock_guard<std::mutex> l(mu);
+    auto it = cache.find(text); if (it != cache.end()) return it->second;
+    if (cache.size() > 20000) cache.clear();   // names come and go as apps are installed; never let it grow without end
+    return cache.emplace(text, MakeNText(text)).first->second;   // unordered_map keeps references valid across inserts (only clear() drops them)
+}
+static double ScoreN(const NText& n, const std::vector<ws>& toks) {   // toks: Words(Norm(query))
+    if (n.t.empty() || toks.empty() || n.words.empty()) return 0;
+    if (toks.size() == 1) return ScoreOne(n.t, n.words, n.acr, toks[0]);
+    double sum = 0; for (auto& tok : toks) { double s1 = ScoreOne(n.t, n.words, n.acr, tok); if (s1 <= 0) return 0; sum += s1; }
+    return std::min(119.0, sum / toks.size() + (n.t.compare(0, toks[0].size(), toks[0]) == 0 ? 8 : 0));
+}
 double Score(const ws& text, const ws& q) {
     if (text.empty()) return 0;
-    ws t = Trim(Norm(text)); auto toks = Words(Norm(q)); if (t.empty() || toks.empty()) return 0;
-    auto words = Words(t); if (words.empty()) return 0;
-    if (toks.size() == 1) return ScoreOne(t, words, toks[0]);
-    double sum = 0; for (auto& tok : toks) { double s1 = ScoreOne(t, words, tok); if (s1 <= 0) return 0; sum += s1; }
-    return std::min(119.0, sum / toks.size() + (t.compare(0, toks[0].size(), toks[0]) == 0 ? 8 : 0));
+    return ScoreN(MakeNText(text), Words(Norm(q)));
 }
+static double ScoreCached(const ws& text, const std::vector<ws>& toks) { return text.empty() ? 0 : ScoreN(NormCached(text), toks); }
 ws Shorten(const ws& p) { ws home = KnownFolder(FOLDERID_Profile); if (!home.empty() && StartsI(p, home)) return L"~" + p.substr(home.size()); return p; }
 ws Ago(FILETIME when) {
     FILETIME now; GetSystemTimeAsFileTime(&now); ULARGE_INTEGER a, b; a.LowPart = now.dwLowDateTime; a.HighPart = now.dwHighDateTime; b.LowPart = when.dwLowDateTime; b.HighPart = when.dwHighDateTime;
@@ -170,9 +182,27 @@ ws ResolveCommand(const ws& cmd) {
         wchar_t v[1024]; DWORD sz = sizeof v; ws key = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + n;
         if (RegGetValueW(hive, key.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, v, &sz) == 0) { ws p = v; if (!p.empty() && p.front() == L'"') p = Trim(p.substr(1, p.find(L'"', 1) - 1)); if (FileExists(p)) return p; }
     }
-    wchar_t pathEnv[32768]; GetEnvironmentVariableW(L"PATH", pathEnv, 32768); std::vector<ws> dirs{KnownFolder(FOLDERID_Windows), KnownFolder(FOLDERID_System)};
-    for (auto& d : Split(pathEnv, L';')) if (!d.empty()) dirs.push_back(ExpandEnv(Trim(d)));
-    for (auto& d : dirs) for (auto& n : names) { ws full = d + L"\\" + n; if (FileExists(full)) return full; }
+    // The folders on PATH, listed once (and again in the background every few minutes) instead of checking ~300 file names on every key typed in Start.
+    // The first folder that has any of the names wins, and inside one folder the first extension in the list, exactly as checking them one by one did.
+    struct OnPath { std::unordered_map<ws, std::pair<size_t, ws>> files; uint64_t at = 0; };
+    static std::shared_ptr<const OnPath> listed; static std::mutex mu; static std::atomic<bool> busy{false};
+    auto build = [] {
+        auto o = std::make_shared<OnPath>(); o->at = Now();
+        wchar_t pathEnv[32768]; GetEnvironmentVariableW(L"PATH", pathEnv, 32768); std::vector<ws> dirs{KnownFolder(FOLDERID_Windows), KnownFolder(FOLDERID_System)};
+        for (auto& d : Split(pathEnv, L';')) if (!d.empty()) dirs.push_back(ExpandEnv(Trim(d)));
+        for (size_t i = 0; i < dirs.size(); i++) {
+            WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileExW((dirs[i] + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH); if (h == INVALID_HANDLE_VALUE) continue;
+            do if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) o->files.emplace(Lower(fd.cFileName), std::pair<size_t, ws>{i, dirs[i] + L"\\" + fd.cFileName}); while (FindNextFileW(h, &fd));   // emplace keeps the first folder's
+            FindClose(h);
+        }
+        return std::shared_ptr<const OnPath>(o);
+    };
+    std::shared_ptr<const OnPath> cur; { std::lock_guard<std::mutex> l(mu); cur = listed; }
+    if (!cur) { cur = build(); std::lock_guard<std::mutex> l(mu); listed = cur; }
+    else if (Now() - cur->at > 5 * 60000 && !busy.exchange(true)) std::thread([build] { auto o = build(); { std::lock_guard<std::mutex> l(mu); listed = o; } busy = false; }).detach();
+    const std::pair<size_t, ws>* best = nullptr;
+    for (auto& n : names) { auto it = cur->files.find(Lower(n)); if (it != cur->files.end() && (!best || it->second.first < best->first)) best = &it->second; }
+    if (best && FileExists(best->second)) return best->second;   // one check, for the one that is shown
     return {};
 }
 static std::vector<Result> RunAndPaths(const ws& q) {
@@ -234,7 +264,8 @@ static std::vector<Result> TopLevelFolders(const ws& q) {
         g_roots.push_back({L"AppData", KnownFolder(FOLDERID_RoamingAppData)}); g_roots.push_back({L"Local AppData", KnownFolder(FOLDERID_LocalAppData)});
         g_roots.push_back({L"Startup", KnownFolder(FOLDERID_Startup)});
     }
-    for (auto& r : g_roots) { double s = Score(r.first, q); if (s >= 85) list.push_back({RKind::Folder, r.first, Shorten(r.second), r.second, s * 0.75}); }
+    auto toks = Words(Norm(q));
+    for (auto& r : g_roots) { double s = ScoreCached(r.first, toks); if (s >= 85) list.push_back({RKind::Folder, r.first, Shorten(r.second), r.second, s * 0.75}); }
     return list;
 }
 
@@ -398,19 +429,20 @@ std::vector<Result> SearchLocal(const ws& query) {
     if (ws c = TryConvert(q); !c.empty()) r.push_back({RKind::Calc, L"= " + c, q, c.substr(0, c.find(L' ')), 1000});
     for (auto& x : RunAndPaths(q)) r.push_back(x);
     for (auto& x : TopLevelFolders(q)) r.push_back(x);
+    auto toks = Words(Norm(q));
     for (auto& a : g_apps) {
-        double s = Score(a.name, q); if (s <= 0) continue;
+        double s = ScoreCached(a.name, toks); if (s <= 0) continue;
         auto it = S.launchCounts.find(a.id); if (it != S.launchCounts.end()) s += std::min(40, it->second * 4);
         r.push_back({RKind::App, a.name, L"App", L"shell:AppsFolder\\" + a.id, s, a.id});
     }
     { std::lock_guard<std::mutex> l(g_pmu);
       for (auto& pr : g_progs) {
-          double s = Score(pr.name, q); if (s <= 0) continue;
+          double s = ScoreCached(pr.name, toks); if (s <= 0) continue;
           bool dup = false; for (auto& a : g_apps) if (EqI(a.name, pr.name) || (a.name.size() > 4 && StartsI(pr.name, a.name))) { dup = true; break; }
           if (!dup) r.push_back({RKind::Program, pr.name, pr.folder ? L"Program folder" : L"Program", pr.target, s * 0.9});
       } }
     for (auto& st : kSettings) {
-        double s = Score(st.name, q); for (auto& k : Words(st.kw)) s = std::max(s, Score(k, q) * 0.8);
+        double s = ScoreCached(st.name, toks); for (auto& k : Words(st.kw)) s = std::max(s, ScoreCached(k, toks) * 0.8);
         if (s > 0) r.push_back({RKind::Setting, st.name, L"Settings", st.uri, s * 0.85});
     }
     for (auto& x : r) if (x.kind != RKind::Calc) x.score += HabitBoost(q, x.kind, x.target);

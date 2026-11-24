@@ -2,6 +2,7 @@
 #include "search.h"
 #include <condition_variable>
 #include <functional>
+#include <thread>
 
 // An index of EVERY file and folder name on the fixed and removable drives (hidden, system, Windows, Program Files, AppData: all of it; only the
 // Recycle Bin and System Volume Information are left out), searched in tens of milliseconds. A scan runs in its own background-priority process
@@ -262,36 +263,49 @@ bool WordStart(std::string_view n, const std::string& t) {
 }
 // The best matches for a query, best first (at most `keep`). Names must hold every word, or have it in one of the folders above them
 // ("report 2024" finds report.docx inside a folder called 2024). Returns empty when `cancelled` says a newer query has arrived.
-std::vector<Hit> Rank(const Index& ix, const std::string& folded, size_t keep, const std::function<bool()>& cancelled) {
+std::vector<Hit> Rank(const Index& ix, const std::string& folded, size_t keep, const std::function<bool()>& cancelled, unsigned maxThreads = 0) {   // 0: as many cores as help
     std::vector<Hit> out; auto toks = Tokens(folded); size_t total = 0; for (auto& t : toks) total += t.size(); if (toks.empty() || total < 2) return out;
     std::string qs; for (auto& t : toks) qs += (qs.empty() ? "" : " ") + t;
     std::vector<size_t> order(toks.size()); for (size_t k = 0; k < order.size(); k++) order[k] = k;
     std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) { return toks[x].size() > toks[y].size(); });   // the longest word is the rarest: scan for that one first
-    std::vector<Hit> hits; const char* b = ix.low; const char* e = b + ix.lowBytes; constexpr size_t kChunk = 4u << 20;
+    // The folded names are cut into slices at name boundaries and each slice is searched on its own core: a word never spans two names (they end with
+    // '\n'), so the slices are independent, and hits come back in index order once they are joined. Small indexes stay on one thread.
+    std::vector<Hit> hits; const char* b = ix.low; const char* e = b + ix.lowBytes;
+    unsigned cores = maxThreads ? maxThreads : std::max(1u, std::min(8u, std::thread::hardware_concurrency()));
+    size_t slices = ix.lowBytes < (8u << 20) ? 1 : std::min<size_t>(cores, ix.lowBytes / (4u << 20));
+    std::vector<const char*> cut{b}; for (size_t k = 1; k < slices; k++) { const char* c = b + ix.lowBytes * k / slices; c = (const char*)memchr(c, '\n', e - c); c = c ? c + 1 : e; if (c > cut.back() && c < e) cut.push_back(c); } cut.push_back(e);
+    std::atomic<size_t> found{0}; std::atomic<bool> stop{false};
     for (size_t a : order) {   // one pass is enough unless a word only exists in a folder name above the file: then each word takes a turn
     const std::string& anchor = toks[a]; if (anchor.size() < 2) continue;
-    std::boyer_moore_horspool_searcher<const char*> bmh(anchor.data(), anchor.data() + anchor.size()); const char* p = b; size_t alen = anchor.size();
-    while (p < e) {
-        if (cancelled()) return {};
-        const char* lim = (size_t)(e - p) > kChunk ? p + kChunk : e;
-        const char* f = std::search(p, lim, bmh);
-        if (f == lim) { if (lim == e) break; p = lim - (alen - 1); continue; }   // overlap, so a match across the chunk edge is not lost
-        uint32_t off = (uint32_t)(f - b), ei = (uint32_t)(std::upper_bound(ix.noff, ix.noff + ix.count + 1, off) - ix.noff) - 1;
-        p = b + ix.noff[ei + 1];   // one hit per name
-        std::string_view name = ix.Folded(ei); bool inName = true, ok = true;
-        for (size_t k = 0; k < toks.size() && ok; k++) {
-            if (k == a || name.find(toks[k]) != std::string_view::npos) continue;
-            inName = false; ok = false;
-            for (uint32_t q = ix.parent[ei]; !(q & kRoot); q = ix.parent[q]) if (ix.Folded(q).find(toks[k]) != std::string_view::npos) { ok = true; break; }
+    auto scan = [&](const char* from, const char* to, std::vector<Hit>& mine) {
+        std::boyer_moore_horspool_searcher<const char*> bmh(anchor.data(), anchor.data() + anchor.size()); const char* p = from; size_t alen = anchor.size(); constexpr size_t kChunk = 4u << 20;
+        while (p < to) {
+            if (stop || cancelled()) { stop = true; return; }
+            const char* lim = (size_t)(to - p) > kChunk ? p + kChunk : to;
+            const char* f = std::search(p, lim, bmh);
+            if (f == lim) { if (lim == to) break; p = lim - (alen - 1); continue; }   // overlap, so a match across the chunk edge is not lost
+            uint32_t off = (uint32_t)(f - b), ei = (uint32_t)(std::upper_bound(ix.noff, ix.noff + ix.count + 1, off) - ix.noff) - 1;
+            p = b + ix.noff[ei + 1];   // one hit per name
+            std::string_view name = ix.Folded(ei); bool inName = true, ok = true;
+            for (size_t k = 0; k < toks.size() && ok; k++) {
+                if (k == a || name.find(toks[k]) != std::string_view::npos) continue;
+                inName = false; ok = false;
+                for (uint32_t q = ix.parent[ei]; !(q & kRoot); q = ix.parent[q]) if (ix.Folded(q).find(toks[k]) != std::string_view::npos) { ok = true; break; }
+            }
+            if (!ok) continue;
+            bool d = ix.dir[ei]; std::string_view stem = name; if (!d) { size_t dot = stem.rfind('.'); if (dot != std::string_view::npos && dot > 0) stem = stem.substr(0, dot); }
+            double v = stem == qs ? 120 : name.compare(0, toks[0].size(), toks[0]) == 0 ? 100 : WordStart(name, toks[0]) ? 85 : name.find(toks[0]) != std::string_view::npos ? 55 : 45;
+            if (!inName) v -= 8;
+            v += d ? 3 : 0; v -= std::min(10.0, name.size() * 0.08); mine.push_back({ei, v});
+            if (++found >= 3000000) return;
         }
-        if (!ok) continue;
-        bool d = ix.dir[ei]; std::string_view stem = name; if (!d) { size_t dot = stem.rfind('.'); if (dot != std::string_view::npos && dot > 0) stem = stem.substr(0, dot); }
-        double v = stem == qs ? 120 : name.compare(0, toks[0].size(), toks[0]) == 0 ? 100 : WordStart(name, toks[0]) ? 85 : name.find(toks[0]) != std::string_view::npos ? 55 : 45;
-        if (!inName) v -= 8;
-        v += d ? 3 : 0; v -= std::min(10.0, name.size() * 0.08); hits.push_back({ei, v});
-        if (hits.size() >= 3000000) break;
-    }
-    if (toks.size() == 1 || hits.size() >= 30) break;
+    };
+    size_t n = cut.size() - 1; std::vector<std::vector<Hit>> part(n);
+    if (n == 1) scan(cut[0], cut[1], part[0]);
+    else { std::vector<std::thread> th; for (size_t k = 1; k < n; k++) th.emplace_back(scan, cut[k], cut[k + 1], std::ref(part[k])); scan(cut[0], cut[1], part[0]); for (auto& t : th) t.join(); }
+    if (stop) return {};
+    for (auto& v : part) hits.insert(hits.end(), v.begin(), v.end());
+    if (toks.size() == 1 || hits.size() >= 30 || found >= 3000000) break;
     }
     std::sort(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.i < y.i; }); hits.erase(std::unique(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.i == y.i; }), hits.end());
     size_t top = std::min<size_t>(hits.size(), 20000);   // the best by name; then where each one lives decides, so a common name (readme) doesn't fill the list with Program Files
@@ -386,7 +400,31 @@ bool FileIndexSelfTest(ws& detail) {
     if (ok && first(L"top") != L"C:\\Users\\me\\top.txt") { detail = L"ranking: " + first(L"top"); ok = false; }
     if (ok && !RankedPaths(ix, L"nothing-like-this").empty()) { detail = L"a miss found something"; ok = false; }
     if (ok) detail = std::to_wstring(ix.count) + L" entries, " + std::to_wstring(ix.roots.size()) + L" roots, " + std::to_wstring(ix.bytes) + L" bytes mapped";
-    pix.reset(); DeleteFileW(path.c_str()); return ok;
+    pix.reset(); DeleteFileW(path.c_str());
+    if (ok) {   // a big index is searched on several cores at once: the same results, in the same order, as one core finds them
+        Builder big; uint32_t r = big.AddRoot(L"C:\\Users\\me"); uint32_t folder = r; uint32_t seed = 12345;
+        for (int i = 0; i < 700000; i++) {
+            if (i % 500 == 0) folder = big.Add(r, Fmt(L"Folder %d", i / 500).c_str(), true);
+            seed = seed * 1103515245u + 12345u; big.Add(folder, Fmt(L"file %05u note%s.txt", (seed >> 8) % 100000, i % 977 == 0 ? L" report" : L"").c_str(), false);
+        }
+        ws bp = TempIndexPath() + L".big"; auto bix = std::make_unique<Index>();
+        if (!WriteIndex(bp, big) || !bix->Open(bp)) { detail = L"could not write or open the big index"; ok = false; }
+        else {
+            auto same = [&](const char* q, ws& timing) {
+                uint64_t t = Now(); auto one = Rank(*bix, q, 400, [] { return false; }, 1); uint64_t t1 = Now() - t;
+                t = Now(); auto all = Rank(*bix, q, 400, [] { return false; }, 0); uint64_t t2 = Now() - t;
+                timing += Fmt(L" %S: one core %d ms, all cores %d ms;", q, (int)t1, (int)t2);
+                if (one.size() != all.size() || one.empty()) return false;
+                for (size_t i = 0; i < one.size(); i++) if (one[i].i != all[i].i || one[i].s != all[i].s) return false;
+                return true;
+            };
+            ws timing; bool cancelledEmpty = Rank(*bix, "note", 400, [] { return true; }, 0).empty();
+            if (!same("note", timing) || !same("report", timing) || !same("folder 12 note", timing) || !cancelledEmpty) { detail = L"several cores gave other results than one:" + timing; ok = false; }
+            else detail += L"; big index of " + std::to_wstring(bix->count) + L" entries:" + timing;
+        }
+        bix.reset(); DeleteFileW(bp.c_str());
+    }
+    return ok;
 }
 
 // A real scan of a small folder, saved and mapped exactly as a rescan does it: the path that crashed the bar after every rescan. Everything is indexed now
