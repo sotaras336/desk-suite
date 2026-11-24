@@ -8,7 +8,7 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args.Contains("--uninstall")) return Setup.Uninstall();
-        if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install();   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy
+        if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install(start: !args.Contains("--nostart"));   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy (--nostart: Desk-Setup.exe installs several apps and starts none of them itself)
         if (args.Contains("--background") && Instance.IsRunning()) return 0;   // the sign-in start, but a copy is already up
         bool plain = args.Any(a => a is "--selftest" or "--makeicon" or "--shortcuts" or "--snapshot" or "--dialogtest" or "--picktest" or "--pickshot" or "--settingsshot" or "--default" or "--background" or "--uitest");   // a test run never hands its arguments to the copy you are using
         if (!plain && !args.Contains("--new-window") && Instance.HandOff(args.Where(a => !a.StartsWith("--")).Select(App.CleanPath).ToList())) return 0;

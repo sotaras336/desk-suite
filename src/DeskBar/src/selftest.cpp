@@ -109,6 +109,11 @@ int RunSelfTest(const ws& outFile) {
         std::string sums = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *DeskBar-Setup.exe\r\n" + std::string(64, 'c') + " *DeskTune-Setup.exe\n";
         check(L"update: sha-256 of abc", Sha256HexOf("abc") == L"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
         check(L"update: reads the checksum for a file", UpdateHashFor(sums, L"DeskBar-Setup.exe") == Sha256HexOf("abc") && UpdateHashFor(sums, L"deskTune-setup.exe") == Widen(std::string(64, 'c')) && UpdateHashFor(sums, L"DeskMode-Setup.exe").empty());
+        std::string dated = sums + "# built DeskBar-Setup.exe 20261125T101500Z\r\n# built DeskTune-Setup.exe 2026-11-25\n";
+        check(L"update: reads when a release file was built, ignores a bad date, and the dates don't break the checksums",
+            UpdateBuiltFor(dated, L"deskbar-setup.exe") == L"20261125T101500Z" && UpdateBuiltFor(dated, L"DeskTune-Setup.exe").empty() && UpdateBuiltFor(sums, L"DeskBar-Setup.exe").empty() && UpdateHashFor(dated, L"DeskBar-Setup.exe") == Sha256HexOf("abc"),
+            UpdateBuiltFor(dated, L"DeskBar-Setup.exe"));
+        check(L"update: link time stamps are written as UTC dates", UpdateStamp(1764065700) == L"20251125T101500Z" && UpdateStamp(0).empty(), UpdateStamp(1764065700));
     }
     {   // File Explorer requests that DeskDrawer takes over (when it is the folder handler), and the ones that stay with Explorer
         ws a;
