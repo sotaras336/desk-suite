@@ -76,6 +76,21 @@ public static class Theme
         return s < 0.1 ? null : h;   // a grey accent has no hue to follow
     }
 
+    /// The colour picker's light bar, the same in DeskBar, DeskDrawer and DeskTune: under 0.10 the White theme, over 0.92 Black, 0.2-0.3 the colour as it is, darker below.
+    public static int LightZone(double t) => t < 0.10 ? 2 : t > 0.92 ? 1 : 0;
+    public static double LightVal(double t) => t <= 0.30 ? 1 : Math.Clamp((0.92 - t) / 0.62, 0, 1);
+    /// Where the light bar's handle starts for the colour in use.
+    public static double LightStart(ThemeDef cur) => cur.Kind == 1 ? 0.96 : cur.Kind == 2 ? 0.04 : cur.Val >= 1 ? 0.25 : 0.92 - cur.Val * 0.62;
+    /// The theme id the colour picker gives (DeskBar's picker makes the same ids): black and white at the light bar's ends; a ready-made colour not moved keeps its
+    /// name with the fade ("blue:40"); anything else is "custom:<hue>:<fade>", with ":<vividness>:<light>" when either is below 100.
+    public static string ColourId(double t, string? baseId, bool moved, double hue, double fade, double sat)
+    {
+        int z = LightZone(t); if (z != 0) return z == 1 ? "black" : "white";
+        string f = ":" + (int)fade; if (baseId != null && !moved) return baseId + f;
+        int sv = (int)Math.Round(sat), v = (int)Math.Round(LightVal(t) * 100);
+        return "custom:" + (int)hue + f + (sv < 100 || v < 100 ? ":" + sv + ":" + v : "");
+    }
+
     public static Color Col(uint rgb, int a = 255) => ColFor(Current, rgb, a);
 
     /// The settings window's colours (DeskMode's look): they wear the colour themes; Blue, Black, White and Glass keep DeskMode's own blue.
@@ -176,7 +191,7 @@ public static class Theme
 public static class SharedTheme
 {
     public const string App = "deskdrawer";
-    public static string Dir => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Desk");
+    public static string Dir => Environment.GetEnvironmentVariable("DESK_DIR") is { Length: > 0 } d ? d : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Desk");   // DESK_DIR: a self-test's own folder
     public static string File => System.IO.Path.Combine(Dir, "theme.txt");
     static string Own => System.IO.Path.Combine(Dir, "theme-" + App + ".txt");
     static string? ReadFile(string f) { try { var t = System.IO.File.ReadAllText(f).Trim(); return t.Length is > 0 and < 200 ? t : null; } catch { return null; } }

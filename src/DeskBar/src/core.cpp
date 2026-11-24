@@ -372,6 +372,7 @@ static ThemeDef ParseTheme(const ws& id, float& g_grad) {
     }
     return *d;
 }
+ThemeDef ThemeFromId(const ws& id, float& grad) { return ParseTheme(id, grad); }   // for the self-test: what an id means, without wearing it
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f; float al = a / 255.f;
     if (t.kind > 0) {   // black / white / glass: the dark blues of the original become neutral; the light blues (accents) stay, darker on white

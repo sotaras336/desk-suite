@@ -132,7 +132,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (!val(L"--indexquery").empty() && argc > 3) { LogInit(false); FileIndexQuery(val(L"--indexquery"), argv[argc - 1]); return 0; }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file
     if (!val(L"--selftest").empty()) {   // never touch the real settings: the test saves and reloads them
-        wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws d = ws(t) + L"db3-selftest"; CreateDirectoryW(d.c_str(), nullptr); SetEnvironmentVariableW(L"DB3_DATA", d.c_str());
+        wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws d = ws(t) + L"db3-selftest"; CreateDirectoryW(d.c_str(), nullptr); SetEnvironmentVariableW(L"DB3_DATA", d.c_str()); SetEnvironmentVariableW(L"DESK_DIR", (d + L"\\desk").c_str());   // the suite's colour files too
         LogInit(false); return RunSelfTest(val(L"--selftest"));
     }
     if (!val(L"--signintest").empty()) { LogInit(false); return SignInTest(val(L"--signintest")); }

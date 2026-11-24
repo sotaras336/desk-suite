@@ -56,6 +56,7 @@ bool IsFlashing(HWND h);
 ws PackageFamilyFromPath(const ws& exe);
 ws AumidOfShortcut(const ws& lnk);
 bool WinMoveSelfTest(ws& detail);                                      // winmove.cpp: the maximized-edge and hidden-window rules
+bool WinMoveMoreSelfTest(ws& detail);                                  // winmove.cpp: touch on the bar edge, dropping and sending windows between screens
 void GesturesStart();                                                   // three-finger swipe down on the touchpad minimises everything (gesture.cpp)
 struct SwipeTracker { bool armed = false; float sx = 0, sy = 0, lx = 0, ly = 0; int Feed(int fingers, float x, float y); };   // 1 = a three-finger swipe down just ended
 
