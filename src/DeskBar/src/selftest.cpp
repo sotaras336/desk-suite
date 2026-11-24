@@ -33,6 +33,7 @@ int RunSelfTest(const ws& outFile) {
             check(L"search learns: a result picked twice rises for that search", same >= 45 && longer > 0 && longer < same && other == 0 && unrelated == 0, Fmt(L"same %.0f longer %.0f other %.0f unrelated %.0f", same, longer, other, unrelated));
         }
         { ws d; bool ok = WinMoveSelfTest(d); check(L"windows: maximized-size and hidden-under-bar rules", ok, d); }
+        { ws d; bool ok = GuardThreadSelfTest(d); check(L"touch guard: strips on their own thread, made afresh on demand", ok, d); }
         { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
         if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)
             CatalogLoad(); int shown = 0; std::string rep; check(L"lookup: apps in the catalog", !CatalogApps().empty(), Fmt(L"%d", (int)CatalogApps().size()));
