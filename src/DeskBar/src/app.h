@@ -181,6 +181,7 @@ int RunInstall(); int RunUninstall();
 bool UpdateFetchLatest(ws& path); bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
+ws UpdateBuiltFor(const std::string& sums, const ws& file); ws UpdateStamp(int64_t unixSeconds);   // "# built <file> <yyyyMMddTHHmmssZ>" lines in the release list (update.cpp)
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);
 void BarsWorkAreaUpkeep();
 

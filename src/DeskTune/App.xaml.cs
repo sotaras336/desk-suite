@@ -75,7 +75,7 @@ public partial class App : Application
         if (a.Contains("--install") || setupName)   // "DeskTune-Setup.exe" from the website: install, then start the installed copy
         {
             bool ok = Install();
-            if (ok && setupName) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstalledExe) { UseShellExecute = false });
+            if (ok && setupName && !a.Contains("--nostart")) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstalledExe) { UseShellExecute = false });
             Shutdown(ok ? 0 : 1); return;
         }
         string? forced = null; for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--theme") forced = a[i + 1];   // dev: --theme glass (pictures without touching the suite's theme)

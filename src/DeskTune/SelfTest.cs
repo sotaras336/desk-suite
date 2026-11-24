@@ -21,6 +21,10 @@ public static class SelfTest
         {   // the update check: reading the checksum list, and (only when a test points DESK_UPDATE_BASE at a local release folder) the whole check and a verified download that is not run
             string sums = new string('a', 64) + " *" + Updater.Asset + "\r\n" + new string('b', 64) + " *Other-Setup.exe\n";
             Check("update: reads the checksum for this app's file", Updater.HashFor(sums, Updater.Asset) == new string('a', 64) && Updater.HashFor(sums, "Nope.exe") == null);
+            string dated = sums + "# built " + Updater.Asset + " 20261125T101500Z\r\n# built Other-Setup.exe 2026-11-25\n";
+            Check("update: reads when a release file was built, ignores a bad date, and the dates don't break the checksums",
+                Updater.BuiltFor(dated, Updater.Asset.ToUpperInvariant()) == "20261125T101500Z" && Updater.BuiltFor(dated, "Other-Setup.exe") == null && Updater.BuiltFor(sums, Updater.Asset) == null && Updater.HashFor(dated, Updater.Asset) == new string('a', 64));
+            Check("update: this build knows when it was built", Updater.SelfBuilt is { Length: 16 }, Updater.SelfBuilt ?? "(none)");
             if (Environment.GetEnvironmentVariable("DESK_UPDATE_BASE") != null)
             {
                 bool got = Task.Run(() => Updater.UpdateNowAsync()).GetAwaiter().GetResult();   // no earlier check: Update now must look at the release list itself (a checksum remembered from an older check once made it reject the newest file)

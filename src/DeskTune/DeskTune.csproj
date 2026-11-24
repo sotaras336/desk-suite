@@ -16,4 +16,13 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
+  <!-- when this build was made (UTC), for the update check: a release only counts as newer when it was built later. CI passes -p:DeskBuilt=... so the
+       release list and the exe agree to the second; a local build stamps its own time. -->
+  <PropertyGroup>
+    <DeskBuilt Condition="'$(DeskBuilt)' == ''">$([System.DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"))</DeskBuilt>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="DeskBuilt" Value="$(DeskBuilt)" />
+  </ItemGroup>
+
 </Project>

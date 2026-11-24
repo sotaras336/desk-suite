@@ -9,7 +9,7 @@ public static class Program
     {
         if (args.Length > 0 && args[0] == "--dialog-guard") return DialogGuard.Run(args);   // first, before anything loads: see DialogGuard
         if (args.Contains("--uninstall")) return Setup.Uninstall();
-        if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install();   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy
+        if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install(start: !args.Contains("--nostart"));   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy (--nostart: Desk-Setup.exe installs several apps and starts none of them itself)
         if (args.Contains("--background") && Instance.IsRunning()) return 0;   // the sign-in start, but a copy is already up
         // --set (the Desk settings window, when DeskDrawer's pipe was busy): App handles it; it used to be handed over here as a folder called "KeepReady=1"
         bool plain = args.Any(a => a is "--selftest" or "--makeicon" or "--shortcuts" or "--snapshot" or "--dialogtest" or "--picktest" or "--pickshot" or "--settingsshot" or "--default" or "--background" or "--uitest" or "--set");   // a test run never hands its arguments to the copy you are using

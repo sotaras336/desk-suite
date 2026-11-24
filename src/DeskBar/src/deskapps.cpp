@@ -67,6 +67,11 @@ ws DeskAppExe(const ws& name) { for (auto& a : kApps) if (name == a.name) return
 ws DeskAppState(const ws& name) { std::lock_guard<std::mutex> l(g_mu); auto it = g_state.find(name); return it == g_state.end() ? ws() : it->second; }
 static void SetState(const ws& name, const ws& s) { { std::lock_guard<std::mutex> l(g_mu); g_state[name] = s; } UiPost([] { DeskAppsChanged(); }); }
 
+// When the installed DeskDrawer / DeskTune was built, as it wrote it into %LOCALAPPDATA%\<app>\update.json ("Built"); empty for builds older than this
+static ws InstalledBuilt(const ws& name) {
+    std::string d; if (!ReadAll(KnownFolder(FOLDERID_LocalAppData) + L"\\" + name + L"\\update.json", d)) return {};
+    Json j = Json::Parse(d); const Json* b = j.Find(L"Built"); return b && b->t == Json::Str ? b->s : ws();
+}
 // Looks at the newest release (worker thread): for each app, installed or not, and whether the release holds a different build.
 void DeskAppsCheck() {
     if (g_busy.exchange(true)) return;
@@ -78,7 +83,10 @@ void DeskAppsCheck() {
             if (!have) { SetState(a.name, L"Not installed"); continue; }
             if (!got) { SetState(a.name, L"Installed · couldn't reach GitHub to look for updates"); continue; }
             std::string d; ws want = UpdateHashFor(sums, a.setup), mine = ReadAll(exe, d) ? Sha256HexOf(d) : ws();
-            SetState(a.name, want.empty() ? L"Installed" : want == mine ? L"Installed · up to date" : L"Installed · a new version is available");
+            // a different file is only "new" when the release built it later than the installed one (the app writes its own build time into its update.json)
+            ws built = UpdateBuiltFor(sums, a.setup), theirs = InstalledBuilt(a.name);
+            bool ahead = !want.empty() && want != mine && !built.empty() && !theirs.empty() && built <= theirs;
+            SetState(a.name, want.empty() ? L"Installed" : want == mine ? L"Installed · up to date" : ahead ? L"Installed · newer than the latest release" : L"Installed · a new version is available");
         }
         g_busy = false;
     }).detach();

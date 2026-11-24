@@ -16,7 +16,7 @@ public static class Setup
 
     public static bool IsSetupName() => Path.GetFileName(Environment.ProcessPath ?? "").Contains("setup", StringComparison.OrdinalIgnoreCase);
 
-    public static int Install()
+    public static int Install(bool start = true)
     {
         try
         {
@@ -27,7 +27,7 @@ public static class Setup
             Link(Path.Combine(StartMenu, Name + ".lnk"), Exe, "", "DeskDrawer, a file manager");
             Link(Path.Combine(Desktop, Name + ".lnk"), Exe, "", "DeskDrawer, a file manager");
             Link(Path.Combine(StartMenu, "Uninstall " + Name + ".lnk"), Exe, "--uninstall", "Remove DeskDrawer");
-            Process.Start(new ProcessStartInfo(Exe) { UseShellExecute = false });
+            if (start) Process.Start(new ProcessStartInfo(Exe) { UseShellExecute = false });
             return 0;
         }
         catch (Exception ex) { Message("DeskDrawer couldn't install:\n" + ex.Message); return 1; }
