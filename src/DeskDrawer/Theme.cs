@@ -189,18 +189,25 @@ public static class SharedTheme
 /// One settings window for the Desk suite: DeskBar's. Settings here opens it at this app's page when DeskBar is running (false = it isn't: use our own).
 public static class DeskSettings
 {
-    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindowW(string cls, string? title);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string? title);
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern uint RegisterWindowMessageW(string name);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr SendMessageTimeoutW(IntPtr h, uint m, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
+    const long Ack = 0x44534B;   // DeskBar 4.0 answers this (ui_wnd.cpp kOpenSettingsAck); an older DeskBar or its stand-in bar answers 0
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out int pid);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
     /// page: the page's name in DeskBar's settings ("deskdrawer", "desktune", "colours").
     public static bool Open(string page)
     {
         if (Environment.GetEnvironmentVariable("DESK_OWN_SETTINGS") != null) return false;   // tests and pictures of our own window
-        var h = FindWindowW("DB3.Wnd", null); if (h == IntPtr.Zero) return false;
-        GetWindowThreadProcessId(h, out int pid); AllowSetForegroundWindow(pid);
-        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 };
-        return PostMessageW(h, RegisterWindowMessageW("DeskOpenSettings"), (IntPtr)code, IntPtr.Zero);
+        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 }; uint msg = RegisterWindowMessageW("DeskOpenSettings");
+        // every DeskBar window gets asked until one says it opened the window: a plain post to the first one found did nothing with DeskBar 3.x
+        // (which doesn't know the message) and the Settings button looked dead
+        IntPtr h = IntPtr.Zero;
+        for (int n = 0; n < 64 && (h = FindWindowExW(IntPtr.Zero, h, "DB3.Wnd", null)) != IntPtr.Zero; n++)
+        {
+            GetWindowThreadProcessId(h, out int pid); AllowSetForegroundWindow(pid);
+            if (SendMessageTimeoutW(h, msg, (IntPtr)code, IntPtr.Zero, 0x0002 /* SMTO_ABORTIFHUNG */, 1000, out var r) != IntPtr.Zero && (long)r == Ack) return true;
+        }
+        return false;
     }
 }

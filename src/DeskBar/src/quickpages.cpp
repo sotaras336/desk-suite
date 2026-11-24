@@ -864,7 +864,7 @@ struct DeskModeRates : PageBase {
         auto* note = MkLabel(this, L"Each change makes Windows blank the screen for a moment.", FText(11.5f), Col(K::White, 0xA0)); note->wrap = true; note->margin = Thick(4, 2, 0, 0);
     }
 };
-View* MakeDeskModeRates(QuickPanel* q) { return new DeskModeRates(q); }
+View* MakeDeskModeRates(QuickPanel* q) { dm::Scope s; return new DeskModeRates(q); }   // DeskMode's own colour, like the page it opens from
 
 // DeskMode's Settings page, in the same panel and the same look: what Go max and Go easy set, and what DeskMode does by itself.
 struct DeskModeSettings : PageBase {

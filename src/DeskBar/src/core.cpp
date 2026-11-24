@@ -341,7 +341,7 @@ void SetTheme(const ws& id) {
     static ThemeDef cur; cur = ParseTheme(id, g_grad); g_theme = &cur; g_themeId = id;
 }
 static ThemeDef g_dm; static float g_dmGrad = -1; static bool g_dmSet = false;
-void SetDeskModeTheme(const ws& id) { g_dm = ParseTheme(id, g_dmGrad); g_dmSet = true; }
+void SetDeskModeTheme(const ws& id) { if (id.empty()) { g_dmSet = false; return; } g_dm = ParseTheme(id, g_dmGrad); g_dmSet = true; }   // no colour of its own (no theme files yet): DeskMode wears the bar's, not the default
 const ThemeDef& DeskModeTheme() { return g_dmSet ? g_dm : *g_theme; }
 float DeskModeGrad() { return g_dmSet ? g_dmGrad : g_grad; }
 static ThemeDef ParseTheme(const ws& id, float& g_grad) {

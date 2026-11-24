@@ -48,6 +48,7 @@ void DeskDrawerSet(const ws& key, const ws& value) {
     DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);
     ws pipe = Fmt(L"\\\\.\\pipe\\DeskDrawer-%s-%lu", user, sid);
     HANDLE h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(pipe.c_str(), 500)) h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);   // DeskDrawer is between two hand-offs: a second copy started with --set would write the file under the running one
     if (h != INVALID_HANDLE_VALUE) { std::string u = Narrow(line); DWORD w; WriteFile(h, u.data(), (DWORD)u.size(), &w, nullptr); CloseHandle(h); return; }
     ws exe = DeskAppExe(L"DeskDrawer"); if (FileExists(exe)) Launch(exe, L"--set " + key + L"=" + value);
 }
@@ -99,7 +100,7 @@ void DeskAppInstall(const ws& name) {
             else { Log(L"desk apps: installing %s from the newest release", name.c_str()); Launch(path); st = L"Installing… it opens when it's done."; }
         }
         g_busy = false; SetState(name, st);
-        if (ContainsI(st, L"Installing")) UiOnce(8000, [] { DeskAppsCheck(); });   // look again once the setup has had time to finish
+        if (ContainsI(st, L"Installing")) UiPost([] { UiOnce(8000, [] { DeskAppsCheck(); }); });   // UiOnce only on the UI thread: its timer map is not locked   // look again once the setup has had time to finish
     }).detach();
 }
 int DeskAppCount() { return (int)(sizeof kApps / sizeof kApps[0]); }

@@ -86,7 +86,7 @@ public partial class App : Application
         {   // a colour picked in another Desk app (or Desk settings > Colours) while DeskTune is open: wear it at once
             var fw = new System.IO.FileSystemWatcher(SharedTheme.Dir, "theme*.txt") { NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName, EnableRaisingEvents = true };
             void Changed() => w.Dispatcher.BeginInvoke(async () => { await Task.Delay(150); if (SharedTheme.Read() is { } id && id != Theme.FullId) { Theme.Load(id); Theme.Apply(); } });
-            fw.Changed += (_, _) => Changed(); fw.Created += (_, _) => Changed(); fw.Deleted += (_, _) => Changed(); _themeWatch = fw;
+            fw.Changed += (_, _) => Changed(); fw.Created += (_, _) => Changed(); fw.Deleted += (_, _) => Changed(); fw.Renamed += (_, _) => Changed(); _themeWatch = fw;   // Renamed: DeskBar writes theme.txt as a .tmp renamed over it (WriteAtomic), so that is the only event its colour changes raise
         } catch { }
         if (a.Contains("--colour")) w.Dispatcher.BeginInvoke(() => ColourWindow.Show(w), System.Windows.Threading.DispatcherPriority.ApplicationIdle);   // dev: a picture of the colour window
         if (a.Contains("--undoall")) w.Dispatcher.BeginInvoke(w.UndoAll, System.Windows.Threading.DispatcherPriority.ApplicationIdle);   // "Put everything back" in the Desk settings window
