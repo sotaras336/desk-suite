@@ -179,6 +179,7 @@
             <Border Background="{DynamicResource PaneBg}">
                 <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Padding="6,8" SelectedItemChanged="Tree_Selected" AllowDrop="True"
                           DragOver="Tree_DragOver" Drop="Tree_Drop" PreviewMouseDown="Tree_MouseDown" MouseRightButtonUp="Tree_RightUp"
+                          PreviewMouseLeftButtonDown="Tree_LeftDown" PreviewMouseLeftButtonUp="Tree_LeftUp"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
             </Border>
             <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="False"/>

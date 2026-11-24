@@ -152,6 +152,12 @@ public partial class MainWindow
         if (_pickFolder || PickName.Text != openedWith) return false;
         PickName.Text = name; if (PickName.IsKeyboardFocusWithin) PickSelectStem(); return true;
     }
+    /// The dialog's folder could only be read after the picker opened (see DialogSwitch.LateFolder): gone to, if the picker is still where it opened. True = taken.
+    internal bool PickLateFolder(string openedIn, string folder)
+    {
+        if (_pick == null || !string.Equals(_tab.Current, openedIn, StringComparison.OrdinalIgnoreCase) || string.Equals(folder, openedIn, StringComparison.OrdinalIgnoreCase)) return false;
+        NavigateTab(_tab, folder, push: false); return true;
+    }
     /// Like Windows' dialog: the name is selected without its extension, so typing replaces "report" and keeps ".docx".
     private void PickSelectStem() { var t = PickName.Text; int dot = t.LastIndexOf('.'); PickName.Select(0, dot > 0 && !t.Contains('"') ? dot : t.Length); }
 

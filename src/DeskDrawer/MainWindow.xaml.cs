@@ -1556,7 +1556,7 @@ public partial class MainWindow : Window
 
     private static void SwapIcon(StackPanel sp, ImageSource src) { sp.Children.RemoveAt(0); sp.Children.Insert(0, TreeIcon(src)); }
 
-    private static string KnownDownloads()
+    internal static string KnownDownloads()
     {
         try { if (SHGetKnownFolderPath(FolderDownloads, 0, IntPtr.Zero, out var p) == 0) { var s = Marshal.PtrToStringUni(p) ?? ""; Marshal.FreeCoTaskMem(p); return s; } } catch { }
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -1565,5 +1565,23 @@ public partial class MainWindow : Window
     private void Tree_Selected(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is TreeViewItem { Tag: string path } && path != Placeholder) Navigate(path);
+    }
+
+    /// Clicking the item that is already selected goes back to it (Local Disk (C:), then into PerfLogs, then Local Disk (C:) again). The tree only reports a change of
+    /// selection, so that click used to do nothing. Only a press that started on an item already selected counts: a new selection has already navigated on the press,
+    /// and the expand arrow only expands.
+    private TreeViewItem? _treeReclick;
+    private void Tree_LeftDown(object s, MouseButtonEventArgs e) => _treeReclick = OnTreeArrow(e.OriginalSource) ? null : TreeItemOf(e.OriginalSource) is { IsSelected: true } item ? item : null;
+    private void Tree_LeftUp(object s, MouseButtonEventArgs e)
+    {
+        var item = _treeReclick; _treeReclick = null;
+        if (item == null || TreeItemOf(e.OriginalSource) != item || !item.IsSelected || item.Tag is not string path || path == Placeholder) return;
+        if (_tab.Current != null && string.Equals(_tab.Current.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return;   // already there
+        Navigate(path);
+    }
+    private static bool OnTreeArrow(object? src)
+    {
+        for (var d = AsVisual(src as DependencyObject); d != null && d is not TreeViewItem; d = VisualTreeHelper.GetParent(d)) if (d is System.Windows.Controls.Primitives.ToggleButton) return true;
+        return false;
     }
 }
