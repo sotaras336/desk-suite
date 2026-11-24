@@ -62,6 +62,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        A11y.Init();   // keyboard, screen readers, high contrast, text size (A11y.cs)
         System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;   // a tune-up tool shouldn't spend 85 MB on the GPU driver
         var a = e.Args;
         for (int i = 0; i + 1 < a.Length; i++)

@@ -33,6 +33,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e); 
+        A11y.Init();   // keyboard, screen readers, high contrast, text size (A11y.cs)
         string? selfTest = null; bool newWindow = false;
         for (int i = 0; i < e.Args.Length; i++)
         {

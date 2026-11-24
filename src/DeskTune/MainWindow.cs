@@ -20,10 +20,11 @@ public sealed class MainWindow : Window
     /// Section order: the short, high-value ones first; the long startup list last so it doesn't make DeskTune look like a startup manager.
     private static readonly string[] Order = { "Windows extras", "Ads and suggestions", "Background services", "Preinstalled apps", "Starts with Windows" };
     private static readonly Dictionary<string, string> Icons = new() { ["Windows extras"] = "", ["Ads and suggestions"] = "", ["Background services"] = "", ["Preinstalled apps"] = "", ["Starts with Windows"] = "" };
-    private readonly TextBlock _memText = new(), _offText = new(), _freeText = new(), _status = new(), _undoLink = new(), _applyText = new();
+    private readonly TextBlock _memText = new(), _offText = new(), _freeText = new(), _status = new(), _applyText = new();
+    private readonly TapText _undoLink = new();   // a link the keyboard and screen readers can follow (A11y.cs)
     private readonly Border _memFill = new() { Height = 8, CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Border _memTrack = new() { Height = 8, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 10, 0, 0) };
-    private readonly Border _applyBtn = new(), _clearBtn = new();
+    private readonly TapBorder _applyBtn = new(), _clearBtn = new();
     private readonly List<RowUi> _rows = new();
     private List<Tweak> _tweaks = new();
     private Dictionary<string, long> _mb = new();
@@ -94,13 +95,14 @@ public sealed class MainWindow : Window
         var fg = new Grid(); fg.ColumnDefinitions.Add(new ColumnDefinition()); fg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); fg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); fg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         _status.SetResourceReference(TextBlock.ForegroundProperty, "FgDim"); _status.TextWrapping = TextWrapping.Wrap; left.Children.Add(_status);
-        _undoLink.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); _undoLink.FontSize = 12; _undoLink.Cursor = Cursors.Hand; _undoLink.Margin = new Thickness(0, 4, 0, 0); _undoLink.MouseLeftButtonUp += (_, _) => UndoAll(); left.Children.Add(_undoLink);
+        _undoLink.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); _undoLink.FontSize = 12; _undoLink.Cursor = Cursors.Hand; _undoLink.Margin = new Thickness(0, 4, 0, 0); _undoLink.MouseLeftButtonUp += (_, _) => UndoAll(); A11y.Button(_undoLink, null, UndoAll); left.Children.Add(_undoLink);
         {   // updates (Updater.cs): a bright line when a newer build is out, and two quiet links for checking and for turning the daily check off
-            var newer = new TextBlock { FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 0), Cursor = Cursors.Hand, Visibility = Visibility.Collapsed };
+            var newer = new TapText { FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 0), Cursor = Cursors.Hand, Visibility = Visibility.Collapsed };
             newer.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
-            newer.MouseLeftButtonUp += async (_, _) => { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); };   // the setup that just started replaces this copy and opens the new one
+            async void UpdateNow() { if (await Updater.UpdateNowAsync()) Application.Current.Shutdown(); }
+            newer.MouseLeftButtonUp += (_, _) => UpdateNow(); A11y.Button(newer, null, UpdateNow);   // the setup that just started replaces this copy and opens the new one
             var opts = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
-            TextBlock Link(Action click) { var t = new TextBlock { FontSize = 11.5, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 14, 0) }; t.SetResourceReference(TextBlock.ForegroundProperty, "FgFaint"); t.MouseLeftButtonUp += (_, _) => click(); opts.Children.Add(t); return t; }
+            TextBlock Link(Action click) { var t = new TapText { FontSize = 11.5, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 14, 0) }; t.SetResourceReference(TextBlock.ForegroundProperty, "FgFaint"); t.MouseLeftButtonUp += (_, _) => click(); A11y.Button(t, null, click); opts.Children.Add(t); return t; }
             var check = Link(OpenSettings); var colour = Link(() => ColourWindow.Show(this));   // Settings (updates, the safety net) and DeskTune's colour
             void Show()
             {
@@ -164,14 +166,14 @@ public sealed class MainWindow : Window
             title.Children.Add(Glyph(Icons.GetValueOrDefault(group.Key, ""), "Accent", 18)); var tt = Text(group.Key, 18, "Fg", FontWeights.SemiBold); tt.Margin = new Thickness(10, 0, 10, 0); title.Children.Add(tt);
             var cnt = Text($"{off} of {items.Count} off", 12, "FgFaint"); cnt.VerticalAlignment = VerticalAlignment.Center; title.Children.Add(cnt);
             head.Children.Add(title);
-            var all = Link("Select all"); Grid.SetColumn(all, 1); var sect = items; all.MouseLeftButtonUp += (_, _) => SelectMany(sect.Where(x => !x.IsApplied)); head.Children.Add(all);
+            var all = Link("Select all"); Grid.SetColumn(all, 1); var sect = items; all.MouseLeftButtonUp += (_, _) => SelectMany(sect.Where(x => !x.IsApplied)); A11y.Button(all, "Select all in " + group.Key, () => SelectMany(sect.Where(x => !x.IsApplied))); head.Children.Add(all);
             _list.Children.Add(head);
             if (group.Key == "Starts with Windows") { var n = Text("The biggest win on most PCs. Memory shown is what the program uses right now; it frees up after the next restart.", 12, "FgFaint"); n.Margin = new Thickness(0, -4, 0, 10); n.TextWrapping = TextWrapping.Wrap; _list.Children.Add(n); }
             foreach (var t in items) _list.Children.Add(Row(t));
 
-            var chip = new Border { CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 8, 14, 9), Margin = new Thickness(0, 0, 8, 8), Cursor = Cursors.Hand, BorderThickness = new Thickness(1), Child = Text($"{group.Key}  {off}/{items.Count}", 12, "Fg"), ToolTip = "Jump to " + group.Key };
+            var chip = new TapBorder { CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 8, 14, 9), Margin = new Thickness(0, 0, 8, 8), Cursor = Cursors.Hand, BorderThickness = new Thickness(1), Child = Text($"{group.Key}  {off}/{items.Count}", 12, "Fg"), ToolTip = "Jump to " + group.Key };
             chip.SetResourceReference(Border.BackgroundProperty, "Card"); chip.SetResourceReference(Border.BorderBrushProperty, "CardLine");
-            chip.MouseLeftButtonUp += (_, _) => head.BringIntoView(new Rect(0, 0, 1, 520));
+            chip.MouseLeftButtonUp += (_, _) => head.BringIntoView(new Rect(0, 0, 1, 520)); A11y.Button(chip, $"{group.Key}, {off} of {items.Count} off", () => head.BringIntoView(new Rect(0, 0, 1, 520)), "Jump to " + group.Key);
             _chips.Children.Add(chip);
         }
         _undoLink.Text = Log.Count == 0 ? "" : $"Undo all {Log.Count} change{(Log.Count == 1 ? "" : "s")} DeskTune made";
@@ -200,8 +202,10 @@ public sealed class MainWindow : Window
         var edge = new Border { Width = 4, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 10, 0, 10), Background = Brushes.Transparent };
         var inner = new Grid(); inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) }); inner.ColumnDefinitions.Add(new ColumnDefinition());
         inner.Children.Add(edge); Grid.SetColumn(g, 1); inner.Children.Add(g);
-        var card = new Border { Child = inner, CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 8), BorderThickness = new Thickness(1), Opacity = locked ? 0.6 : 1, Cursor = locked ? Cursors.Arrow : Cursors.Hand };
+        var card = new TapBorder { Child = inner, CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 8), BorderThickness = new Thickness(1), Opacity = locked ? 0.6 : 1, Cursor = locked ? Cursors.Arrow : Cursors.Hand };
         var ui = new RowUi(t, sw, card, edge, locked); _rows.Add(ui); Paint(ui);
+        A11y.Switch(card, t.Title + (mb > 0 ? $", {mb:N0} MB" : ""), () => sw.IsChecked == true, locked ? null : () => { if (!_busy) { Want(ui, sw.IsChecked != true); UpdateBar(); } },   // a screen reader hears "on" for "turn this off": the switch is ticked
+            "You lose: " + t.Lose + (locked ? (needsAdmin ? ". Needs administrator rights." : ". Already off, changed outside DeskTune.") : ""));
         if (!locked)
         {
             card.MouseLeftButtonUp += (_, e) => { if (!_busy) { Want(ui, sw.IsChecked != true); UpdateBar(); } };
@@ -325,28 +329,30 @@ public sealed class MainWindow : Window
         b.SetResourceReference(Border.BackgroundProperty, "Card"); b.SetResourceReference(Border.BorderBrushProperty, "CardLine"); return b;
     }
 
-    private TextBlock Link(string s) { var t = Text(s, 13, "Accent"); t.Cursor = Cursors.Hand; t.VerticalAlignment = VerticalAlignment.Center; t.Padding = new Thickness(8, 8, 0, 8); return t; }
+    private TapText Link(string s) { var t = new TapText { Text = s, FontSize = 13 }; t.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); t.Cursor = Cursors.Hand; t.VerticalAlignment = VerticalAlignment.Center; t.Padding = new Thickness(8, 8, 0, 8); return t; }
 
     /// A tappable pill (44 px tall) used for the presets and Rescan.
     private Border Pill(string glyph, string label, string tip, Action click)
     {
         var sp = new StackPanel { Orientation = Orientation.Horizontal };
         sp.Children.Add(Glyph(glyph, "Accent", 15)); var l = Text(label, 13.5, "Fg"); l.Margin = new Thickness(9, 0, 0, 0); l.VerticalAlignment = VerticalAlignment.Center; sp.Children.Add(l);
-        var b = new Border { Child = sp, MinHeight = 44, CornerRadius = new CornerRadius(22), Padding = new Thickness(18, 0, 20, 0), Margin = new Thickness(0, 0, 8, 8), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, ToolTip = tip };
+        var b = new TapBorder { Child = sp, MinHeight = 44, CornerRadius = new CornerRadius(22), Padding = new Thickness(18, 0, 20, 0), Margin = new Thickness(0, 0, 8, 8), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, ToolTip = tip };
         sp.VerticalAlignment = VerticalAlignment.Center;
         b.SetResourceReference(Border.BackgroundProperty, "Card"); b.SetResourceReference(Border.BorderBrushProperty, "CardLine");
         b.MouseEnter += (_, _) => b.SetResourceReference(Border.BackgroundProperty, "CardHover"); b.MouseLeave += (_, _) => b.SetResourceReference(Border.BackgroundProperty, "Card");
         b.MouseLeftButtonUp += (_, _) => { if (!_busy) click(); };
+        A11y.Button(b, label, () => { if (!_busy) click(); }, tip);
         return b;
     }
 
     /// The bottom buttons: Apply is the filled accent one, Clear is outlined. 48 px tall for fingers.
-    private void Button(Border b, string label, bool primary, Action click)
+    private void Button(TapBorder b, string label, bool primary, Action click)
     {
         b.MinHeight = 48; b.CornerRadius = new CornerRadius(24); b.Padding = new Thickness(26, 0, 26, 0); b.BorderThickness = new Thickness(1); b.Cursor = Cursors.Hand; b.VerticalAlignment = VerticalAlignment.Center;
         if (primary) { b.SetResourceReference(Border.BackgroundProperty, "Accent"); b.SetResourceReference(Border.BorderBrushProperty, "Accent"); _applyText.FontSize = 15; _applyText.FontWeight = FontWeights.SemiBold; _applyText.VerticalAlignment = VerticalAlignment.Center; _applyText.SetResourceReference(TextBlock.ForegroundProperty, "OnAccent"); }
         else { b.SetResourceReference(Border.BackgroundProperty, "Card"); b.SetResourceReference(Border.BorderBrushProperty, "CardLine"); var t = Text(label, 14, "Fg"); t.VerticalAlignment = VerticalAlignment.Center; b.Child = t; }
         b.MouseLeftButtonUp += (_, _) => click();
+        A11y.Button(b, primary ? null : label, click);   // Apply's name is its words, which say how many changes
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct MEMORYSTATUSEX { public uint dwLength, dwMemoryLoad; public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual; }

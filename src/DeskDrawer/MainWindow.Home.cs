@@ -68,6 +68,7 @@ public partial class MainWindow
     private void FolderCardActions(Border card, string path, bool pinned)
     {
         card.MouseLeftButtonUp += (_, _) => Navigate(path);
+        if (card is TapBorder tap) A11y.Button(tap, null, () => Navigate(path));   // Tab and Enter open it too; a screen reader reads its name and place
         card.MouseDown += (_, e) => { if (e.ChangedButton == MouseButton.Middle) AddTab(path); };
         card.MouseRightButtonUp += (_, e) =>
         {
@@ -120,6 +121,7 @@ public partial class MainWindow
             bar.Child = fill; double used = (double)(total - free) / total; bar.SizeChanged += (_, _) => fill.Width = bar.ActualWidth * used;   // stretches with the card
             ((StackPanel)((Grid)card.Child).Children[1]).Children.Add(bar);
             card.MouseLeftButtonUp += (_, _) => Navigate(root);
+            if (card is TapBorder tap) A11y.Button(tap, null, () => Navigate(root));
             card.MouseDown += (_, e) => { if (e.ChangedButton == MouseButton.Middle) AddTab(root); };
             wrap.Children.Add(card);
         }
@@ -142,7 +144,7 @@ public partial class MainWindow
             var t = Label(name, 14, "Fg"); t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 8, 0, 0); sp.Children.Add(t);
             var bar = UsageBar(free, total, 150); bar.HorizontalAlignment = HorizontalAlignment.Center; sp.Children.Add(bar);
             var f = Label($"{FileEntry.FormatSize(free)} free of {FileEntry.FormatSize(total)}", 12, "FgDim"); f.HorizontalAlignment = HorizontalAlignment.Center; f.Margin = new Thickness(0, 4, 0, 0); sp.Children.Add(f);
-            var tile = new Border { Child = sp, Padding = new Thickness(10, 12, 10, 12), Margin = new Thickness(0, 0, 8, 8), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = root };
+            var tile = A11y.Button(new TapBorder { Child = sp, Padding = new Thickness(10, 12, 10, 12), Margin = new Thickness(0, 0, 8, 8), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = root }, null, () => Navigate(root));
             tile.MouseEnter += (_, _) => tile.SetResourceReference(Border.BackgroundProperty, "CardHover");
             tile.MouseLeave += (_, _) => tile.Background = Brushes.Transparent;
             tile.MouseLeftButtonUp += (_, _) => Navigate(root);
@@ -192,7 +194,7 @@ public partial class MainWindow
         text.Children.Add(Label(Friendly(Path.GetDirectoryName(path) ?? ""), 12, "FgDim"));
         var t = Label(Ago(when), 12, "FgDim"); t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(16, 0, 0, 0);
         Grid.SetColumn(text, 1); Grid.SetColumn(t, 2); g.Children.Add(img); g.Children.Add(text); g.Children.Add(t);
-        var row = new Border { Child = g, CornerRadius = new CornerRadius(8), Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = path };
+        var row = A11y.Button(new TapBorder { Child = g, CornerRadius = new CornerRadius(8), Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = path }, null, () => OpenFile(path));   // Enter opens it, as a click does
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "CardHover");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += (_, _) => OpenFile(path);
@@ -225,7 +227,7 @@ public partial class MainWindow
         var s = Label(sub, 12, "FgDim"); s.TextTrimming = TextTrimming.CharacterEllipsis; s.Margin = new Thickness(0, 2, 0, 0);
         text.Children.Add(t); text.Children.Add(s); Grid.SetColumn(text, 1);
         g.Children.Add(img); g.Children.Add(text);
-        var b = new Border { Child = g, MinWidth = Math.Min(width, 200), Padding = new Thickness(14, 12, 14, 12), CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, ToolTip = title };
+        var b = new TapBorder { Child = g, MinWidth = Math.Min(width, 200), Padding = new Thickness(14, 12, 14, 12), CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, ToolTip = title };   // the keyboard reaches it (A11y.cs)
         b.SetResourceReference(Border.BackgroundProperty, "Card"); b.SetResourceReference(Border.BorderBrushProperty, "CardLine");
         b.MouseEnter += (_, _) => b.SetResourceReference(Border.BackgroundProperty, "CardHover");
         b.MouseLeave += (_, _) => b.SetResourceReference(Border.BackgroundProperty, "Card");

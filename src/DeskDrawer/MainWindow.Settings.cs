@@ -57,7 +57,7 @@ public partial class MainWindow
             return sp;
         }
         void Sep(StackPanel card) { if (card.Children.Count > 0) card.Children.Add(new Border { Height = 1, Background = Rgb(0xFFFFFF, 0x0E), Margin = new Thickness(58, 0, 10, 0) }); }
-        Border RowBase(StackPanel card, string glyph, string title, string what, UIElement? right)
+        TapBorder RowBase(StackPanel card, string glyph, string title, string what, UIElement? right)
         {
             Sep(card);
             var disc = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(10), Background = Rgb(0xFFFFFF, 0x10), Child = G(glyph, 16, DmSoft), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
@@ -66,7 +66,8 @@ public partial class MainWindow
             var row = new DockPanel(); DockPanel.SetDock(disc, Dock.Left); row.Children.Add(disc);
             if (right != null) { DockPanel.SetDock(right, Dock.Right); row.Children.Add(right); ((FrameworkElement)right).Margin = new Thickness(14, 0, 0, 0); }
             row.Children.Add(text);
-            var hit = new Border { Child = row, Padding = new Thickness(10, 10, 12, 10), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent };
+            var hit = new TapBorder { Child = row, Padding = new Thickness(10, 10, 12, 10), CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Focusable = false };   // focusable once it does something
+            System.Windows.Automation.AutomationProperties.SetName(hit, title); if (what.Length > 0) System.Windows.Automation.AutomationProperties.SetHelpText(hit, what);
             card.Children.Add(hit); return hit;
         }
         void Switch(StackPanel card, string glyph, string title, string what, bool on, Action<bool> set)
@@ -75,6 +76,7 @@ public partial class MainWindow
             var hit = RowBase(card, glyph, title, what, tg); hit.Cursor = Cursors.Hand;
             hit.MouseEnter += (_, _) => hit.Background = DmHover; hit.MouseLeave += (_, _) => hit.Background = Brushes.Transparent;
             hit.MouseLeftButtonUp += (_, _) => { on = !on; paint(on); set(on); };
+            hit.Focusable = true; A11y.Switch(hit, null, () => on, () => { on = !on; paint(on); set(on); });   // Tab, Space and screen readers flip it too
         }
         Border Btn(string text, string glyph, bool primary, Action act)
         {
@@ -82,9 +84,9 @@ public partial class MainWindow
             if (glyph.Length > 0) sp.Children.Add(new TextBlock { Text = glyph, FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 13, Foreground = DmText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             sp.Children.Add(T(text, 13.5, DmText, primary ? FontWeights.SemiBold : FontWeights.Normal));
             var idle = primary ? Glow() : Rgb(0xFFFFFF, 0x10); var over = primary ? Glow() : Rgb(0xFFFFFF, 0x1C);
-            var b = new Border { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 8, 16, 9), Background = idle, BorderBrush = primary ? null : DmLine, BorderThickness = new Thickness(primary ? 0 : 1), Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            var b = new TapBorder { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 8, 16, 9), Background = idle, BorderBrush = primary ? null : DmLine, BorderThickness = new Thickness(primary ? 0 : 1), Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
             b.MouseEnter += (_, _) => b.Background = over; b.MouseLeave += (_, _) => b.Background = idle; b.MouseLeftButtonUp += (_, _) => act();
-            return b;
+            return A11y.Button(b, text, act);
         }
         void Head(string glyph, string title, string sub)
         {
@@ -120,8 +122,9 @@ public partial class MainWindow
             void Mark() { for (int k = 0; k < segs.Count; k++) { bool on = Math.Abs(speeds[k] - _settings.ScrollSpeed) < 0.01; segs[k].Background = on ? Glow() : Brushes.Transparent; ((TextBlock)segs[k].Child).FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal; } }
             for (int k = 0; k < speeds.Length; k++)
             {
-                int n = k; var seg = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 8, 6, 8), Margin = new Thickness(1), Cursor = Cursors.Hand, Child = new TextBlock { Text = names[k], FontSize = 13, Foreground = DmText, HorizontalAlignment = HorizontalAlignment.Center } };
+                int n = k; var seg = new TapBorder { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 8, 6, 8), Margin = new Thickness(1), Cursor = Cursors.Hand, Child = new TextBlock { Text = names[k], FontSize = 13, Foreground = DmText, HorizontalAlignment = HorizontalAlignment.Center } };
                 seg.MouseLeftButtonUp += (_, _) => { _settings.ScrollSpeed = speeds[n]; Wheel.Speed = speeds[n]; _settings.Save(); Mark(); };
+                A11y.Switch(seg, "Scrolling speed: " + names[k], () => Math.Abs(speeds[n] - _settings.ScrollSpeed) < 0.01, () => { _settings.ScrollSpeed = speeds[n]; Wheel.Speed = speeds[n]; _settings.Save(); Mark(); });
                 segs.Add(seg); strip.Children.Add(seg);
             }
             Mark();
@@ -167,7 +170,7 @@ public partial class MainWindow
                 var sp = new StackPanel { Orientation = Orientation.Horizontal };
                 var g = G(pages[i].Glyph, 16, DmSoft); g.Width = 18; g.Margin = new Thickness(0, 0, 12, 0);
                 sp.Children.Add(bar); sp.Children.Add(g); sp.Children.Add(T(pages[i].Name, 14, DmText));
-                var item = new Border { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 10, 12, 10), Margin = new Thickness(0, 0, 0, 4), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+                var item = A11y.Button(new TapBorder { Child = sp, CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 10, 12, 10), Margin = new Thickness(0, 0, 0, 4), Background = Brushes.Transparent, Cursor = Cursors.Hand }, pages[i].Name, () => Show(n));
                 item.MouseEnter += (_, _) => { if (item.Tag is not true) item.Background = Rgb(0xFFFFFF, 0x0C); };
                 item.MouseLeave += (_, _) => { if (item.Tag is not true) item.Background = Brushes.Transparent; };
                 item.MouseLeftButtonUp += (_, _) => Show(n);

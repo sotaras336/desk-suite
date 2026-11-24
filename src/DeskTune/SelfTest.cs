@@ -36,6 +36,7 @@ public static class SelfTest
             sv.UpdateLayout();
             Check("wheel: a touchpad swipe moves one notch, not ten", Math.Abs(sv.VerticalOffset - Wheel.Px(120)) < 0.5 && Wheel.Px(120) >= 16, $"{sv.VerticalOffset} px");
         }
+        A11y.SelfTest(Check);   // keyboard and screen reader basics (A11y.cs)
         string realLog = Log.File; Log.File = Path.Combine(Path.GetTempPath(), "desktune-selftest-" + Guid.NewGuid().ToString("N")[..8] + ".json");
         try
         {
