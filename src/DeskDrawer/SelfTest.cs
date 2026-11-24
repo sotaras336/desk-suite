@@ -108,6 +108,7 @@ public static partial class SelfTest
             Check("renaming a group numbers the files and keeps each extension", plan.Select(p => Path.GetFileName(p.To)).SequenceEqual(new[] { "Trip (1).jpg", "Trip (3).png", "Trip (4).jpg" }), string.Join(", ", plan.Select(p => Path.GetFileName(p.To))));
         }
         { var (l, r) = MainWindow.Halves(0, 0, 1921, 1040); Check("side by side splits a screen into two halves that cover it", l == "0,0,960,1040" && r == "960,0,961,1040", l + " | " + r); }
+        DialogSafety((n, ok, x) => Check(n, ok, x));   // SelfTest.Guard.cs
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());
         return fail;

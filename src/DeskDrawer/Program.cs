@@ -7,6 +7,7 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--dialog-guard") return DialogGuard.Run(args);   // first, before anything loads: see DialogGuard
         if (args.Contains("--uninstall")) return Setup.Uninstall();
         if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install();   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy
         if (args.Contains("--background") && Instance.IsRunning()) return 0;   // the sign-in start, but a copy is already up
