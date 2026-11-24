@@ -58,6 +58,13 @@ function FindByName($hwnd, [string]$name) {   # UI Automation (ui_access.cpp): t
         return $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
     } catch { return $null }
 }
+function FindLike($hwnd, [string]$start) {   # a row whose name starts with this (a row's name can carry its description after the title)
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+        foreach ($e in $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) { if ($e.Current.Name -like "$start*") { return $e } }
+    } catch { }
+    return $null
+}
 function ClickElement($el) { $b = $el.Current.BoundingRectangle; $x = [int]($b.X + $b.Width / 2); $y = [int]($b.Y + $b.Height / 2); $under = [W]::Under($x, $y); [W]::Click($x, $y, $false); return $under }
 
 # ---- 0. DeskBar is installed and is the taskbar ----
@@ -127,8 +134,15 @@ if ($menu) {
 foreach ($t in @(@{ App = 'DeskDrawer'; Code = 1; Row = 'Open DeskDrawer' }, @{ App = 'DeskTune'; Code = 2; Row = 'Open DeskTune' })) {
     Running $t.App | Stop-Process -Force -ErrorAction SilentlyContinue; CloseSettings
     foreach ($h in ([W]::All('DB3.Wnd'))) { $r = [IntPtr]::Zero; if ([W]::SendMessageTimeoutW($h, $msg, [IntPtr]$t.Code, [IntPtr]::Zero, 2, 1000, [ref]$r) -ne [IntPtr]::Zero -and $r.ToInt64() -eq 0x44534B) { break } }
-    $win = WaitFor { SettingsWindow } 6000; $el = if ($win) { WaitFor { FindByName $win $t.Row } 4000 } else { $null }; $under = ''
-    if ($el) { $under = ClickElement $el }
+    $win = WaitFor { SettingsWindow } 6000; Start-Sleep -Milliseconds 600; $el = if ($win) { WaitFor { FindLike $win $t.Row } 4000 } else { $null }; $under = ''
+    if ($el) {
+        $b = $el.Current.BoundingRectangle; $wr = RectOf $win; $x = [int]($b.X + $b.Width / 2); $y = [int]($b.Y + $b.Height / 2)
+        if ($b.Width -gt 0 -and $x -gt $wr.L -and $x -lt $wr.R -and $y -gt $wr.T -and $y -lt $wr.B) { $under = [W]::Under($x, $y); [W]::Click($x, $y, $false) }
+        else {   # the row is off the visible part of the page (or UI Automation gave no place): press it the way a screen reader would
+            $under = "no place on screen ($($b.X),$($b.Y) $($b.Width)x$($b.Height)), pressed through UI Automation"
+            try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { $under += ": $($_.Exception.Message)" }
+        }
+    }
     $p = WaitFor { Running $t.App } 15000
     Check "Desk settings > $($t.App) > $($t.Row) starts the installed $($t.App)" ([bool]$p) "settings window $([bool]$win), row found $([bool]$el), under the pointer: $under"
     CloseSettings
@@ -150,9 +164,10 @@ foreach ($app in 'DeskDrawer', 'DeskTune') {
     if (-not (Running $app)) { Start-Process $exe[$app]; [void](WaitFor { Running $app } 15000) }
     Start-Sleep -Seconds 3; $old = @(Running $app | ForEach-Object { $_.Id })
     $dir = Join-Path $env:TEMP "DeskUpdate-$app"; New-Item -ItemType Directory -Force $dir | Out-Null; $setup = Join-Path $dir "$app-Setup.exe"; Copy-Item $exe[$app] $setup -Force
-    $p = Start-Process $setup -PassThru; $done = $p.WaitForExit(60000); if (-not $done) { $p.Kill() }
+    $p = Start-Process $setup -PassThru; $done = $p.WaitForExit(60000); $box = ''
+    if (-not $done) { $p.Refresh(); $box = $p.MainWindowTitle; $p.Kill() }   # still running: most likely its "couldn't install" message
     $new = WaitFor { Running $app | Where-Object { $old -notcontains $_.Id } } 15000
-    Check "$app updates while it is open: the setup replaces it and starts the new copy" ($done -and $p.ExitCode -eq 0 -and [bool]$new -and -not (Running $app | Where-Object { $old -contains $_.Id })) "open before: $($old -join ','); setup finished $done, exit $(if ($done) { $p.ExitCode }); running now: $(@(Running $app | ForEach-Object { $_.Id }) -join ',')"
+    Check "$app updates while it is open: the setup replaces it and starts the new copy" ($done -and $p.ExitCode -eq 0 -and [bool]$new -and -not (Running $app | Where-Object { $old -contains $_.Id })) "open before: $($old -join ','); setup finished $done, exit $(if ($done) { $p.ExitCode }); running now: $(@(Running $app | ForEach-Object { $_.Id }) -join ','); $(if ($box) { "setup window: $box" })"
     Running $app | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 

@@ -22,6 +22,7 @@ public static class Setup
         {
             Directory.CreateDirectory(Dir);
             Instance.HandOff(new[] { "--quit" });   // a copy kept ready in the background holds the exe open
+            WaitForInstalledCopies();
             if (!string.Equals(Environment.ProcessPath, Exe, StringComparison.OrdinalIgnoreCase))
                 for (int i = 0; ; i++) { try { File.Copy(Environment.ProcessPath!, Exe, true); break; } catch (IOException) when (i < 25) { Thread.Sleep(200); } }
             Link(Path.Combine(StartMenu, Name + ".lnk"), Exe, "", "DeskDrawer, a file manager");
@@ -31,6 +32,25 @@ public static class Setup
             return 0;
         }
         catch (Exception ex) { Message("DeskDrawer couldn't install:\n" + ex.Message); return 1; }
+    }
+
+    /// The open DeskDrawer was asked to quit (--quit on its pipe), but the copy below only waited 5 s: on the test machine an open DeskDrawer was still
+    /// holding its exe then, the copy failed and the update stopped at "couldn't install" (launch-test.ps1). So: wait up to 10 s for every DeskDrawer
+    /// running from the installed exe to end, and end one that doesn't (it was told to quit; this is an update or a reinstall). Other copies are left alone.
+    internal static int WaitForInstalledCopies()
+    {
+        int n = 0;
+        foreach (var p in Process.GetProcessesByName(Name))
+            try
+            {
+                if (p.Id == Environment.ProcessId) continue;
+                string? path = null; try { path = p.MainModule?.FileName; } catch { }
+                if (!string.Equals(path, Exe, StringComparison.OrdinalIgnoreCase)) continue;
+                n++; if (p.WaitForExit(10000)) continue;
+                p.Kill(); p.WaitForExit(3000);
+            }
+            catch { }
+        return n;
     }
 
     /// Gives folders and Win+E back to File Explorer first, removes the shortcuts, then deletes the program folder once this process has exited.
