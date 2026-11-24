@@ -3,6 +3,7 @@
 
 // ================= View: tree, layout, paint =================
 View::~View() {
+    if (acc) AccViewGone(this);   // a screen reader that still holds it is told it is gone
     AnimCancel(this);
     if (wnd) wnd->Forget(this);
     for (auto* k : kids) { k->parent = nullptr; delete k; }
@@ -169,7 +170,7 @@ void Slider::From(float x, bool fin) {
 bool Slider::OnDown(float x, float, bool) { if (!enabled) return false; dragging = true; pressed = true; From(x, false); return true; }
 void Slider::OnDrag(float x, float) { if (dragging) From(x, false); }
 void Slider::OnUp(float x, float) { if (dragging) { dragging = false; From(x, true); } }
-bool Slider::OnKey(UINT, bool, bool) { return false; }
+bool Slider::OnKey(UINT vk, bool ctrl, bool) { return AccSliderKey(this, vk, ctrl); }
 bool Slider::OnWheel(float d, float, float) { if (!enabled) return false; value = std::clamp(value + WheelPercent(d), 0.f, 100.f); Invalidate(); if (onChange) onChange(value, true); return true; }
 void Slider::PaintContent(Gfx& g) {
     float a = rc.l + 10, b = rc.r - 10, cy = rc.cy(), x = a + (b - a) * std::clamp(value, 0.f, 100.f) / 100;

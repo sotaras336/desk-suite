@@ -136,6 +136,7 @@ void Wnd::PaintNow() {
     gfx.alpha = 1; rt->BeginDraw();
     rt->Clear(transparent ? D2D1::ColorF(0, 0.f) : D2D1::ColorF(0, 1.f));
     root->Paint(gfx);
+    AccPaintFocus(this);
     HRESULT hr = rt->EndDraw(); frames++;
     if (hr == D2DERR_RECREATE_TARGET) { rt.Reset(); gfx.Reset(nullptr); InvalidateRect(hwnd, nullptr, FALSE); }
     inPaint = false;
@@ -176,6 +177,7 @@ void Wnd::Forget(View* v) {
 void Wnd::SetFocus(View* v) {
     if (focus == v) return; View* o = focus; focus = v;
     if (o) o->OnFocus(false); if (v) v->OnFocus(true);
+    AccFocusChanged(this, v);
 }
 void Wnd::SetHover(View* h) {
     if (h == hover) return;
@@ -202,6 +204,9 @@ static View* Up(View* v, bool (*pred)(View*)) { for (; v; v = v->parent) if (pre
 LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_ERASEBKGND: return 1;
+    case WM_GETOBJECT: { LRESULT r = 0; if (AccGetObject(this, w, l, r)) return r; return Def(m, w, l); }   // screen readers (ui_access.cpp)
+    case WM_DESTROY: AccWindowGone(this); return Def(m, w, l);
+    case WM_SETTINGCHANGE: AccSettingChange(w, l); return Def(m, w, l);   // high contrast or text size changed
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(hwnd, &ps); PaintNow(); EndPaint(hwnd, &ps); return 0; }
     case WM_DISPLAYCHANGE: case WM_DPICHANGED: UpdateScale(); Relayout(); return 0;
     case WM_SIZE: if (rt && w != SIZE_MINIMIZED) { rt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); } needLayout = true; Invalidate(); return 0;
@@ -233,6 +238,7 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
     case WM_LBUTTONDOWN: {
         float x = GET_X_LPARAM(l) / scale, y = GET_Y_LPARAM(l) / scale; touchLast = IsTouchMsg(); downX = lastX = x; downY = lastY = y;
         View* h = HitTest(x, y); if (touchLast) SetHover(h);
+        if (kbCue) { kbCue = false; Invalidate(); }   // a click hides the keyboard's focus ring
         TipHide(); if (tipTimer) { UiKillTimer(tipTimer); tipTimer = 0; }   // a click dismisses the tooltip (and keeps it from coming back while the pointer stays put)
         if (!h) return 0;
         for (View* v = h; v; v = v->parent) if (v->Focusable()) { SetFocus(v); break; }
@@ -292,8 +298,11 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
     }
     case WM_KEYDOWN: case WM_SYSKEYDOWN: {
         bool ctrl = GetKeyState(VK_CONTROL) & 0x8000, shift = GetKeyState(VK_SHIFT) & 0x8000;
+        if (MenuWindow() != this && AccMenuKey((UINT)w)) return 0;   // an open menu takes the arrows, Enter and Esc
         if (focus && focus->OnKey((UINT)w, ctrl, shift)) return 0;
+        if (AccKeyDown(this, (UINT)w, ctrl, shift, true)) return 0;    // Enter / Space / menu key on the focused button
         if (onKeyDown && onKeyDown((UINT)w, ctrl, shift)) return 0;
+        if (AccKeyDown(this, (UINT)w, ctrl, shift, false)) return 0;   // Tab and the arrows move between buttons
         return Def(m, w, l);
     }
     case WM_CHAR: if (focus && w >= 0x20) focus->OnChar((wchar_t)w); else if (focus && w == 0) {} return 0;
@@ -329,6 +338,7 @@ void TipShow(Wnd* w, View* v) {
         g_tip->lab = MkLabel(g_tip->root, L"", FText(13, 600));
         g_tip->body = MkLabel(g_tip->root, L"", FText(12), Col(K::White, K::Dim)); g_tip->body->margin = Thick(0, 4, 0, 0);
     }
+    g_tip->lab->font = FText(13 * TextScale(), 600); g_tip->body->font = FText(12 * TextScale());   // Windows' Text size (Settings > Accessibility)
     SetWindowPos(g_tip->hwnd, nullptr, mid.x, mid.y, 10, 10, SWP_NOACTIVATE | SWP_NOZORDER); g_tip->UpdateScale();
     {   // first line is the title; the rest are details, and " · " separators become line breaks
         ws t = v->tip, rest; size_t nl = t.find(L'\n'); if (nl != ws::npos) { rest = t.substr(nl + 1); t.resize(nl); }
@@ -355,6 +365,7 @@ std::unique_ptr<MenuWnd> g_menu;
 }
 bool MenuContains(POINT p) { if (!MenuOpen()) return false; RECT r; GetWindowRect(g_menu->hwnd, &r); return PtInRect(&r, p); }
 bool MenuOpen() { return g_menu && g_menu->hwnd && IsWindowVisible(g_menu->hwnd); }
+Wnd* MenuWindow() { return g_menu.get(); }
 void MenuClose() {
     if (!g_menu) return;
     if (g_menu->poll) { UiKillTimer(g_menu->poll); g_menu->poll = 0; }
@@ -369,16 +380,16 @@ void MenuShow(std::vector<MenuItem> items, RECT a, bool above, float) {
     SetWindowPos(m.hwnd, nullptr, mid.x, mid.y, 10, 10, SWP_NOACTIVATE | SWP_NOZORDER); m.UpdateScale(); float sc = m.scale;
     m.items = std::move(items);
     View* r = m.root; r->Clear(); r->lay = Lay::V; r->bg = SolidB(0x2C2C2C); r->borderW = 1; r->border = Col(0x434343); r->radius = 8; r->pad = Thick(0, 4, 0, 4); r->gap = 0;
-    float wmax = 150;
-    for (auto& it : m.items) if (!it.sep) wmax = std::max(wmax, MeasureText(it.text, FText(14)).w + 12 + 12 + 16 + 12 + 14);
-    wmax = std::min(wmax, 360.f);
+    float ts = TextScale(), wmax = 150;   // ts: Windows' Text size (Settings > Accessibility)
+    for (auto& it : m.items) if (!it.sep) wmax = std::max(wmax, MeasureText(it.text, FText(14 * ts)).w + 12 + 12 + 16 + 12 + 14);
+    wmax = std::min(wmax, 360.f * ts);
     for (size_t i = 0; i < m.items.size(); i++) {
         auto& it = m.items[i];
         if (it.sep) { auto* s = MkBox(r); s->fh = 1; s->margin = Thick(0, 4); s->bg = SolidB(K::White, 0x22); continue; }
-        auto* row = MkBox(r, Lay::H); row->fh = 36; row->margin = Thick(4, 1); row->radius = 5; row->pad = Thick(8, 0, 10, 0); row->hit = true; row->enabled = !it.disabled;
+        auto* row = MkBox(r, Lay::H); row->fh = 36 * std::max(1.f, ts * 0.85f); row->margin = Thick(4, 1); row->radius = 5; row->pad = Thick(8, 0, 10, 0); row->hit = true; row->enabled = !it.disabled;
         row->bgHover = SolidB(K::White, 0x16); row->bgPress = SolidB(K::White, 0x0E); row->gap = 12;
         auto* gl = MkGlyph(row, it.glyph ? it.glyph : L' ', 16, Col(K::White, it.disabled ? 0x60 : 255)); gl->fw = 20; gl->va = Al::Center;
-        auto* tl = MkLabel(row, it.text, FText(14), Col(K::White, it.disabled ? 0x60 : 255)); tl->star = 1; tl->va = Al::Center;
+        auto* tl = MkLabel(row, it.text, FText(14 * ts), Col(K::White, it.disabled ? 0x60 : 255)); tl->star = 1; tl->va = Al::Center;
         if (it.checked) { auto* ck = MkGlyph(row, 0xE73E, 14); ck->va = Al::Center; }
         row->onClick = [i, &m] { auto fn = m.items[i].fn; MenuClose(); if (fn) UiPost(fn); };
     }
