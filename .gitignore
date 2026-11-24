@@ -14,3 +14,5 @@ src/*/build/
 src/*/app/
 # Staging copy of the next release
 release/net10/
+# Graphify code map (made by `graphify update src`)
+src/graphify-out/
