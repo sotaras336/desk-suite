@@ -1,0 +1,57 @@
+# Builds DeskBar, DeskDrawer and DeskTune on Windows and runs each app's --selftest on every push.
+# Each self-test writes PASS/FAIL lines to a report; the reports are attached to the run.
+name: Build and self-test
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deskbar:
+    name: DeskBar (C++)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: pwsh
+        run: ./src/DeskBar/build.ps1 -Out "$env:RUNNER_TEMP\deskbar"
+      - name: Self-test
+        shell: pwsh
+        run: ./.github/selftest.ps1 -Exe "$env:RUNNER_TEMP\deskbar\DeskBar_blue_BUILD.exe" -Report "$env:RUNNER_TEMP\reports\DeskBar.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-DeskBar
+          path: ${{ runner.temp }}/reports/
+          if-no-files-found: ignore
+
+  wpf:
+    name: ${{ matrix.app }} (C#)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [DeskDrawer, DeskTune]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        shell: pwsh
+        run: dotnet build "src/${{ matrix.app }}/${{ matrix.app }}.csproj" -c Release -o "$env:RUNNER_TEMP\app"
+      - name: Self-test
+        shell: pwsh
+        run: ./.github/selftest.ps1 -Exe "$env:RUNNER_TEMP\app\${{ matrix.app }}.exe" -Report "$env:RUNNER_TEMP\reports\${{ matrix.app }}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-${{ matrix.app }}
+          path: ${{ runner.temp }}/reports/
+          if-no-files-found: ignore
