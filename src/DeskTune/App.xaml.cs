@@ -13,6 +13,7 @@ public partial class App : Application
         try
         {
             var into = System.IO.Path.GetDirectoryName(InstalledExe)!; System.IO.Directory.CreateDirectory(into);
+            CloseInstalledCopies();
             try { System.IO.File.Delete(System.IO.Path.Combine(into, UninstallMark)); } catch { }   // an uninstall a moment ago: its delayed folder removal must not take this copy
             if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase)) CopyIn(Environment.ProcessPath!, into);
             if (!System.IO.File.Exists(InstalledExe)) { MessageBox.Show("DeskTune couldn't install: the program file didn't arrive in " + into, "DeskTune"); return false; }
@@ -21,6 +22,25 @@ public partial class App : Application
             return true;
         }
         catch (Exception ex) { MessageBox.Show("DeskTune couldn't install: " + ex.Message, "DeskTune"); return false; }
+    }
+
+    /// An open DeskTune holds its exe, and nothing told it to close: an update from Desk settings > Desk apps (or Desk-Setup.exe) while DeskTune was open
+    /// waited 6 s for the file and then said "couldn't install". Its own "Update now" closes itself, the others don't. So the installer asks the installed
+    /// copy to close (as its window's X would) and only ends it if it doesn't within 5 s. A copy run from anywhere else (a dev build) is left alone.
+    internal static int CloseInstalledCopies()
+    {
+        int n = 0;
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("DeskTune"))
+            try
+            {
+                if (p.Id == Environment.ProcessId) continue;
+                string? path = null; try { path = p.MainModule?.FileName; } catch { }   // an elevated copy can't be read from here: its path is unknown, leave it
+                if (!string.Equals(path, InstalledExe, StringComparison.OrdinalIgnoreCase)) continue;
+                n++; if (p.CloseMainWindow() && p.WaitForExit(5000)) continue;
+                p.Kill(); p.WaitForExit(3000);
+            }
+            catch { }
+        return n;
     }
 
     const string UninstallMark = "uninstalling";
@@ -117,10 +137,11 @@ public partial class App : Application
             if (ok && setupName && !a.Contains("--nostart")) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstalledExe) { UseShellExecute = false });
             Shutdown(ok ? 0 : 1); return;
         }
+        if (SingleInstance.HandOver(a)) { Shutdown(0); return; }   // DeskTune is already open: that window comes forward (SingleInstance.cs)
         string? forced = null; for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "--theme") forced = a[i + 1];   // dev: --theme glass (pictures without touching the suite's theme)
         Theme.Load(forced ?? SharedTheme.Read() ?? "black"); Theme.Apply();   // the suite's one theme (DeskBar / DeskDrawer pick it); Black when there is none
         CrashNet("DeskTune");
-        var w = new MainWindow(); w.Show();
+        var w = new MainWindow(); w.SourceInitialized += (_, _) => SingleInstance.Listen(w); w.Show();
         if (forced == null) try
         {   // a colour picked in another Desk app (or Desk settings > Colours) while DeskTune is open: wear it at once
             var fw = new System.IO.FileSystemWatcher(SharedTheme.Dir, "theme*.txt") { NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName, EnableRaisingEvents = true };

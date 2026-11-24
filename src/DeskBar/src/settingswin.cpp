@@ -313,7 +313,9 @@ void DeskAppsChanged() { DeskAppsRefresh(); }   // deskapps.cpp: an app's state 
 int PageNamed(const ws& n) { return n == L"colours" ? kPgColours : n == L"drawer" ? kPgDrawer : n == L"tune" ? kPgTune : n == L"apps" ? kPgApps : n == L"deskmode" ? kPgDeskMode : kPgTaskbar; }
 void SettingsShowPage(const ws& name) { Show(PageNamed(name)); }   // dev snapshots: --open settings --page colours
 // Another Desk app's Settings (DeskDrawer, DeskTune) opens this window at its page: one settings window for the suite. code: 1 DeskDrawer, 2 DeskTune, 3 Colours.
-void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
+// The codes are the other apps' (Theme.cs DeskSettings.Open: "deskdrawer" 1, "desktune" 2, "colours" 3); 4 is DeskMode's own gear; anything else the Taskbar page.
+int SettingsPageForCode(int code) { return code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar; }
+void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(SettingsPageForCode(code)); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
 // A colour change restarts DeskBar: the window comes back on the page it was on
 void SettingsReopenAfterRestart() { if (g_sw && g_sw->hwnd && IsWindowVisible(g_sw->hwnd)) WriteAtomic(DataPath(L"reopen-settings.txt"), std::to_string(g_cur)); }
 void SettingsReopenCheck() {

@@ -192,6 +192,8 @@ public static class SelfTest
         }
         catch (Exception ex) { Check("no exception", false, ex.ToString()); }
         finally { Registry.CurrentUser.DeleteSubKeyTree(TestKey, false); try { File.Delete(Log.File); } catch { } Log.File = realLog; }
+        foreach (var (n, ok, d) in LaunchCheck.Checks("desktune", 2)) Check(n, ok, d);   // the Settings button's way to the Desk settings window (LaunchCheck.cs)
+        foreach (var (n, ok, d) in SingleInstance.Checks()) Check(n, ok, d);   // one DeskTune window (SingleInstance.cs)
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());
         return fail;

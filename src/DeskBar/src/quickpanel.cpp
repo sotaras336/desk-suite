@@ -119,7 +119,7 @@ QuickPanel::QuickPanel() : Flyout(Panel::Quick, 360, true) {
     };
     d->wifi = mk(0xE701, L"Wi-Fi", [this] { NetSetWifi(!d->wifi->on); }, [this] { ShowDetail(MakeWifiPage(this)); }, false, true);
     d->bt = mk(0xE702, L"Bluetooth", [this] { NetSetBt(!d->bt->on); }, [this] { ShowDetail(MakeBtPage(this)); }, false, true);
-    ws tuneExe = KnownFolder(FOLDERID_LocalAppData) + L"\\Programs\\DeskTune\\DeskTune.exe";
+    ws tuneExe = DeskAppExe(L"DeskTune");   // the one place that knows where DeskTune installs (deskapps.cpp)
     d->tune = GetFileAttributesW(tuneExe.c_str()) != INVALID_FILE_ATTRIBUTES;
     d->studio = d->tune ? mk(0xE9D9, L"DeskTune", [tuneExe] { ClosePanels(); Launch(tuneExe); })
                         : mk(0xE714, L"Studio effects", closeAnd(L"ms-settings:camera"), closeAnd(L"ms-settings:camera"), true);

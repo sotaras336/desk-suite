@@ -241,3 +241,6 @@ void DeskAppsChanged();   // settingswin.cpp: redraw the Desk apps page
 bool ThemesSeparate(); ws ThemeOf(const ws& app); void ThemeSet(const ws& app, const ws& id); void ThemesSetSeparate(bool on);   // deskapps.cpp: Settings > Colours
 Json DeskDrawerSettings(); bool DeskDrawerIsDefault(); void DeskDrawerSet(const ws& key, const ws& value);
 void SettingsReopenAfterRestart(); void SettingsReopenCheck(); void SettingsOpenFromApp(int code);   // settingswin.cpp
+int SettingsPageForCode(int code); int PageNamed(const ws& n);   // settingswin.cpp: which page another app's code, or a --page name, opens
+ws ExeOfOpenCommand(const ws& cmd); ws DeskDrawerPipeName();   // shellx.cpp / deskapps.cpp, for the launch self-test
+bool LaunchSelfTest(ws& detail);   // launchtest.cpp

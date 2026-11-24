@@ -43,10 +43,14 @@ Json DeskDrawerSettings() { std::string d; Json j = Json::O(); if (ReadAll(Known
 bool DeskDrawerIsDefault() {
     wchar_t v[64] = L""; DWORD n = sizeof v; return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shell", nullptr, RRF_RT_REG_SZ, nullptr, v, &n) == ERROR_SUCCESS && ContainsI(v, L"DeskDrawer");
 }
+// DeskDrawer's own pipe (Instance.cs PipeName: "DeskDrawer-" + user name + "-" + session id): a running DeskDrawer takes "--set" lines on it
+ws DeskDrawerPipeName() {
+    DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);
+    return Fmt(L"\\\\.\\pipe\\DeskDrawer-%s-%lu", user, sid);
+}
 void DeskDrawerSet(const ws& key, const ws& value) {
     ws line = L"--set " + key + L"=" + value;
-    DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);
-    ws pipe = Fmt(L"\\\\.\\pipe\\DeskDrawer-%s-%lu", user, sid);
+    ws pipe = DeskDrawerPipeName();
     HANDLE h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(pipe.c_str(), 500)) h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);   // DeskDrawer is between two hand-offs: a second copy started with --set would write the file under the running one
     if (h != INVALID_HANDLE_VALUE) { std::string u = Narrow(line); DWORD w; WriteFile(h, u.data(), (DWORD)u.size(), &w, nullptr); CloseHandle(h); return; }

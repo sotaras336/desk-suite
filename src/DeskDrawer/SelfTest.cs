@@ -238,6 +238,7 @@ public static partial class SelfTest
             finally { try { Directory.Delete(d, true); } catch { } }
         }
         IndexSearchTest(Check);
+        foreach (var (n, ok, d) in LaunchCheck.Checks("deskdrawer", 1)) Check(n, ok, d);   // the Settings button's way to the Desk settings window (LaunchCheck.cs)
         sb.AppendLine($"{fail} failure(s)");
         File.WriteAllText(reportFile, sb.ToString());
         return fail;
