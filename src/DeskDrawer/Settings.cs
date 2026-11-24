@@ -61,7 +61,10 @@ public sealed class Settings
         string old = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Dexplorer", "settings.json");
         if (!File.Exists(FilePath) && File.Exists(old))
             try { var s = JsonSerializer.Deserialize(File.ReadAllText(old), SettingsJson.Default.Settings) ?? new(); s.ShortcutsMade = false; s.Save(); return s; } catch { }
-        try { return JsonSerializer.Deserialize(File.ReadAllText(FilePath), SettingsJson.Default.Settings) ?? new(); } catch { return new(); }
+        if (!File.Exists(FilePath)) return new();
+        try { return JsonSerializer.Deserialize(File.ReadAllText(FilePath), SettingsJson.Default.Settings) ?? new(); }
+        catch (JsonException) { try { File.Copy(FilePath, FilePath + ".unreadable", true); } catch { } return new(); }   // cut short (a crash, a full disk): kept aside before the next save replaces it, so tabs and folder views can be got back
+        catch { return new(); }
     }
 
     public void Save()

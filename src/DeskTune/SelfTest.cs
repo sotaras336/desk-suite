@@ -71,6 +71,22 @@ public static class SelfTest
             Log.Apply(tw); typeof(Log).GetField("_entries", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null, null);
             Log.UndoAll(); Check("log: undo everything after reloading", !tw.IsApplied && Log.Count == 0);
 
+            // one change that can't be put back must not stop the others, and what was put back is saved
+            var entriesField = typeof(Log).GetField("_entries", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            Log.Apply(tw);
+            var raw = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Log.File))!.AsArray();
+            raw.Add(new System.Text.Json.Nodes.JsonObject { ["id"] = "broken", ["title"] = "Broken", ["when"] = DateTime.Now.ToString("s"), ["steps"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject { ["op"] = new System.Text.Json.Nodes.JsonObject { ["type"] = "nope" }, ["before"] = new System.Text.Json.Nodes.JsonObject() }) });
+            File.WriteAllText(Log.File, raw.ToJsonString()); entriesField.SetValue(null, null);
+            var failedUndo = Log.UndoAll(); entriesField.SetValue(null, null);
+            Check("log: a change that can't be undone doesn't stop the rest", failedUndo.Count == 1 && !tw.IsApplied && !Log.Touched("test") && Log.Count == 1, string.Join("; ", failedUndo));
+
+            // an unreadable log is kept aside, not overwritten with an empty one
+            File.WriteAllText(Log.File, "[{\"id\":\"cut short"); entriesField.SetValue(null, null);
+            bool kept = Log.Count == 0 && Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*").Length > 0;
+            Check("log: an unreadable change log is kept aside", kept);
+            foreach (var f in Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*")) try { File.Delete(f); } catch { }
+            entriesField.SetValue(null, null);
+
             Check("command parsing", Catalogue.ExeOf("\"C:\\Program Files\\App\\app.exe\" --min") == @"C:\Program Files\App\app.exe" && Catalogue.ExeOf(@"C:\x\tool.exe /s") == @"C:\x\tool.exe");
             Check("store app names", Catalogue.FriendlyPackage("SpotifyAB.SpotifyMusic_zpdnekdrzrea0") == "SpotifyMusic" && Catalogue.FriendlyPackage("MicrosoftTeams_8wekyb3d8bbwe") == "MicrosoftTeams");
 

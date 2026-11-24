@@ -10,7 +10,8 @@ public static class Program
         if (args.Contains("--uninstall")) return Setup.Uninstall();
         if (Setup.IsSetupName() || args.Contains("--install")) return Setup.Install();   // "DeskDrawer-Setup.exe" from the website: install, then start the installed copy
         if (args.Contains("--background") && Instance.IsRunning()) return 0;   // the sign-in start, but a copy is already up
-        bool plain = args.Any(a => a is "--selftest" or "--makeicon" or "--shortcuts" or "--snapshot" or "--dialogtest" or "--picktest" or "--pickshot" or "--settingsshot" or "--default" or "--background" or "--uitest");   // a test run never hands its arguments to the copy you are using
+        // --set (the Desk settings window, when DeskDrawer's pipe was busy): App handles it; it used to be handed over here as a folder called "KeepReady=1"
+        bool plain = args.Any(a => a is "--selftest" or "--makeicon" or "--shortcuts" or "--snapshot" or "--dialogtest" or "--picktest" or "--pickshot" or "--settingsshot" or "--default" or "--background" or "--uitest" or "--set");   // a test run never hands its arguments to the copy you are using
         if (!plain && !args.Contains("--new-window") && Instance.HandOff(args.Where(a => !a.StartsWith("--")).Select(App.CleanPath).ToList())) return 0;
         var app = new App(); app.InitializeComponent(); return app.Run();
     }
