@@ -359,7 +359,8 @@ struct StartPanel : Flyout {
     }
     // ------------------------------------------------ search
     void RunSearch() {
-        Log(L"search text [%s] len %d first %04x", search->text.c_str(), (int)search->text.size(), search->text.empty() ? 0 : search->text[0]); ws q = Trim(search->text); if (q.empty()) { ShowHome(); return; }
+        if (search->text.size() == 1) Log(L"search started, first key %04x", search->text[0]);   // once per search, and never what was typed: this ran on every key and put your searches in the log
+        ws q = Trim(search->text); if (q.empty()) { ShowHome(); return; }
         homeScroll->visible = false; allScroll->visible = false; results->visible = true;
         local = SearchLocal(q); files.clear(); RenderResults(false);
         SearchFiles(q, [this, q](std::vector<Result> f) { if (!shown || Trim(search->text) != q) return; for (auto& x : f) x.score += HabitBoost(q, x.kind, x.target); files = std::move(f); RenderResults(true); });
