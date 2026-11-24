@@ -26,6 +26,14 @@ extern HINSTANCE g_inst;
 struct Mon { HMONITOR h; RECT bounds, work; float scale; ws device; bool primary; };
 std::vector<Mon> Monitors();             // ordered left to right
 ws MonSignature();
+// Screen geometry with no window calls, so the self-test can try it on pretend layouts (mixed scaling, screens added / removed, a second screen left of or above the main one)
+ws MonSignatureOf(const std::vector<Mon>& mons);                          // shellx.cpp: changes whenever a screen is added, removed, moved, rescaled or made the main one
+int BarHeightFor(float scale);                                            // bar.cpp: the bar's height in that screen's pixels
+RECT BarRectOn(const RECT& monitor, float scale, bool top);               // bar.cpp: where the bar goes on a screen
+RECT BarWorkAreaOn(const RECT& monitor, float scale);                     // bar.cpp: the work area the bar leaves for maximized windows
+int MainMonIndex(const std::vector<Mon>& mons);                           // bar.cpp: which of these screens is the main (primary) one
+RECT SettingsRectOn(const RECT& work, float scale);                       // settingswin.cpp: the settings window's first place and size on a screen
+RECT FlyoutRectOn(const RECT& work, const RECT& monitor, float scale, float widthDip, float heightDip, bool anchorRight, float* maxHDip = nullptr);   // flyout.cpp: Start / Quick Settings on a screen
 bool BugReportsOn(); void OpenBugReport(); int BugSendTest(const ws& text);   // bugreport.cpp
 bool IsFullscreenOn(const RECT& monBounds, ws* who = nullptr, bool barHidden = false);   // who: class, title and exe of the window that covers the screen
 HWND MainTray();                         // Windows' own Shell_TrayWnd (never ours)

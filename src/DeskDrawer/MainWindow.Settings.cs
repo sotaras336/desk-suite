@@ -45,6 +45,7 @@ public partial class MainWindow
         var win = new Window { Title = "DeskDrawer settings", Owner = this, Width = 820, Height = Math.Min(600, SystemParameters.WorkArea.Height - 80), WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.CanMinimize, ShowInTaskbar = false, Background = DmBg, Foreground = DmText, FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI") };
         win.SourceInitialized += (_, _) => { var h = new WindowInteropHelper(win).Handle; int dark = 1; Native.DwmSetWindowAttribute(h, 20, ref dark, 4); int cap = 0x262220; Native.DwmSetWindowAttribute(h, 35, ref cap, 4); };   // the title bar in the page's colour (COLORREF is BGR)
         win.Closed += (_, _) => _settingsWin = null;
+        win.Loaded += (_, _) => ScreenFit.Apply(win);   // its height came from the main screen; DeskDrawer may be on a smaller one
         win.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) win.Close(); };
 
         // ---- builders

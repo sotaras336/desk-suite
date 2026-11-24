@@ -22,6 +22,7 @@ struct Flyout : Wnd {
     void Refit();   // the height follows the content again (a page that is taller or shorter), kept on the same spot at the bottom
 };
 Flyout* Panel_(Panel p);
+HMONITOR RecentPanelScreen();   // the screen of the panel that is open or closed a moment ago (nullptr: none)
 void PanelsSysChanged();
 Flyout* MakeClockPanel();
 Flyout* MakeQuickPanel();

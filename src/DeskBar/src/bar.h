@@ -25,7 +25,7 @@ struct TaskBtn : View {
 };
 
 struct Bar : Wnd {
-    HMONITOR hmon = nullptr; int idx = 0; RECT mon{}; bool hiddenFs = false; uint64_t created = 0;
+    HMONITOR hmon = nullptr; int idx = 0; RECT mon{}; bool hiddenFs = false, isMain = false; uint64_t created = 0;   // isMain: the bar on the primary screen
     View *left = nullptr, *right = nullptr, *startBtn = nullptr, *trayBox = nullptr, *overflowBtn = nullptr, *mediaBox = nullptr, *kbBtn = nullptr;
     Label *clockT = nullptr, *clockD = nullptr, *lang = nullptr, *battPct = nullptr; Glyph *gNet = nullptr, *gVol = nullptr, *gBattFill = nullptr, *gBattOutline = nullptr;
     View* statusBtn = nullptr, *clockBtn = nullptr, *langBtn = nullptr, *dmBtn = nullptr;
@@ -42,7 +42,7 @@ struct Bar : Wnd {
     void UpdateStatus();
     void UpdateMedia();
     LRESULT Proc(UINT m, WPARAM w, LPARAM l) override;
-    int HeightPx() const { return (int)lroundf(48 * scale); }
+    int HeightPx() const { return BarHeightFor(scale); }
 };
 
 void WidgetsBuild(Bar* b, View* parent);  // webwidget.cpp: add this bar's widget pills (hidden unless switched on)
@@ -52,6 +52,7 @@ void BarsTick();
 void BarsSync();
 void BarsRebuildIfMonitorsChanged();
 Bar* BarOnMonitor(HMONITOR m);
+Bar* BarHere();                           // the bar on the screen under the pointer (the main screen's if that one has none)
 std::vector<Bar*> AllBars();
 TaskBtn* FindBtn(const ws& key);
 extern ws g_devScreen;                    // "surface" | "lg" | "all"

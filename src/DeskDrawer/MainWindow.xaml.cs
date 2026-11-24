@@ -57,6 +57,8 @@ public partial class MainWindow : Window
         SourceInitialized += (_, _) => { if (App.Background && _pick == null) Cloak(true); ApplyChrome(); HwndSource.FromHwnd(Hwnd)!.AddHook(CaptionHook); OnStateChanged(); };
         if (App.Background && _pick == null) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
         StateChanged += (_, _) => OnStateChanged();
+        Loaded += (_, _) => { if (App.SnapshotFile == null && App.UiTest == null && _pick == null) ScreenFit.Apply(this); };   // sized above from the MAIN screen: keep it inside the screen it actually opened on
+        DpiChanged += (_, _) => RequestThumbs();   // moved to a screen with other scaling: pictures at that screen's sharpness, not stretched
         MouseMove += (_, _) => MaxBtn.Tag = null;   // back in the client area: no longer over the (hit-test) maximise button
         List.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(ThumbsAfterScroll)); Loaded += (_, _) => { Start(); ShellNew.Preload(); ShellMenu.WarmUp(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)); };
         Closing += (_, e) => { if (_pick != null) { e.Cancel = PickClosing(); return; }   /* a picker window: nothing of yours is saved, and it really closes */ SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };

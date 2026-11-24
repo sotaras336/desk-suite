@@ -21,16 +21,21 @@ void Flyout::Build() {
 }
 float Flyout::ContentHeight(float maxH) { Sz d = root->Measure({widthDip, maxH}); return std::min(d.h, maxH); }
 
+// In the screen's work area, a 12-unit gap from its edges, bottom-aligned (left for Start, right for Quick Settings), never taller than the work area
+RECT FlyoutRectOn(const RECT& w, const RECT& monitor, float sc, float widthDip, float hDip, bool anchorRight, float* maxHDip) {
+    float gap = 12 * sc, maxH = (w.bottom - w.top - 2 * gap) / sc; if (maxHDip) *maxHDip = maxH;
+    float h = std::min(hDip, maxH); int cw = (int)ceilf(widthDip * sc), ch = (int)ceilf(h * sc);
+    int x = anchorRight ? (int)(w.right - gap - cw) : (int)(w.left + gap), y = (int)(w.bottom - gap - ch);
+    x = std::clamp(x, (int)monitor.left, std::max((int)monitor.left, (int)monitor.right - cw));
+    return {x, y, x + cw, y + ch};
+}
 void Flyout::Place(bool animate) {
     MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi); UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy);
     // move onto the target monitor first so the window takes that monitor's DPI before we measure
     SetWindowPos(hwnd, nullptr, mi.rcWork.left + 20, mi.rcWork.top + 20, 100, 100, SWP_NOACTIVATE | SWP_NOZORDER); UpdateScale();
-    float sc = scale, gap = 12 * sc; RECT w = mi.rcWork;
-    float maxH = (w.bottom - w.top - 2 * gap) / sc;
-    float h = std::min(fixedH > 0 ? fixedH : ContentHeight(maxH), maxH);
-    curW = (int)ceilf(widthDip * sc); curH = (int)ceilf(h * sc);
-    curX = anchorRight ? (int)(w.right - gap - curW) : (int)(w.left + gap); curY = (int)(w.bottom - gap - curH);
-    curX = std::clamp(curX, (int)mi.rcMonitor.left, std::max((int)mi.rcMonitor.left, (int)mi.rcMonitor.right - curW));
+    float maxH = 0; FlyoutRectOn(mi.rcWork, mi.rcMonitor, scale, widthDip, 0, anchorRight, &maxH);
+    RECT f = FlyoutRectOn(mi.rcWork, mi.rcMonitor, scale, widthDip, fixedH > 0 ? fixedH : ContentHeight(maxH), anchorRight);
+    curX = f.left; curY = f.top; curW = f.right - f.left; curH = f.bottom - f.top;
     SetWindowPos(hwnd, nullptr, curX, curY, curW, curH, SWP_NOACTIVATE | SWP_NOZORDER); needLayout = true;
 }
 void Flyout::Refit() {
@@ -91,6 +96,7 @@ void PrewarmPanels() {   // built at idle after start-up so the first open is in
     (void)step;
 }
 void PanelsSysChanged() { for (auto& f : g_fly) if (f && f->shown) f->OnSysChange(); }
+HMONITOR RecentPanelScreen() { for (auto& f : g_fly) if (f && f->mon && (f->shown || Now() - f->closedAt < 1500)) return f->mon; return nullptr; }   // Start closes as you pick an app: still counts for a moment
 Panel OpenPanel() { for (int i = 0; i < 3; i++) if (g_fly[i] && g_fly[i]->shown && !g_fly[i]->hiding) return (Panel)(i + 1); return Panel::None; }
 void ClosePanels() { for (auto& f : g_fly) if (f) f->Close(); }
 void TogglePanel(Panel p, Wnd* from, const char* page) {

@@ -30,6 +30,7 @@ public sealed class SettingsWindow : Window
         ResizeMode = ResizeMode.CanMinimize; ShowInTaskbar = false; Background = Bg; Foreground = Fg; FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"); UseLayoutRounding = true;
         SourceInitialized += (_, _) => { var h = new WindowInteropHelper(this).Handle; int dark = 1; MainWindow.DwmSetWindowAttribute(h, 20, ref dark, 4); int cap = 0x262220; MainWindow.DwmSetWindowAttribute(h, 35, ref cap, 4); };   // title bar in the page colour (BGR)
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+        Loaded += (_, _) => ScreenFit.Apply(this);   // its height came from the main screen; DeskTune may be on a smaller one
         _pages = new (string, string, Action)[] { ("", "Safety net", PageSafety), ("", "Updates", PageUpdates) };
 
         var rail = new DockPanel { Width = 232, Margin = new Thickness(16, 20, 14, 18), LastChildFill = false };

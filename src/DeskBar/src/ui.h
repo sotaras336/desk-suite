@@ -206,6 +206,7 @@ bool AnimActive(void* owner);
 struct Wnd {
     HWND hwnd = nullptr; View* root = nullptr; float scale = 1; Gfx gfx;
     ComPtr<ID2D1HwndRenderTarget> rt; bool transparent = false, needLayout = true, noActivate = false, inPaint = false;
+    bool followDpi = false;   // a window you move yourself (settings): on a screen with other scaling it takes the size Windows suggests. The bar, panels and menus place themselves.
     Sz client;                              // dips
     View *hover = nullptr, *press = nullptr, *capture = nullptr, *focus = nullptr;
     bool touchLast = false; float downX = 0, downY = 0; UINT_PTR longTimer = 0; bool longFired = false, panMode = false; View* panView = nullptr;

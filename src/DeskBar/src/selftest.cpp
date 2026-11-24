@@ -119,5 +119,56 @@ int RunSelfTest(const ws& outFile) {
         check(L"explorer: other programs are never touched", !ExplorerAsDeskDrawer(L"notepad.exe", L"", a) && !ExplorerAsDeskDrawer(L"C:\\x\\myexplorer.exe", L"", a));
         ws dd = DeskDrawerExe(); check(L"explorer: DeskDrawer's exe is empty or a real file", dd.empty() || FileExists(dd), dd);
     }
+    {   // screens and scaling, on pretend layouts: the test machine has one screen at 100%, so the mixed set-ups are described here and the same code that places the bar is asked about them
+        auto M = [](int l, int t, int r, int b, float sc, const wchar_t* dev, bool prim) { Mon m{}; m.bounds = {l, t, r, b}; m.work = m.bounds; m.scale = sc; m.device = dev; m.primary = prim; return m; };
+        auto R = [](const RECT& r) { return Fmt(L"%d,%d,%d,%d", (int)r.left, (int)r.top, (int)r.right, (int)r.bottom); };
+        auto inside = [](const RECT& in, const RECT& out) { return in.left >= out.left && in.top >= out.top && in.right <= out.right && in.bottom <= out.bottom && in.right > in.left && in.bottom > in.top; };
+        // docked: the Surface (2736 x 1824 at 200%) LEFT of the main LG (2560 x 1440 at 100%), so the second screen has negative coordinates and the leftmost screen is not the main one
+        std::vector<Mon> docked{M(-2736, 0, 0, 1824, 2.f, L"\\\\.\\DISPLAY2", false), M(0, 0, 2560, 1440, 1.f, L"\\\\.\\DISPLAY1", true)};
+        check(L"screens: the main screen is the primary one, not the leftmost", MainMonIndex(docked) == 1 && MainMonIndex({docked[1], docked[0]}) == 0 && MainMonIndex({M(0, 0, 10, 10, 1, L"a", false)}) == 0);
+        {   // the bar's own height on each screen, at every scaling Windows offers, flush with that screen's bottom edge and as wide as it
+            bool ok = true; ws bad;
+            for (float sc : {1.f, 1.25f, 1.5f, 1.75f, 2.f, 2.25f, 2.5f, 3.f, 3.5f}) for (auto& m : docked) {
+                RECT b = BarRectOn(m.bounds, sc, false), w = BarWorkAreaOn(m.bounds, sc); int h = BarHeightFor(sc);
+                bool good = h == (int)lroundf(48 * sc) && b.left == m.bounds.left && b.right == m.bounds.right && b.bottom == m.bounds.bottom && b.top == m.bounds.bottom - h
+                    && w.top == m.bounds.top && w.left == m.bounds.left && w.right == m.bounds.right && w.bottom == b.top;
+                if (!good) { ok = false; bad += Fmt(L"%.2f: bar %s work %s | ", sc, R(b).c_str(), R(w).c_str()); }
+            }
+            check(L"bar: own height per scaling, on the bottom edge of its own screen (second screen left of the main one)", ok && BarHeightFor(1.25f) == 60 && BarHeightFor(1.75f) == 84, bad);
+            RECT above = BarRectOn({0, -1080, 1920, 0}, 1.5f, false), devTop = BarRectOn(docked[0].bounds, 2.f, true);
+            check(L"bar: a screen above the main one, and the developer bar on top", above.top == -72 && above.bottom == 0 && devTop.top == 0 && devTop.bottom == 96 && devTop.left == -2736, R(above) + L" | " + R(devTop));
+        }
+        {   // any change to the screens must be seen as one (that is what rebuilds the bars); the order Windows lists them in is not a change
+            ws a = MonSignatureOf(docked);
+            auto changed = [&](std::vector<Mon> v) { return MonSignatureOf(v) != a; };
+            std::vector<Mon> dpi = docked; dpi[0].scale = 1.5f;
+            std::vector<Mon> moved = docked; moved[0].bounds = {0, -1824, 2736, 0};
+            std::vector<Mon> added = docked; added.push_back(M(2560, 0, 4480, 1080, 1.25f, L"\\\\.\\DISPLAY3", false));
+            std::vector<Mon> mainSwap = docked; mainSwap[0].primary = true; mainSwap[1].primary = false;
+            check(L"screens: scaling changed, screen moved, added, removed, main screen switched are all seen",
+                changed(dpi) && changed(moved) && changed(added) && changed({docked[1]}) && changed({}) && changed(mainSwap) && !changed({docked[1], docked[0]}), a);
+        }
+        {   // Start and Quick Settings on the second screen at 200%, and on a small 1280 x 800 tablet at 150%: inside that screen's work area, 12 units from its edges
+            RECT wk = BarWorkAreaOn(docked[0].bounds, 2.f), st = FlyoutRectOn(wk, docked[0].bounds, 2.f, 640, 720, false), qs = FlyoutRectOn(wk, docked[0].bounds, 2.f, 380, 5000, true);
+            check(L"panels: Start on the second screen at 200% sits in its corner", inside(st, wk) && st.left == wk.left + 24 && st.bottom == wk.bottom - 24 && st.right - st.left == 1280 && st.bottom - st.top == 1440, R(st) + L" in " + R(wk));
+            check(L"panels: a too-tall Quick Settings is cut to the screen, right-aligned", inside(qs, wk) && qs.right == wk.right - 24 && qs.top == wk.top + 24 && qs.bottom == wk.bottom - 24, R(qs) + L" in " + R(wk));
+            RECT tw = BarWorkAreaOn({0, 0, 1280, 800}, 1.5f), ts = FlyoutRectOn(tw, {0, 0, 1280, 800}, 1.5f, 640, 2000, false);
+            check(L"panels: a 1280 x 800 tablet at 150% keeps Start on screen", inside(ts, tw), R(ts) + L" in " + R(tw));
+        }
+        {   // the settings window's first size and place: centred, and never bigger than the screen (860 units at 150% is 1290 px, wider than a 1280 px tablet)
+            struct { RECT work; float sc; } cases[] = {{{0, 0, 1280, 752}, 1.5f}, {{0, 0, 1920, 1032}, 2.25f}, {{-2736, 0, 0, 1728}, 2.f}, {{0, 0, 2560, 1392}, 1.f}, {{0, -1080, 1920, -48}, 1.25f}};
+            bool ok = true; ws d; for (auto& c : cases) { RECT r = SettingsRectOn(c.work, c.sc); int cx = (r.left + r.right) / 2 - (c.work.left + c.work.right) / 2; if (!inside(r, c.work) || std::abs(cx) > 1) { ok = false; d += R(r) + L" in " + R(c.work) + L" | "; } }
+            RECT big = SettingsRectOn({0, 0, 2560, 1392}, 1.f);
+            check(L"settings window: fits and is centred on every screen", ok && big.right - big.left == 860 && big.bottom - big.top == 680, d.empty() ? R(big) : d);
+        }
+    }
+    {   // a scaling change (WM_DPICHANGED, sent here by hand as Windows would when the window crosses to a 200% screen): the settings window takes the suggested size, the bar-like windows do not
+        Wnd follow, self; follow.followDpi = true;
+        follow.Create(WS_EX_TOOLWINDOW, WS_POPUP, -32000, 100, 300, 200); self.Create(WS_EX_TOOLWINDOW, WS_POPUP, -32000, 400, 300, 200);
+        RECT sug{-31990, 120, -31990 + 600, 120 + 400}, a{}, b{};
+        if (follow.hwnd && self.hwnd) { SendMessageW(follow.hwnd, WM_DPICHANGED, MAKEWPARAM(192, 192), (LPARAM)&sug); SendMessageW(self.hwnd, WM_DPICHANGED, MAKEWPARAM(192, 192), (LPARAM)&sug); GetWindowRect(follow.hwnd, &a); GetWindowRect(self.hwnd, &b); }
+        check(L"scaling change: a window you move takes the size Windows suggests, one that places itself stays", EqualRect(&a, &sug) && b.right - b.left == 300 && b.bottom - b.top == 200 && b.top == 400,
+            Fmt(L"%d,%d,%d,%d | %d,%d,%d,%d", (int)a.left, (int)a.top, (int)a.right, (int)a.bottom, (int)b.left, (int)b.top, (int)b.right, (int)b.bottom));
+    }
     out += Narrow(Fmt(L"%d failure(s)\r\n", fails)); WriteAtomic(outFile, out); return fails;
 }

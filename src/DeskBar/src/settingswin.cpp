@@ -113,7 +113,7 @@ void PageDeskMode(View* col) {
         MkLabel(tx, L"Go max, Go easy, or pick each screen's rate", FText(15, 600));
         auto* s = MkLabel(tx, L"Opens from the DeskMode button on the taskbar, or Ctrl+Alt+D.", FText(12.5f), Raw(0xFFFFFF, 0xC8)); s->wrap = true;
         auto* b = MkBox(h, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 9); b->va = Al::Center; b->bg = SolidC(Raw(0xFFFFFF, 0xF0)); b->bgHover = SolidC(Raw(0xFFFFFF));
-        MkLabel(b, L"Open DeskMode", FText(13.5f, 600), Raw(0x0B3A66)); b->onClick = [] { if (!AllBars().empty()) OpenDeskModePanel(AllBars()[0]); };
+        MkLabel(b, L"Open DeskMode", FText(13.5f, 600), Raw(0x0B3A66)); b->onClick = [] { if (Bar* bb = BarHere()) OpenDeskModePanel(bb); };
     }
     auto* c = Card(col, L"By itself");
     Row(c, 0xE945, L"Go max when docked", L"A monitor and the charger connected: every screen at its top rate, Best performance.", S.dmAutoMax, [](bool v) { S.dmAutoMax = v; });
@@ -121,7 +121,7 @@ void PageDeskMode(View* col) {
     Row(c, 0xE7FC, L"Hands off during games", L"Nothing changes by itself while a full-screen game is up.", S.dmGameLock, [](bool v) { S.dmGameLock = v; });
     c = Card(col, L"Presets");
     LinkRow(c, 0xE713, L"Choose what Go max and Go easy do", L"The rate for each screen, the power mode, Energy saver.", [] {
-        if (AllBars().empty()) return; OpenDeskModePanel(AllBars()[0]); if (auto* q = (QuickPanel*)Panel_(Panel::Quick)) if (q->shown) q->ShowDetail(MakeDeskModeSettings(q), true); });
+        Bar* bb = BarHere(); if (!bb) return; OpenDeskModePanel(bb); if (auto* q = (QuickPanel*)Panel_(Panel::Quick)) if (q->shown) q->ShowDetail(MakeDeskModeSettings(q), true); });
     c = Card(col, L"Shortcuts");
     auto key = [&](const ws& what, const wchar_t* k) { Sep(c); auto* r = MkBox(c, Lay::H); r->pad = Thick(12, 9); auto* l = MkLabel(r, what, FText(13.5f)); l->star = 1; l->va = Al::Center; Keys(r, {L"Ctrl", L"Alt", k}); };
     key(L"Open DeskMode", L"D"); key(L"Go max", L"M"); key(L"Go easy", L"B"); key(L"Borderless full screen for the window in front", L"F");
@@ -254,12 +254,18 @@ void Show(int page) {
 }
 }
 
+// 860 wide, 460..680 tall (layout units), centred in the work area, never bigger than the screen: 860 at 150% is 1290 px, wider than a 1280 x 800 tablet, and at 225% wider than a 1080p screen
+RECT SettingsRectOn(const RECT& wk, float sc) {
+    int ww = wk.right - wk.left, wh = wk.bottom - wk.top, m = (int)(16 * sc);
+    int w = std::min((int)(860 * sc), ww - 2 * m), h = std::min((int)(std::clamp(wh / sc - 120, 460.f, 680.f) * sc), wh - 2 * m);
+    int x = wk.left + (ww - w) / 2, y = wk.top + (wh - h) / 2; return {x, y, x + w, y + h};
+}
 void OpenSettingsWindow() {
     if (g_sw && g_sw->hwnd) { ShowWindow(g_sw->hwnd, SW_SHOW); SetForegroundWindow(g_sw->hwnd); return; }
     g_sw = std::make_unique<SettingsWnd>(); POINT at{}; GetCursorPos(&at);   // opens on the screen you clicked on
     HMONITOR mon = MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi); UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy); float sc = dx / 96.f;
-    int w = (int)(860 * sc), h = (int)(std::clamp((mi.rcWork.bottom - mi.rcWork.top) / sc - 120, 460.f, 680.f) * sc);
-    int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - w) / 2, y = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - h) / 2;
+    RECT sr = SettingsRectOn(mi.rcWork, sc); int x = sr.left, y = sr.top, w = sr.right - sr.left, h = sr.bottom - sr.top;
+    g_sw->followDpi = true;   // you can drag it to another screen: take the size Windows suggests for that screen's scaling, or the page is cut off (or swims in space) there
     g_sw->Create(0, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, x, y, w, h); if (!g_sw->hwnd) return;
     SetWindowTextW(g_sw->hwnd, L"DeskBar settings"); int dark = 1; DwmSetWindowAttribute(g_sw->hwnd, 20, &dark, 4);
     COLORREF cap = RGB(0x20, 0x22, 0x26); DwmSetWindowAttribute(g_sw->hwnd, 35, &cap, 4);   // the title bar in the page's own colour: one surface

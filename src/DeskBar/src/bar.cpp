@@ -193,9 +193,15 @@ static View* BarBtn(View* parent) {
 }
 
 Bar::Bar(HMONITOR m, int index) : hmon(m), idx(index) { noActivate = true; transparent = ThemeIsGlass(CurrentTheme()); }
+// ---- screen geometry, kept free of window calls so the self-test can run it on pretend screen layouts (mixed scaling, screens left of / above the main one)
+int BarHeightFor(float scale) { return (int)lroundf(48 * scale); }
+RECT BarRectOn(const RECT& m, float scale, bool top) { int h = BarHeightFor(scale); return top ? RECT{m.left, m.top, m.right, m.top + h} : RECT{m.left, m.bottom - h, m.right, m.bottom}; }
+RECT BarWorkAreaOn(const RECT& m, float scale) { RECT w = m; w.bottom -= BarHeightFor(scale); return w; }
+int MainMonIndex(const std::vector<Mon>& mons) { for (size_t i = 0; i < mons.size(); i++) if (mons[i].primary) return (int)i; return 0; }   // the PRIMARY screen, wherever it sits; the leftmost only if none of these is primary
+
 RECT Bar::Target() const {
-    MONITORINFO mi{sizeof mi}; GetMonitorInfoW(hmon, &mi); int h = HeightPx(); RECT b = mi.rcMonitor;
-    return g_dev ? RECT{b.left, b.top, b.right, b.top + h} : RECT{b.left, b.bottom - h, b.right, b.bottom};
+    MONITORINFO mi{sizeof mi}; RECT b = GetMonitorInfoW(hmon, &mi) ? mi.rcMonitor : mon;   // the screen just went away (unplugged, lid shut): stay where it was until the bars are rebuilt, never a zero-size bar at 0,0
+    return BarRectOn(b, scale, g_dev);
 }
 bool Bar::Init() {
     MONITORINFO mi{sizeof mi}; GetMonitorInfoW(hmon, &mi); mon = mi.rcMonitor; created = Now();
@@ -271,7 +277,7 @@ bool Bar::Init() {
 }
 void Bar::EnsurePlaced() {
     UpdateScale(); RECT t = Target(), c; GetWindowRect(hwnd, &c);
-    if (idx == 0 && !g_dev) TrayPlace(t);
+    if (isMain && !g_dev) TrayPlace(t);   // the stand-in Shell_TrayWnd sits over the MAIN screen's bar: apps read its place to put their tray pop-ups and notices there (it used to follow the leftmost bar, so with the Surface docked left of the LG they opened on the Surface)
     if (!EqualRect(&t, &c)) SetWindowPos(hwnd, HWND_TOPMOST, t.left, t.top, t.right - t.left, t.bottom - t.top, SWP_NOACTIVATE | (hiddenFs ? SWP_HIDEWINDOW : 0));
     UpdateScale();
 }
@@ -398,8 +404,10 @@ static bool WantMonitor(const Mon& m, const std::vector<Mon>& all) {
     return g_devScreen == L"surface" ? m.scale >= best : m.scale < best || m.primary;
 }
 void BarsStart() {
-    auto mons = Monitors(); g_monSig = MonSignature(); int i = 0;
-    for (auto& m : mons) { if (!WantMonitor(m, mons)) continue; auto b = std::make_unique<Bar>(m.h, i++); if (b->Init()) g_bars.push_back(std::move(b)); }
+    auto mons = Monitors(); g_monSig = MonSignatureOf(mons); int i = 0;
+    std::vector<Mon> want; for (auto& m : mons) if (WantMonitor(m, mons)) want.push_back(m);
+    int mainAt = MainMonIndex(want);
+    for (auto& m : want) { auto b = std::make_unique<Bar>(m.h, i); b->isMain = i++ == mainAt; if (b->Init()) g_bars.push_back(std::move(b)); }
     BarsSync(); TrayRefresh();
 }
 void BarsStop() { for (auto& b : g_bars) { RevokeDragDrop(b->hwnd); if (!g_dev) Dock::Remove(b->hwnd); } g_bars.clear(); }   // revoke: the drop target points at the bar
@@ -414,7 +422,8 @@ void BarsRebuildIfMonitorsChanged() {
     ws sig = MonSignature(); if (sig == g_monSig) return;
     Log(L"monitors changed: %s", sig.c_str()); BarsStop(); BarsStart();
 }
-Bar* BarOnMonitor(HMONITOR m) { for (auto& b : g_bars) if (b->hmon == m) return b.get(); return g_bars.empty() ? nullptr : g_bars[0].get(); }
+Bar* BarOnMonitor(HMONITOR m) { for (auto& b : g_bars) if (b->hmon == m) return b.get(); for (auto& b : g_bars) if (b->isMain) return b.get(); return g_bars.empty() ? nullptr : g_bars[0].get(); }   // no bar on that screen: the main screen's
+Bar* BarHere() { POINT c; GetCursorPos(&c); return BarOnMonitor(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY)); }
 std::vector<Bar*> AllBars() { std::vector<Bar*> v; for (auto& b : g_bars) v.push_back(b.get()); return v; }
 TaskBtn* FindBtn(const ws& key) { for (auto& b : g_bars) for (auto* t : b->btns) if (t->e.key == key) return t; return nullptr; }
 
@@ -426,7 +435,8 @@ void TaskbarUnpinApp(const ws& id) { std::erase_if(S.taskbarPins, [&](const ws& 
 void BarsWorkAreaUpkeep() {
     if (g_dev) return;
     for (auto& b : g_bars) {
-        if (b->hiddenFs) continue; MONITORINFO mi{sizeof mi}; GetMonitorInfoW(b->hmon, &mi); RECT want = mi.rcMonitor; want.bottom -= b->HeightPx();
+        if (b->hiddenFs) continue; MONITORINFO mi{sizeof mi}; if (!GetMonitorInfoW(b->hmon, &mi)) continue;   // that screen is gone (the bars rebuild on the next tick): an empty rectangle here would be handed to Windows as the work area
+        RECT want = BarWorkAreaOn(mi.rcMonitor, b->scale);
         if (b->hmon == MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY)) {   // main screen = the PRIMARY one (where Explorer's taskbar lives), not the leftmost: docked, the Surface sits left of the LG and the forced SPI route below made Explorer pop its taskbar up every ~6 s on the LG. Re-claim the strip through the appbar protocol, not SPI_SETWORKAREA. Without the strip, maximized windows run under the bar.
             static int miss = 0; static uint64_t lastForce = 0;
             if (EqualRect(&want, &mi.rcWork)) { miss = 0; continue; }
