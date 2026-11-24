@@ -18,6 +18,7 @@ public static class SelfTest
     {
         var sb = new StringBuilder(); int fail = 0;
         void Check(string name, bool ok, string extra = "") { sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (extra.Length > 0 ? "  " + extra : "")); if (!ok) fail++; }
+        foreach (var (fitName, fitOk, fitDetail) in ScreenFit.Checks()) Check(fitName, fitOk, fitDetail);   // windows kept on their own screen, on pretend screen layouts
         {   // the update check: reading the checksum list, and (only when a test points DESK_UPDATE_BASE at a local release folder) the whole check and a verified download that is not run
             string sums = new string('a', 64) + " *" + Updater.Asset + "\r\n" + new string('b', 64) + " *Other-Setup.exe\n";
             Check("update: reads the checksum for this app's file", Updater.HashFor(sums, Updater.Asset) == new string('a', 64) && Updater.HashFor(sums, "Nope.exe") == null);

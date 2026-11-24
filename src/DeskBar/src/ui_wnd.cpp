@@ -217,7 +217,8 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(hwnd, &ps); PaintNow(); EndPaint(hwnd, &ps); return 0; }
-    case WM_DISPLAYCHANGE: case WM_DPICHANGED: UpdateScale(); Relayout(); return 0;
+    case WM_DPICHANGED: if (followDpi && l) { auto* r = (const RECT*)l; SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE); } UpdateScale(); Relayout(); return 0;
+    case WM_DISPLAYCHANGE: UpdateScale(); Relayout(); return 0;
     case WM_SIZE: if (rt && w != SIZE_MINIMIZED) { rt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); } needLayout = true; Invalidate(); return 0;
     case WM_MOUSEACTIVATE: return noActivate ? MA_NOACTIVATE : MA_ACTIVATE;
     case WM_ACTIVATE: if (LOWORD(w) == WA_INACTIVE && onDeactivate) { auto f = onDeactivate; f(); } return Def(m, w, l);

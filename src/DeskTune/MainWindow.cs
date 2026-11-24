@@ -43,6 +43,7 @@ public sealed class MainWindow : Window
         var wa = SystemParameters.WorkArea;
         Title = "DeskTune"; Width = App.ForcedSize?.Width ?? Math.Min(980, wa.Width - 24); Height = App.ForcedSize?.Height ?? Math.Min(820, wa.Height - 24);
         MinWidth = Math.Min(520, Width); MinHeight = Math.Min(480, Height); WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        if (App.ForcedSize == null) Loaded += (_, _) => ScreenFit.Apply(this);   // sized from the MAIN screen's work area: keep it inside the screen it opened on
         SetResourceReference(BackgroundProperty, "WinBg"); UseLayoutRounding = true; Stylus.SetIsPressAndHoldEnabled(this, false);
         SourceInitialized += (_, _) =>
         {

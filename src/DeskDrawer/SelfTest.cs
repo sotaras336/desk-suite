@@ -37,6 +37,7 @@ public static partial class SelfTest
                 Check("update: sees a different build in the release", Updater.Newer, Updater.Status);
             }
         }
+        foreach (var (fitName, fitOk, fitDetail) in ScreenFit.Checks()) Check(fitName, fitOk, fitDetail);   // windows kept on their own screen, on pretend screen layouts
         string root = Path.Combine(Path.GetTempPath(), "deskdrawer-test-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {

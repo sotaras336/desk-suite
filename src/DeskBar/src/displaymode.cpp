@@ -166,7 +166,7 @@ void DeskModeHotkeysStart() {
         MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) {
             if (m.message != WM_HOTKEY) continue;
             int id = (int)m.wParam - 0xD300;
-            if (id == 0) UiPost([] { if (!AllBars().empty()) OpenDeskModePanel(AllBars()[0]); });
+            if (id == 0) UiPost([] { if (Bar* b = BarHere()) OpenDeskModePanel(b); });   // Ctrl+Alt+D: on the screen you are on, not always the leftmost
             else if (id == 3) ToggleBorderless(GetForegroundWindow());
             else std::thread([id] { DeskModeGo(id == 1); }).detach();
         }
