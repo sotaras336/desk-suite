@@ -48,13 +48,13 @@ public static partial class DialogSwitch
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
             _picker = p; p.PickFor(AppNameOf(dlg));
-            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
+            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); Guard(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             p.OnAnswer = pw => Answer(dlg, pw);
             long built = sw0.ElapsedMilliseconds;
             p.PickShow(); LateName(dlg, p, d.Name, 0); if (start == fallback && !own) LateFolder(dlg, p, start, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
-        catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); return false; }
+        catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); Released(dlg); return false; }
     }
 
     /// The picker was answered (or cancelled). Order matters, and getting it wrong is what hid the app: the answer goes into the dialog while the picker still owns the
@@ -62,9 +62,15 @@ public static partial class DialogSwitch
     /// Closing first let Windows give the foreground to whatever window was next, and the app dropped behind it.
     private static void Answer(IntPtr dlg, MainWindow pw)
     {
+        try { AnswerNow(dlg, pw); }
+        catch (Exception ex) { Miss(dlg, "answering failed: " + ex.Message); try { pw.FinishPick(); } catch { } Reveal(dlg); Released(dlg); }   // whatever went wrong, the app's own dialog comes back
+    }
+
+    private static void AnswerNow(IntPtr dlg, MainWindow pw)
+    {
         _picker = null;   // KeepHidden stops; a new dialog may be taken over again
         IntPtr owner = IsWindow(dlg) ? GetWindow(dlg, 4 /*GW_OWNER*/) : IntPtr.Zero;
-        if (!IsWindow(dlg)) { pw.FinishPick(); return; }
+        if (!IsWindow(dlg)) { Released(dlg); pw.FinishPick(); return; }
         if (pw.Result is { Count: > 0 } paths)
         {
             if (owner != IntPtr.Zero) LastIn[owner] = pw.PickIsFolder ? paths[0] : Path.GetDirectoryName(paths[0]) ?? "";
@@ -72,8 +78,8 @@ public static partial class DialogSwitch
         }
         else PressCancel(dlg);
         WaitGone(dlg, owner, 0,
-            gone: () => { BringBack(owner); pw.FinishPick(); },
-            still: () => { pw.FinishPick(); Reveal(dlg); SetForegroundWindow(dlg); });   // the app has something to say (replace this file? bad name?): its own dialog shows it
+            gone: () => { Released(dlg); BringBack(owner); pw.FinishPick(); },
+            still: () => { pw.FinishPick(); Reveal(dlg); Released(dlg); SetForegroundWindow(dlg); });   // the app has something to say (replace this file? bad name?): its own dialog shows it
     }
 
     /// Gone = the window is destroyed, or the app that owns it is usable again (its modal loop ended). Still there after 2.4 s = the app is asking something.
@@ -237,7 +243,7 @@ public static partial class DialogSwitch
         GetWindowThreadProcessId(h, out uint pid); if (pid == Environment.ProcessId) return;
         GetWindowRect(h, out var r); if (r.Right - r.Left < 400 || r.Bottom - r.Top < 250) return;   // message boxes and the like are small: leave them alone
         if ((GetWindowLong(h, -20) & 0x80000) != 0) return;   // already layered by its own app: not ours to touch
-        SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000); SetLayeredWindowAttributes(h, 0, 0, 2); Faded.Add(h);
+        MakeSeeThrough(h); Faded.Add(h);   // on the helper thread: changing its style waits for its app, which may be busy building the dialog
         Poll(h, 0);
     }
 
@@ -264,7 +270,7 @@ public static partial class DialogSwitch
     private static void FadeOut(IntPtr h)
     {
         if (Faded.Contains(h) || (GetWindowLong(h, -20) & 0x80000) != 0) return;
-        SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000); SetLayeredWindowAttributes(h, 0, 0, 2); Faded.Add(h);
+        MakeSeeThrough(h); Faded.Add(h);
     }
     private static bool HasView(IntPtr h) { bool v = false; EnumChildWindows(h, (c, _) => { if (ClassOf(c) is "DUIViewWndClassName" or "SHELLDLL_DefView") v = true; return !v; }, IntPtr.Zero); return v; }
     private static void Note(IntPtr h, string what) => Miss(h, what);
@@ -287,7 +293,7 @@ public static partial class DialogSwitch
     private static void Unfade(IntPtr h)
     {
         if (!Faded.Remove(h) || !IsWindow(h)) return;
-        SetLayeredWindowAttributes(h, 0, 255, 2); SetWindowLong(h, -20, GetWindowLong(h, -20) & ~0x80000);
+        MakeOpaque(h);
     }
 
     /// The original dialog back on screen (something to answer, or the picker failed).
@@ -333,7 +339,6 @@ public static partial class DialogSwitch
     /// WM_GETTEXT, not GetWindowText: that one returns nothing for an edit or combo box that belongs to another process.
     private static string TextOf(IntPtr h) { var sb = new StringBuilder(1024); SendMessage(h, 0x000D, (IntPtr)sb.Capacity, sb); return sb.ToString(); }
 
-    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr h, uint cmd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);

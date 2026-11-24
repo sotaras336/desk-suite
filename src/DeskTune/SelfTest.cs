@@ -87,6 +87,8 @@ public static class SelfTest
             foreach (var f in Directory.GetFiles(Path.GetDirectoryName(Log.File)!, Path.GetFileName(Log.File) + ".unreadable-*")) try { File.Delete(f); } catch { }
             entriesField.SetValue(null, null);
 
+            ServiceUndo(Check);   // services: only with administrator rights (the GitHub check has them)
+
             Check("command parsing", Catalogue.ExeOf("\"C:\\Program Files\\App\\app.exe\" --min") == @"C:\Program Files\App\app.exe" && Catalogue.ExeOf(@"C:\x\tool.exe /s") == @"C:\x\tool.exe");
             Check("store app names", Catalogue.FriendlyPackage("SpotifyAB.SpotifyMusic_zpdnekdrzrea0") == "SpotifyMusic" && Catalogue.FriendlyPackage("MicrosoftTeams_8wekyb3d8bbwe") == "MicrosoftTeams");
 
@@ -100,6 +102,32 @@ public static class SelfTest
         File.WriteAllText(reportFile, sb.ToString());
         return fail;
     }
+
+    /// A throw-away service, set to "Automatic (delayed start)", is switched off and put back the way the Services switches do it: it must come back delayed,
+    /// and putting back a service that no longer exists is not an error.
+    private static void ServiceUndo(Action<string, bool, string> check)
+    {
+        const string name = "DeskTuneSelfTest";
+        var op = new ServiceOp(name);
+        if (!Elevation.IsAdmin) return;   // creating a test service needs administrator rights
+        Op.Run("sc.exe", $"delete {name}");
+        try
+        {
+            int made = Op.Run("sc.exe", $"create {name} binPath= \"%SystemRoot%\\System32\\svchost.exe -k DeskTuneSelfTestNoSuchGroup\" start= delayed-auto");
+            if (made != 0 || !op.Exists) { check("service: test service created", false, $"(sc.exe answered {made})"); return; }
+            var before = op.Apply();
+            check("service: switched off", op.IsApplied && (int?)before["delayed"] == 1, before.ToJsonString());
+            var sw = System.Diagnostics.Stopwatch.StartNew(); op.Restore(before);
+            using var k = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{name}");
+            check("service: undo brings back Automatic (delayed start)", !op.IsApplied && k?.GetValue("Start") is 2 && k.GetValue("DelayedAutostart") is 1, $"({sw.ElapsedMilliseconds} ms)");
+        }
+        catch (Exception ex) { check("service: no exception", false, ex.ToString()); }
+        finally { Op.Run("sc.exe", $"stop {name}", 10000); Op.Run("sc.exe", $"delete {name}"); }
+        bool gone = !Throws(() => op.Restore(new System.Text.Json.Nodes.JsonObject { ["start"] = 2, ["delayed"] = 1 }));
+        check("service: putting back a service that no longer exists is not an error", gone, "");
+    }
+
+    private static bool Throws(Action a) { try { a(); return false; } catch { return true; } }
 
     /// --snapshot file.png: renders the window once the scan has had time to finish, then exits.
     public static void SnapshotLater(Window w, string file)

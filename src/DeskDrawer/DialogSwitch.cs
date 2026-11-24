@@ -137,7 +137,4 @@ public static partial class DialogSwitch
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr h, int i);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr h, int i, int v);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, string l);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, StringBuilder l);
-    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);
 }
