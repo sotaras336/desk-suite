@@ -60,14 +60,26 @@ bool AnimActive(void* owner) {
 // ================= window =================
 // Windows tags mouse messages made from touch or pen with 0xFF515700 in the upper three bytes; the low byte then holds the pointer id and bit 7 (0x80) is set for touch,
 // clear for pen. The old test masked with 0xFFFFFF80, which let only PEN through: a finger (e.g. 0xFF5157AD) never counted, so none of the touch handling ever ran.
+// Windows picks the target of a finger by asking every registered window its contact area overlaps, takes the best score, and then MOVES the touch to that
+// window's adjustedPoint. Claiming with score 0 but leaving adjustedPoint at the raw finger point (as before) won the vote and still sent the touch to the raw point:
+// a finger centred a few px above the guard strip or the bar landed in the maximized app above it, inside its bottom resize band, and started a resize.
+// The adjusted point must be on the claiming window (that is what the field means), so it is clamped into it.
+POINT TouchPointInside(const RECT& r, POINT p) {
+    if (r.right <= r.left || r.bottom <= r.top) return p;
+    return {std::clamp(p.x, r.left, r.right - 1), std::clamp(p.y, r.top, r.bottom - 1)};
+}
+LRESULT ClaimTouch(HWND h, LPARAM l) {
+    auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
+    RECT r; if (GetWindowRect(h, &r)) ev.adjustedPoint = TouchPointInside(r, in->point);
+    return PackTouchHitTestingProximityEvaluation(in, &ev);
+}
 bool IsTouchMsg() { return ((unsigned long)GetMessageExtraInfo() & 0xFFFFFF00) == 0xFF515700; }
 static LRESULT CALLBACK WProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Wnd* self = (Wnd*)GetWindowLongPtrW(h, GWLP_USERDATA);
     if (m == WM_NCCREATE) { self = (Wnd*)((CREATESTRUCTW*)l)->lpCreateParams; SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)self); if (self) self->hwnd = h; }
     if (m == WM_TOUCHHITTESTING) {   // a finger on any DeskBar surface is ours: unclaimed, Windows gave a tap on the bar's corner to the maximized Claude app's
         // resize corner next to it (registered apps claim a finger NEAR them; real log 2026-11-23 13:19, five resizes from taps on Show desktop)
-        auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
-        return PackTouchHitTestingProximityEvaluation(in, &ev); }
+        return ClaimTouch(h, l); }
     static const UINT openSettings = RegisterWindowMessageW(L"DeskOpenSettings");   // DeskDrawer's or DeskTune's Settings: open the Desk settings window (one for the suite)
     if (m == openSettings && openSettings) { if (g_onOpenSettings) g_onOpenSettings((int)w); return 0; }
     if (!self) return DefWindowProcW(h, m, w, l);

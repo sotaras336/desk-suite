@@ -50,6 +50,7 @@ bool ShortMax(const RECT& r, const RECT& work) { return r.left <= work.left + 8 
 std::map<HWND, HMONITOR> g_maxMon; std::map<HWND, uint64_t> g_maxMoved;   // hook thread only
 bool GuardSaysTouch(bool sig, bool suppressed, bool device, bool away) { return sig || suppressed || device || away; }
 std::map<HWND, HWND> g_guards;   // bar window -> its guard strip
+std::atomic<HWND> g_anyGuard{nullptr};   // one live guard strip, for the move/size hook's log (it runs on another thread and must not touch g_guards)
 std::atomic<uint64_t> g_guardTouch{0};   // last time Windows asked the strip about a finger (WM_TOUCHHITTESTING) and it claimed it
 struct GuardHit { uint64_t at = 0; bool sig = false, supp = false, dev = false, away = false; int type = 0; POINT p{}, c{}; } g_lastGuard;   // the strip's last decision, for the log when a touch still got through
 void CALLBACK OnLocation(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
@@ -94,7 +95,7 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
             { DWORD wp = 0; GetWindowThreadProcessId(h, &wp); Log(L"edge drag on the bar cancelled, tap passed to the bar: %s in %s (zoomed %d, fills screen %d, touch %d)", ClassOf(h).c_str(), FileNameOf(ExePathOfPid(wp)).c_str(), (int)IsZoomed(h), (int)fills, (int)touch); }   // the app's name: Chrome_WidgetWin_1 is every Chromium/Electron app
             {   // what Windows sees under the finger right now: which window is on top there, is the guard up and above the app, and what the app itself calls that spot
                 HWND top = WindowFromPoint(p); DWORD_PTR ht = 0; SendMessageTimeoutW(h, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y), SMTO_ABORTIFHUNG, 100, &ht);
-                HWND gd = nullptr; RECT gr{}; for (auto& kv : g_guards) if (kv.second) { gd = kv.second; GetWindowRect(gd, &gr); break; }
+                HWND gd = g_anyGuard.load(); RECT gr{}; if (gd) GetWindowRect(gd, &gr);   // not g_guards: that map belongs to the UI thread, this hook runs on the snapper thread
                 bool above = false; for (HWND w = gd; w; w = GetWindow(w, GW_HWNDNEXT)) if (w == h) { above = true; break; }
                 RECT hr; GetWindowRect(h, &hr);
                 Log(L"  under the finger: top window %s; the app calls the spot %d (15 = bottom border, 1 = inside); guard %s at %d,%d,%d,%d, %s the app; app window %d,%d,%d,%d, topmost %d",
@@ -299,11 +300,12 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // Touch is targeted by its own rules: windows registered for touch hit testing (Chrome) are asked about a finger NEAR them and claim it for their
         // resize edge, and the strip, never asked, was skipped (real log 12:48-12:50: no hit test at all on the strip for those touches). Registered too, the strip
         // claims every finger that lands on it, with the best score there is.
-        auto* in = (const TOUCH_HIT_TESTING_INPUT*)l; TOUCH_HIT_TESTING_PROXIMITY_EVALUATION ev{}; ev.score = 0; ev.adjustedPoint = in->point;
+        // The touch point is moved onto the strip (ClaimTouch): a finger centred just above it otherwise still went to the app at its raw point.
+        auto* in = (const TOUCH_HIT_TESTING_INPUT*)l;
         uint64_t now = GetTickCount64(); if (now - g_guardTouch > 3000) { HWND under = nullptr; for (HWND w = GetWindow(h, GW_HWNDNEXT); w; w = GetWindow(w, GW_HWNDNEXT)) { RECT r; if (IsWindowVisible(w) && GetWindowRect(w, &r) && PtInRect(&r, in->point) && !(GetWindowLongW(w, GWL_EXSTYLE) & WS_EX_TRANSPARENT)) { under = w; break; } }
             DWORD up = 0; if (under) GetWindowThreadProcessId(under, &up); Log(L"guard strip took a finger at %d,%d (over %s)", (int)in->point.x, (int)in->point.y, under ? FileNameOf(ExePathOfPid(up)).c_str() : L"nothing"); }
         g_guardTouch = now;
-        return PackTouchHitTestingProximityEvaluation(in, &ev); }
+        return ClaimTouch(h, l); }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_LBUTTONDOWN: case WM_LBUTTONUP: {
         HWND bar = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA); if (!bar || !IsWindow(bar)) return 0;
@@ -325,6 +327,7 @@ void GuardsUpdate() {
         SetWindowPos(g, HWND_TOPMOST, br.left, br.top - band, W(br), band, SWP_NOACTIVATE | SWP_SHOWWINDOW); live.insert(bar);
     }
     for (auto it = g_guards.begin(); it != g_guards.end();) { if (!live.count(it->first)) { if (it->second) DestroyWindow(it->second); it = g_guards.erase(it); } else ++it; }
+    HWND any = nullptr; for (auto& kv : g_guards) if (kv.second) { any = kv.second; break; } g_anyGuard = any;
 }
 void WinMoveStart() { std::thread(SnapperThread).detach(); g_screens = ScreenKeys(); g_sig = MonSignature(); Snapshot(); }
 void WinMoveTick(int n) {   // from the app tick (250 ms)
@@ -349,5 +352,8 @@ bool WinMoveSelfTest(ws& detail) {
     RECT lg{0, 0, 1920, 1032};
     bool e = ShortMax({0, 0, 1920, 1005}, lg);   // the Minecraft case: 27 px short of the work area
     bool f = !ShortMax({0, 0, 1920, 1032}, lg) && !ShortMax({0, 0, 1920, 1030}, lg);
-    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d, touch guard %d", (int)a, (int)b, (int)c, (int)e, (int)f, (int)g); (void)d; return a && b && c && e && f && g;
+    RECT strip{0, 1780, 2880, 1824};   // the guard strip over a 96 px bar at 200 %
+    POINT above = TouchPointInside(strip, {900, 1770}), on = TouchPointInside(strip, {900, 1800}), below = TouchPointInside(strip, {900, 1824});
+    bool t = above.y == 1780 && above.x == 900 && on.y == 1800 && below.y == 1823;   // a finger just above the strip is moved onto it, not left in the app above
+    detail = Fmt(L"near-full %d, ordinary %d, sliver %d, short maximized %d/%d, touch guard %d, touch point on strip %d", (int)a, (int)b, (int)c, (int)e, (int)f, (int)g, (int)t); (void)d; return a && b && c && e && f && g && t;
 }
