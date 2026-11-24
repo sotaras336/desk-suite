@@ -241,6 +241,8 @@ struct Wnd {
 // Default window class registered once; Wnd::Create uses it.
 extern const wchar_t* kWndClass;
 bool IsTouchMsg();                          // is the current mouse message synthesised from touch/pen?
+POINT TouchPointInside(const RECT& r, POINT p);   // the nearest point to p that lies inside r (r's right/bottom are exclusive)
+LRESULT ClaimTouch(HWND h, LPARAM l);       // WM_TOUCHHITTESTING: claim the finger for h and move the touch point onto h
 
 void InvalidateAllWnds();
 void ClipboardSetText(const ws& s);
