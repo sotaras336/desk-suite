@@ -160,7 +160,7 @@ static const wchar_t* GlyphName(wchar_t c) {   // Segoe Fluent Icons / MDL2: the
     case 0xE76C: return L"Next"; case 0xE73E: return L"Done"; case 0xE718: return L"Pin"; case 0xE77A: return L"Unpin"; case 0xEA8F: return L"Notifications";
     case 0xE7F4: return L"Display"; case 0xE8A7: return L"Open in new window"; case 0xE722: return L"Camera"; case 0xE720: return L"Microphone"; case 0xE7E7: return L"Notifications";
     case 0xE708: return L"Focus"; case 0xE7EF: return L"Project"; case 0xE945: return L"Airplane mode"; case 0xE83F: return L"Battery saver"; case 0xEBC6: return L"Mobile hotspot";
-    case 0xE77B: return L"Account"; case 0xE7E0: return L"Keyboard"; case 0xE8EC: return L"Tag"; case 0xE8E5: return L"Open file"; case 0xE838: return L"Open folder";
+    case 0xEBA0: case 0xEBAA: case 0xEBB5: return L"Battery"; case 0xE77B: return L"Account"; case 0xE7E0: return L"Keyboard"; case 0xE8EC: return L"Tag"; case 0xE8E5: return L"Open file"; case 0xE838: return L"Open folder";
     }
     return nullptr;
 }
