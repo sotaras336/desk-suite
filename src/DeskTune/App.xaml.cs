@@ -12,12 +12,12 @@ public partial class App : Application
     {
         try
         {
-            var dir = System.IO.Path.GetDirectoryName(InstalledExe)!; System.IO.Directory.CreateDirectory(dir);
+            var into = System.IO.Path.GetDirectoryName(InstalledExe)!; System.IO.Directory.CreateDirectory(into);
             CloseInstalledCopies();
-            try { System.IO.File.Delete(System.IO.Path.Combine(dir, UninstallMark)); } catch { }   // an uninstall a moment ago: its delayed folder removal must not take this copy
-            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase)) CopyIn(Environment.ProcessPath!, dir);
-            if (!System.IO.File.Exists(InstalledExe)) { MessageBox.Show("DeskTune couldn't install: the program file didn't arrive in " + dir, "DeskTune"); return false; }
-            foreach (var place in new[] { Programs, Desktop }) Link(System.IO.Path.Combine(place, "DeskTune.lnk"), "", "DeskTune: make Windows lighter");
+            try { System.IO.File.Delete(System.IO.Path.Combine(into, UninstallMark)); } catch { }   // an uninstall a moment ago: its delayed folder removal must not take this copy
+            if (!string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase)) CopyIn(Environment.ProcessPath!, into);
+            if (!System.IO.File.Exists(InstalledExe)) { MessageBox.Show("DeskTune couldn't install: the program file didn't arrive in " + into, "DeskTune"); return false; }
+            foreach (var dir in new[] { Programs, Desktop }) Link(System.IO.Path.Combine(dir, "DeskTune.lnk"), "", "DeskTune: make Windows lighter");
             Link(System.IO.Path.Combine(Programs, "Uninstall DeskTune.lnk"), "--uninstall", "Remove DeskTune");
             return true;
         }
