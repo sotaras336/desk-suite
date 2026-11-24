@@ -83,8 +83,8 @@ void DeskAppsCheck() {
             if (!got) { SetState(a.name, L"Installed · couldn't reach GitHub to look for updates"); continue; }
             std::string d; ws want = UpdateHashFor(sums, a.setup), mine = ReadAll(exe, d) ? Sha256HexOf(d) : ws();
             // a different file is only "new" when the release built it later than the installed one (the app writes its own build time into its update.json)
-            ws built = UpdateBuiltFor(sums, a.setup), have = InstalledBuilt(a.name);
-            bool ahead = !want.empty() && want != mine && !built.empty() && !have.empty() && built <= have;
+            ws built = UpdateBuiltFor(sums, a.setup), theirs = InstalledBuilt(a.name);
+            bool ahead = !want.empty() && want != mine && !built.empty() && !theirs.empty() && built <= theirs;
             SetState(a.name, want.empty() ? L"Installed" : want == mine ? L"Installed · up to date" : ahead ? L"Installed · newer than the latest release" : L"Installed · a new version is available");
         }
         g_busy = false;
