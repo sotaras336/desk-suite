@@ -32,6 +32,8 @@ ws ExecutableFor(const ws& ext);
 
 void ProgramsLoadAsync();
 void FileIndexStart();
+void FileIndexWarm();                        // Start opened: map the saved list (off the UI thread) so the first search is quick
+bool FileIndexIdleSelfTest(ws& detail);      // the list is not held while nobody searches, and comes back for a search
 bool FileIndexSelfTest(ws& detail);
 int FileIndexBuild();                        // --buildindex: scans the drives and saves fileindex.txt (its own process, started by the bar)
 bool FileIndexScanSelfTest(ws& detail);   // scans a small temp folder and saves it the way a rescan does

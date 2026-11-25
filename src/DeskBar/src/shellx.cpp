@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "app.h"
+#include "flyout.h"
 
 bool g_dev = true; HINSTANCE g_inst;
 
@@ -15,10 +16,14 @@ std::vector<Mon> Monitors() {
     std::sort(v.begin(), v.end(), [](const Mon& a, const Mon& b) { return a.bounds.left != b.bounds.left ? a.bounds.left < b.bounds.left : a.bounds.top < b.bounds.top; });
     return v;
 }
-ws MonSignature() {
-    ws s; for (auto& m : Monitors()) s += Fmt(L"%s:%d,%d,%d,%d@%.2f;", m.device.c_str(), m.bounds.left, m.bounds.top, m.bounds.right, m.bounds.bottom, m.scale);
+// One line per screen: which screen, where, how big, its scaling and whether it is the main one. Any change (a screen added or
+// removed, scaling changed, screens rearranged, another screen made the main one) changes the line, and the bars are rebuilt.
+ws MonSignatureOf(const std::vector<Mon>& mons) {
+    std::vector<ws> parts; for (auto& m : mons) parts.push_back(Fmt(L"%s:%d,%d,%d,%d@%.2f%s;", m.device.c_str(), (int)m.bounds.left, (int)m.bounds.top, (int)m.bounds.right, (int)m.bounds.bottom, m.scale, m.primary ? L"*" : L""));
+    std::sort(parts.begin(), parts.end()); ws s; for (auto& p : parts) s += p;   // the order Windows lists the screens in is not a change
     return s;
 }
+ws MonSignature() { return MonSignatureOf(Monitors()); }
 ws ClassOf(HWND h) { wchar_t b[128]; int n = GetClassNameW(h, b, 128); return ws(b, n); }
 ws ExePathOfPid(DWORD pid) {
     HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!p) return {};
@@ -98,8 +103,11 @@ bool IsFullscreenOn(const RECT& mb, ws* who, bool barHidden) {
 ws DeskDrawerExe() {
     auto get = [](const wchar_t* key) -> ws { wchar_t b[1024]; DWORD n = sizeof b; return RegGetValueW(HKEY_CURRENT_USER, key, nullptr, RRF_RT_REG_SZ, nullptr, b, &n) == ERROR_SUCCESS ? ws(b) : ws(); };
     if (get(L"Software\\Classes\\Directory\\shell") != L"deskdrawer") return {};
-    ws cmd = get(L"Software\\Classes\\Directory\\shell\\deskdrawer\\command");   // "C:\...\DeskDrawer.exe" "%1"
-    if (cmd.size() > 2 && cmd[0] == L'"') { size_t e = cmd.find(L'"', 1); if (e != ws::npos) { ws exe = cmd.substr(1, e - 1); if (FileExists(exe)) return exe; } }
+    ws exe = ExeOfOpenCommand(get(L"Software\\Classes\\Directory\\shell\\deskdrawer\\command"));   // "C:\...\DeskDrawer.exe" "%1"
+    return !exe.empty() && FileExists(exe) ? exe : ws();
+}
+ws ExeOfOpenCommand(const ws& cmd) {   // the program of a quoted open command, as DeskDrawer writes it (DefaultApp.cs): "C:\...\DeskDrawer.exe" "%1"
+    if (cmd.size() > 2 && cmd[0] == L'"') { size_t e = cmd.find(L'"', 1); if (e != ws::npos && e > 1) return cmd.substr(1, e - 1); }
     return {};
 }
 // Only the plain requests are taken over: no arguments (open Explorer) and /select,"file" (open its folder with the file selected; DeskDrawer takes the file path itself).
@@ -110,11 +118,18 @@ bool ExplorerAsDeskDrawer(const ws& target, const ws& args, ws& arg) {
     if (StartsI(args, L"/select,")) { arg = args.substr(8); arg.erase(std::remove(arg.begin(), arg.end(), L'"'), arg.end()); return !arg.empty(); }
     return false;
 }
+// The screen an app you start from DeskBar should open on: the screen of the open Start / Quick Settings, else the one under the pointer (the bar you clicked).
+// Windows' own taskbar does the same; without it everything opened on the main screen, even from the bar on the second one.
+static HMONITOR LaunchScreen() {
+    if (HMONITOR m = RecentPanelScreen()) return m;
+    POINT c; GetCursorPos(&c); return MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY);
+}
 void Launch(const ws& target, const ws& args, bool admin, const ws& dir) {
     if (!admin) { ws arg; if (ExplorerAsDeskDrawer(target, args, arg)) { ws dd = DeskDrawerExe(); if (!dd.empty()) { Launch(dd, L"\"" + arg + L"\""); return; } } }
+    HMONITOR screen = LaunchScreen();
     std::thread([=] {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        SHELLEXECUTEINFOW e{sizeof e}; e.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC; e.lpFile = target.c_str();
+        SHELLEXECUTEINFOW e{sizeof e}; e.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC | SEE_MASK_HMONITOR; e.hMonitor = screen; e.lpFile = target.c_str();   // apps that let Windows pick their place open on that screen
         e.lpParameters = args.empty() ? nullptr : args.c_str(); e.lpDirectory = dir.empty() ? nullptr : dir.c_str();
         if (admin) e.lpVerb = L"runas"; e.nShow = SW_SHOWNORMAL;
         if (!ShellExecuteExW(&e)) Log(L"launch failed (%lu): %s", GetLastError(), target.c_str());
@@ -136,7 +151,7 @@ void ToggleDesktop() {
     std::vector<HWND> open;
     if (auto snap = WinSnapshot()) for (auto& w : snap->list) if (IsWindow(w.h) && IsWindowVisible(w.h) && !IsIconic(w.h)) open.push_back(w.h);
     if (open.empty()) {
-        for (auto it = g_putAway.rbegin(); it != g_putAway.rend(); ++it) if (IsWindow(*it) && IsIconic(*it)) ShowWindow(*it, SW_RESTORE);   // bottom first, so the top one ends up on top
+        for (auto it = g_putAway.rbegin(); it != g_putAway.rend(); ++it) if (IsWindow(*it) && IsIconic(*it)) ShowWindowAsync(*it, SW_RESTORE);   // bottom first, so the top one ends up on top
         if (!g_putAway.empty() && IsWindow(g_putAway.front())) ForceForeground(g_putAway.front());
         g_putAway.clear(); return;
     }
@@ -151,6 +166,7 @@ void SendKeys(std::initializer_list<WORD> vks) {
     SendInput((UINT)in.size(), in.data(), sizeof(INPUT));
 }
 void ForceForeground(HWND h) {
+    if (IsHungAppWindow(h)) { if (IsIconic(h)) ShowWindowAsync(h, SW_RESTORE); SetForegroundWindow(h); return; }   // a "Not responding" app: a plain restore waits for it, and the bar froze with it
     if (IsIconic(h)) { ShowWindow(h, SW_RESTORE); if (IsIconic(h)) { SwitchToThisWindow(h, TRUE); return; } }   // admin apps and a waiting admin prompt refuse our restore (Windows guards higher-rights windows); Alt+Tab's call gets through
     if (SetForegroundWindow(h)) return;
     keybd_event(VK_F24, 0, 0, 0); keybd_event(VK_F24, 0, KEYEVENTF_KEYUP, 0);   // grants the right when Windows refuses

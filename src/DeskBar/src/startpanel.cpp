@@ -2,6 +2,7 @@
 #include "flyout.h"
 #include "widgets.h"
 #include "search.h"
+#include "bar.h"
 #define SECURITY_WIN32
 #include <security.h>
 #include <secext.h>
@@ -152,6 +153,7 @@ struct StartPanel : Flyout {
     }
     void OnClose() override { if (drift) { UiKillTimer(drift); drift = 0; } }
     void OnShown() override {
+        FileIndexWarm();   // the file list is mapped only while you search: bring it in now, before the first key
         // wait until Windows really gave us the keyboard, then hand the search box whatever was typed meanwhile
         auto tries = std::make_shared<int>(0); auto id = std::make_shared<UINT_PTR>(0);
         *id = UiTimer(20, [this, tries, id] {
@@ -359,11 +361,13 @@ struct StartPanel : Flyout {
     }
     // ------------------------------------------------ search
     void RunSearch() {
-        Log(L"search text [%s] len %d first %04x", search->text.c_str(), (int)search->text.size(), search->text.empty() ? 0 : search->text[0]); ws q = Trim(search->text); if (q.empty()) { ShowHome(); return; }
+        if (search->text.size() == 1) Log(L"search started, first key %04x", search->text[0]);   // once per search, never what was typed
+        ws q = Trim(search->text); if (q.empty()) { ShowHome(); return; }
         homeScroll->visible = false; allScroll->visible = false; results->visible = true;
         local = SearchLocal(q); files.clear(); RenderResults(false);
-        SearchFiles(q, [this, q](std::vector<Result> f) { if (!shown || Trim(search->text) != q) return; for (auto& x : f) x.score += HabitBoost(q, x.kind, x.target); files = std::move(f); RenderResults(true); });
+        SearchFiles(q, [this, q](std::vector<Result> f) { if (!shown || Trim(search->text) != q) return; for (auto& x : f) x.score += HabitBoost(q, x.kind, x.target); files = std::move(f); RenderResults(true); if (onFiles) onFiles(); });
     }
+    std::function<void()> onFiles;   // dev (--perf): told when the file results are in
     void RenderResults(bool keep) {
         ws prev = keep && sel >= 0 && sel < (int)rows.size() ? rows[sel].first.target : ws();
         resCol->Clear(); rows.clear(); std::vector<Result> all = local; all.insert(all.end(), files.begin(), files.end());
@@ -455,3 +459,27 @@ struct StartPanel : Flyout {
 };
 }
 Flyout* MakeStartPanel() { return new StartPanel(); }
+
+// dev: --perf <file> times what you wait for in Start: opening it (until its first frame is drawn), each search's instant part (apps, settings, run box,
+// drawn), and the file results arriving. Runs in a dev copy (DB3_DATA pointing at a copy of the real data), writes the numbers and quits.
+static double NowMs() { LARGE_INTEGER f, c; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&c); return c.QuadPart * 1000.0 / f.QuadPart; }
+void StartPerf(const ws& file) {
+    auto* sp = (StartPanel*)Panel_(Panel::Start); auto out = std::make_shared<std::string>();
+    auto add = [out](const ws& s) { *out += Narrow(s) + "\n"; };
+    static const wchar_t* qs[] = {L"note", L"notepad", L"chrome", L"report", L"readme", L"deskbar", L"wifi", L"εργασια", L"ab", L"setti"};
+    auto step = std::make_shared<std::function<void(int)>>();
+    *step = [=](int i) {
+        if (i < 6) {   // open / close six times: the first one after start-up, then warm
+            if (sp->shown) sp->Close(true);
+            double t = NowMs(); TogglePanel(Panel::Start, AllBars().empty() ? nullptr : AllBars()[0]); add(Fmt(L"open start #%d: %.1f ms", i + 1, NowMs() - t));
+            UiOnce(700, [=] { (*step)(i + 1); }); return;
+        }
+        int k = i - 6; if (k >= (int)std::size(qs)) { sp->onFiles = nullptr; WriteAtomic(file, *out); PostQuitMessage(0); return; }
+        sp->search->SetText(L"", false); double t0 = NowMs(); auto done = std::make_shared<bool>(false);
+        sp->onFiles = [=] { if (*done) return; *done = true; sp->PaintNow(); add(Fmt(L"  files in + drawn: %.1f ms", NowMs() - t0)); UiOnce(300, [=] { (*step)(i + 1); }); };
+        sp->search->SetText(qs[k]); sp->PaintNow(); add(Fmt(L"search \"%s\": instant part drawn %.1f ms", qs[k], NowMs() - t0));
+        double a = NowMs(); auto loc = SearchLocal(qs[k]); add(Fmt(L"  (local search alone %.1f ms, %d results)", NowMs() - a, (int)loc.size()));
+        UiOnce(3000, [=] { if (!*done) { *done = true; add(L"  files: none within 3 s"); (*step)(i + 1); } });
+    };
+    (*step)(0);
+}

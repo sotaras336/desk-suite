@@ -18,7 +18,7 @@ public sealed class QuickLook : Window
     private readonly TextBlock _title = new() { FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _sub = new() { FontSize = 12, Margin = new Thickness(0, 2, 0, 0) };
     private readonly Border _body = new() { Margin = new Thickness(16, 4, 16, 16), CornerRadius = new CornerRadius(8), ClipToBounds = true };
-    private FileEntry? _cur; private int _version;
+    private FileEntry? _cur; private int _version; private bool _closing;
 
     public static bool IsOpen => _open != null;
     internal static string? ShownName => _open?._cur?.Name;                                     // for the UI test
@@ -40,10 +40,7 @@ public sealed class QuickLook : Window
         // 82% of the window it opens from, centred on it
         Width = Math.Max(480, owner.ActualWidth * 0.82); Height = Math.Max(360, owner.ActualHeight * 0.82);
         Left = owner.Left + (owner.ActualWidth - Width) / 2; Top = owner.Top + (owner.ActualHeight - Height) / 2;
-        if (owner.WindowState == WindowState.Maximized && PresentationSource.FromVisual(owner) is { } ps)
-        {   // a maximized owner's Left/Top are its restored place: centre on the screen it fills instead
-            var wa = SystemParameters.WorkArea; Left = wa.Left + (wa.Width - Width) / 2; Top = wa.Top + (wa.Height - Height) / 2;
-        }
+        SourceInitialized += (_, _) => PlaceOver(owner);   // the real place, in screen pixels on the owner's own monitor
 
         var card = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1) };
         card.SetResourceReference(Border.BackgroundProperty, "MenuBg"); card.SetResourceReference(Border.BorderBrushProperty, "CardLine");
@@ -66,9 +63,35 @@ public sealed class QuickLook : Window
             else if (e.Key == Key.Enter) { if (_cur != null) { var p = _cur.FullPath; Close(); _openFile(p); } e.Handled = true; }
             else if (e.Key is Key.Right or Key.Down or Key.Left or Key.Up) { if (_step(e.Key is Key.Right or Key.Down ? 1 : -1) is { } n) Show(n); e.Handled = true; }
         };
-        Deactivated += (_, _) => { if (IsVisible) Close(); };   // clicking anywhere else puts it away
+        Closing += (_, _) => _closing = true;
+        Deactivated += (_, _) => { if (IsVisible && !_closing) Close(); };   // clicking anywhere else puts it away (not while closing: Space, Esc or Open close it, the close deactivates it, and a second Close() inside the first throws)
         Closed += (_, _) => { _open = null; Owner?.Activate(); };
     }
+
+    /// Centres the look on owner in screen pixels, on the monitor owner is on. WPF's Left/Top can't say which monitor (and
+    /// SystemParameters.WorkArea is always the primary one), so a look from a DeskDrawer on a second screen used to open on the first.
+    private void PlaceOver(Window owner)
+    {
+        var oh = new System.Windows.Interop.WindowInteropHelper(owner).Handle; var me = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (oh == IntPtr.Zero || me == IntPtr.Zero) return;
+        var mi = new QMon { Size = System.Runtime.InteropServices.Marshal.SizeOf<QMon>() };
+        if (!GetMonitorInfo(MonitorFromWindow(oh, 2), ref mi)) return;
+        var wa = mi.Work;
+        // a maximized owner fills its monitor's work area; otherwise centre on the owner itself
+        var o = owner.WindowState == WindowState.Maximized || !GetWindowRect(oh, out var r) ? wa : r;
+        double s = VisualTreeHelper.GetDpi(owner).DpiScaleX;
+        int w = Math.Min((int)Math.Round(Width * s), wa.R - wa.L), h = Math.Min((int)Math.Round(Height * s), wa.B - wa.T);
+        int x = Math.Clamp(o.L + (o.R - o.L - w) / 2, wa.L, wa.R - w), y = Math.Clamp(o.T + (o.B - o.T - h) / 2, wa.T, wa.B - h);
+        // twice: the first move can land it on a monitor with another scaling, which makes WPF rescale it; the second sets the exact size there
+        for (int i = 0; i < 2; i++) SetWindowPos(me, IntPtr.Zero, x, y, w, h, 0x0004 | 0x0010);   // keep the z-order, don't activate
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct QRect { public int L, T, R, B; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct QMon { public int Size; public QRect Monitor, Work; public uint Flags; }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")] private static extern bool GetMonitorInfo(IntPtr m, ref QMon mi);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out QRect r);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
     private Button Btn(string text, Action click, bool glyph = false)
     {

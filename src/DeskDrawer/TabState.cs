@@ -25,7 +25,12 @@ public sealed class TabState : INotifyPropertyChanged
 
     private string _title = "New tab"; private bool _active;
     public string Title { get => _title; set { _title = value; Raise(nameof(Title)); } }
-    public bool IsActive { get => _active; set { _active = value; Raise(nameof(IsActive)); } }
+    public bool IsActive { get => _active; set { _active = value; Raise(nameof(IsActive)); Raise(nameof(Status)); } }
+    private bool _partner;
+    /// Split view: this tab is the one on the other side (a line under it in the tab strip).
+    public bool IsPartner { get => _partner; set { if (_partner == value) return; _partner = value; Raise(nameof(IsPartner)); Raise(nameof(Status)); } }
+    /// What a screen reader says after the tab's name.
+    public string Status => _active ? "open" : _partner ? "on the other side" : "";
     private System.Windows.Media.ImageSource? _icon;
     /// The open folder's own shell icon; null on Home, which shows a house instead.
     public System.Windows.Media.ImageSource? Icon { get => _icon; set { _icon = value; Raise(nameof(Icon)); } }

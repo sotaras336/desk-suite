@@ -22,7 +22,7 @@ public static class Theme
 
     public static ThemeDef Current { get; private set; } = All[0];
     public static bool IsLight => Current.Kind == 2;
-    public static bool IsGlass => Current.Kind == 3;
+    public static bool IsGlass => Current.Kind == 3 && !SystemParameters.HighContrast;   // high contrast: solid system colours, no see-through
 
     /// How far a custom colour fades to a lighter shade ("custom:<hue>:<0-100>"): 0 = flat, -1 = not set (DeskMode's own fade).
     public static double Grad = -1;
@@ -63,7 +63,7 @@ public static class Theme
         {   // a ready-made colour, optionally with a fade: "blue:40"
             if (parts.Length > 1 && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var gs)) Grad = Math.Clamp(gs, 0, 100);
             if (parts[0] == "accent" && WindowsAccentHue() is { } ah) Current = new ThemeDef("accent", "Windows accent", ah, false, 0);
-            else Current = All.FirstOrDefault(t => string.Equals(t.Id, parts[0], StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == "black");
+            else Current = All.FirstOrDefault(t => string.Equals(t.Id, parts[0], StringComparison.OrdinalIgnoreCase)) ?? All.First(t => t.Id == (string.IsNullOrWhiteSpace(parts[0]) ? "black" : "blue"));   // no theme yet: Black; a name nobody knows (a broken file, a grey Windows accent): Blue, as DeskBar does
         }
         FullId = Current.Kind == 0 && Grad >= 0 && !Current.Id.StartsWith("custom:") ? Current.Id + ":" + (int)Grad : Current.Id;
     }
@@ -74,6 +74,21 @@ public static class Theme
         if (Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM")?.GetValue("AccentColor") is not int abgr) return null;
         ToHsl((abgr & 255) / 255.0, ((abgr >> 8) & 255) / 255.0, ((abgr >> 16) & 255) / 255.0, out double h, out double s, out _);
         return s < 0.1 ? null : h;   // a grey accent has no hue to follow
+    }
+
+    /// The colour picker's light bar, the same in DeskBar, DeskDrawer and DeskTune: under 0.10 the White theme, over 0.92 Black, 0.2-0.3 the colour as it is, darker below.
+    public static int LightZone(double t) => t < 0.10 ? 2 : t > 0.92 ? 1 : 0;
+    public static double LightVal(double t) => t <= 0.30 ? 1 : Math.Clamp((0.92 - t) / 0.62, 0, 1);
+    /// Where the light bar's handle starts for the colour in use.
+    public static double LightStart(ThemeDef cur) => cur.Kind == 1 ? 0.96 : cur.Kind == 2 ? 0.04 : cur.Val >= 1 ? 0.25 : 0.92 - cur.Val * 0.62;
+    /// The theme id the colour picker gives (DeskBar's picker makes the same ids): black and white at the light bar's ends; a ready-made colour not moved keeps its
+    /// name with the fade ("blue:40"); anything else is "custom:<hue>:<fade>", with ":<vividness>:<light>" when either is below 100.
+    public static string ColourId(double t, string? baseId, bool moved, double hue, double fade, double sat)
+    {
+        int z = LightZone(t); if (z != 0) return z == 1 ? "black" : "white";
+        string f = ":" + (int)Math.Round(fade, MidpointRounding.AwayFromZero); if (baseId != null && !moved) return baseId + f;   // rounded as DeskBar rounds (lroundf), so the same spot gives the same id in every app
+        int sv = (int)Math.Round(sat), v = (int)Math.Round(LightVal(t) * 100);
+        return "custom:" + (int)Math.Round(hue, MidpointRounding.AwayFromZero) + f + (sv < 100 || v < 100 ? ":" + sv + ":" + v : "");
     }
 
     public static Color Col(uint rgb, int a = 255) => ColFor(Current, rgb, a);
@@ -164,6 +179,7 @@ public static class Theme
             r["Card"] = Raw(0xFFFFFF, 0x0F); r["CardHover"] = Raw(0xFFFFFF, 0x1C); r["CardLine"] = Raw(0xFFFFFF, 0x16);
             r["Select"] = Raw(0xFFFFFF, 0x20); r["SelectLine"] = Raw(0xFFFFFF, 0x2E);
         }
+        A11y.HighContrast(r);   // Windows' high contrast colours win while it is on
     }
 }
 
@@ -172,7 +188,7 @@ public static class Theme
 public static class SharedTheme
 {
     public const string App = "desktune";
-    public static string Dir => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Desk");
+    public static string Dir => Environment.GetEnvironmentVariable("DESK_DIR") is { Length: > 0 } d ? d : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Desk");   // DESK_DIR: a self-test's own folder
     public static string File => System.IO.Path.Combine(Dir, "theme.txt");
     static string Own => System.IO.Path.Combine(Dir, "theme-" + App + ".txt");
     static string? ReadFile(string f) { try { var t = System.IO.File.ReadAllText(f).Trim(); return t.Length is > 0 and < 200 ? t : null; } catch { return null; } }
@@ -187,18 +203,26 @@ public static class SharedTheme
 /// One settings window for the Desk suite: DeskBar's. Settings here opens it at this app's page when DeskBar is running (false = it isn't: use our own).
 public static class DeskSettings
 {
-    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindowW(string cls, string? title);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string? title);
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern uint RegisterWindowMessageW(string name);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr SendMessageTimeoutW(IntPtr h, uint m, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
+    internal static string WndClass = "DB3.Wnd";   // DeskBar's window class (ui_wnd.cpp kWndClass); only the self-test points it at a pretend one
+    const long Ack = 0x44534B;   // DeskBar 4.0 answers this (ui_wnd.cpp kOpenSettingsAck); an older DeskBar or its stand-in bar answers 0
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out int pid);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
     /// page: the page's name in DeskBar's settings ("deskdrawer", "desktune", "colours").
     public static bool Open(string page)
     {
         if (Environment.GetEnvironmentVariable("DESK_OWN_SETTINGS") != null) return false;   // tests and pictures of our own window
-        var h = FindWindowW("DB3.Wnd", null); if (h == IntPtr.Zero) return false;
-        GetWindowThreadProcessId(h, out int pid); AllowSetForegroundWindow(pid);
-        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 };
-        return PostMessageW(h, RegisterWindowMessageW("DeskOpenSettings"), (IntPtr)code, IntPtr.Zero);
+        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 }; uint msg = RegisterWindowMessageW("DeskOpenSettings");
+        // every DeskBar window gets asked until one says it opened the window: a plain post to the first one found did nothing with DeskBar 3.x
+        // (which doesn't know the message) and the Settings button looked dead
+        IntPtr h = IntPtr.Zero;
+        for (int n = 0; n < 64 && (h = FindWindowExW(IntPtr.Zero, h, WndClass, null)) != IntPtr.Zero; n++)
+        {
+            GetWindowThreadProcessId(h, out int pid); AllowSetForegroundWindow(pid);
+            if (SendMessageTimeoutW(h, msg, (IntPtr)code, IntPtr.Zero, 0x0002 /* SMTO_ABORTIFHUNG */, 1000, out var r) != IntPtr.Zero && (long)r == Ack) return true;
+        }
+        return false;
     }
 }

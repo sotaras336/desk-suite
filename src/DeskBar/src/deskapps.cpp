@@ -8,7 +8,7 @@
 // - One installer: Settings > Desk apps installs and updates DeskDrawer and DeskTune from the same GitHub release DeskBar updates from, each file
 //   checked against the release's SHA256SUMS before it runs (the same download as DeskBar's own update).
 
-static ws DeskDir() { return KnownFolder(FOLDERID_LocalAppData) + L"\\Desk"; }
+static ws DeskDir() { wchar_t t[MAX_PATH]; if (GetEnvironmentVariableW(L"DESK_DIR", t, MAX_PATH)) return t; return KnownFolder(FOLDERID_LocalAppData) + L"\\Desk"; }   // DESK_DIR: the self-test's own folder, never the real colours
 static ws ThemePath(const ws& app) { return DeskDir() + (app.empty() ? ws(L"\\theme.txt") : L"\\theme-" + app + L".txt"); }
 static ws ReadId(const ws& path) { std::string d; if (!ReadAll(path, d)) return {}; ws t = Trim(Widen(d)); return t.size() < 200 ? t : ws(); }
 static void WriteId(const ws& path, const ws& id) { if (id.empty() || ReadId(path) == id) return; CreateDirectoryW(DeskDir().c_str(), nullptr); WriteAtomic(path, Narrow(id)); }
@@ -43,11 +43,16 @@ Json DeskDrawerSettings() { std::string d; Json j = Json::O(); if (ReadAll(Known
 bool DeskDrawerIsDefault() {
     wchar_t v[64] = L""; DWORD n = sizeof v; return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shell", nullptr, RRF_RT_REG_SZ, nullptr, v, &n) == ERROR_SUCCESS && ContainsI(v, L"DeskDrawer");
 }
+// DeskDrawer's own pipe (Instance.cs PipeName: "DeskDrawer-" + user name + "-" + session id): a running DeskDrawer takes "--set" lines on it
+ws DeskDrawerPipeName() {
+    DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);
+    return Fmt(L"\\\\.\\pipe\\DeskDrawer-%s-%lu", user, sid);
+}
 void DeskDrawerSet(const ws& key, const ws& value) {
     ws line = L"--set " + key + L"=" + value;
-    DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);
-    ws pipe = Fmt(L"\\\\.\\pipe\\DeskDrawer-%s-%lu", user, sid);
+    ws pipe = DeskDrawerPipeName();
     HANDLE h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY && WaitNamedPipeW(pipe.c_str(), 500)) h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);   // DeskDrawer is between two hand-offs: a second copy started with --set would write the file under the running one
     if (h != INVALID_HANDLE_VALUE) { std::string u = Narrow(line); DWORD w; WriteFile(h, u.data(), (DWORD)u.size(), &w, nullptr); CloseHandle(h); return; }
     ws exe = DeskAppExe(L"DeskDrawer"); if (FileExists(exe)) Launch(exe, L"--set " + key + L"=" + value);
 }
@@ -66,6 +71,11 @@ ws DeskAppExe(const ws& name) { for (auto& a : kApps) if (name == a.name) return
 ws DeskAppState(const ws& name) { std::lock_guard<std::mutex> l(g_mu); auto it = g_state.find(name); return it == g_state.end() ? ws() : it->second; }
 static void SetState(const ws& name, const ws& s) { { std::lock_guard<std::mutex> l(g_mu); g_state[name] = s; } UiPost([] { DeskAppsChanged(); }); }
 
+// When the installed DeskDrawer / DeskTune was built, as it wrote it into %LOCALAPPDATA%\<app>\update.json ("Built"); empty for builds older than this
+static ws InstalledBuilt(const ws& name) {
+    std::string d; if (!ReadAll(KnownFolder(FOLDERID_LocalAppData) + L"\\" + name + L"\\update.json", d)) return {};
+    Json j = Json::Parse(d); const Json* b = j.Find(L"Built"); return b && b->t == Json::Str ? b->s : ws();
+}
 // Looks at the newest release (worker thread): for each app, installed or not, and whether the release holds a different build.
 void DeskAppsCheck() {
     if (g_busy.exchange(true)) return;
@@ -77,7 +87,10 @@ void DeskAppsCheck() {
             if (!have) { SetState(a.name, L"Not installed"); continue; }
             if (!got) { SetState(a.name, L"Installed · couldn't reach GitHub to look for updates"); continue; }
             std::string d; ws want = UpdateHashFor(sums, a.setup), mine = ReadAll(exe, d) ? Sha256HexOf(d) : ws();
-            SetState(a.name, want.empty() ? L"Installed" : want == mine ? L"Installed · up to date" : L"Installed · a new version is available");
+            // a different file is only "new" when the release built it later than the installed one (the app writes its own build time into its update.json)
+            ws built = UpdateBuiltFor(sums, a.setup), theirs = InstalledBuilt(a.name);
+            bool ahead = !want.empty() && want != mine && UpdateReleaseNotNewer(built, theirs);   // the same rule the apps use for themselves (update.cpp)
+            SetState(a.name, want.empty() ? L"Installed" : want == mine ? L"Installed · up to date" : ahead ? L"Installed · newer than the latest release" : L"Installed · a new version is available");
         }
         g_busy = false;
     }).detach();
@@ -99,7 +112,7 @@ void DeskAppInstall(const ws& name) {
             else { Log(L"desk apps: installing %s from the newest release", name.c_str()); Launch(path); st = L"Installing… it opens when it's done."; }
         }
         g_busy = false; SetState(name, st);
-        if (ContainsI(st, L"Installing")) UiOnce(8000, [] { DeskAppsCheck(); });   // look again once the setup has had time to finish
+        if (ContainsI(st, L"Installing")) UiPost([] { UiOnce(8000, [] { DeskAppsCheck(); }); });   // UiOnce only on the UI thread: its timer map is not locked   // look again once the setup has had time to finish
     }).detach();
 }
 int DeskAppCount() { return (int)(sizeof kApps / sizeof kApps[0]); }

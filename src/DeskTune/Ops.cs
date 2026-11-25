@@ -85,7 +85,7 @@ public sealed class RegOp : Op
     public override string Describe() => $"{(Hive == RegistryHive.LocalMachine ? "HKLM" : "HKCU")}\\{Key}\\{Name} = {(Value is byte[] b ? Convert.ToHexString(b) : Value)}";
 }
 
-/// A Windows service set to Disabled and stopped. Undo restores its start type, and starts it again if it was automatic.
+/// A Windows service set to Disabled and stopped. Undo restores its start type (including "Automatic (delayed start)"), and starts it again if it was automatic.
 public sealed class ServiceOp : Op
 {
     public string Name { get; }
@@ -95,23 +95,32 @@ public sealed class ServiceOp : Op
 
     public bool Exists { get { using var k = Base(RegistryHive.LocalMachine).OpenSubKey(Key); return k?.GetValue("Start") != null; } }
     private int Start { get { using var k = Base(RegistryHive.LocalMachine).OpenSubKey(Key); return k?.GetValue("Start") is int s ? s : -1; } }
+    private int Delayed { get { using var k = Base(RegistryHive.LocalMachine).OpenSubKey(Key); return k?.GetValue("DelayedAutostart") is int d ? d : 0; } }
 
     public override bool IsApplied => Start == 4;
 
     public override JsonNode Apply()
     {
-        int before = Start;
+        int before = Start, delayed = Delayed;
         if (Run("sc.exe", $"config \"{Name}\" start= disabled") != 0) throw new InvalidOperationException($"Windows refused to change the service {Name}.");
         Run("sc.exe", $"stop \"{Name}\"", 20000);
-        return new JsonObject { ["start"] = before };
+        return new JsonObject { ["start"] = before, ["delayed"] = delayed };
     }
 
+    /// Undo used to ignore what sc.exe answered: without administrator rights, or when Windows refused, nothing changed but the change was still marked as undone,
+    /// and the switch could never be put back from DeskTune again. Now it checks, and throws when the service didn't really get its start type back (the undo
+    /// log then keeps the change, so it can be tried again). Older undo logs have no "delayed": those services come back as plain Automatic, as before.
     public override void Restore(JsonNode before)
     {
         int s = (int)before["start"]!;
-        string type = s switch { 2 => "auto", 3 => "demand", 4 => "disabled", 0 => "boot", 1 => "system", _ => "demand" };
-        Run("sc.exe", $"config \"{Name}\" start= {type}");
-        if (s == 2) Run("sc.exe", $"start \"{Name}\"", 20000);
+        bool delayed = s == 2 && before["delayed"] is JsonNode d && (int)d == 1;
+        if (!Exists) return;   // the service is gone (removed by Windows or its app): nothing left to put back
+        if (!Elevation.IsAdmin) throw new InvalidOperationException($"service {Name} needs administrator rights to put back");
+        string type = s switch { 2 => delayed ? "delayed-auto" : "auto", 3 => "demand", 4 => "disabled", 0 => "boot", 1 => "system", _ => "demand" };
+        int code = Run("sc.exe", $"config \"{Name}\" start= {type}");
+        int want = s is >= 0 and <= 4 ? s : 3;
+        if (code != 0 || Start != want) throw new InvalidOperationException($"Windows refused to put back the service {Name} (sc.exe answered {code})");
+        if (s == 2) Run("sc.exe", $"start \"{Name}\"", 20000);   // not checked: its start type is back, and Windows starts it at the next restart anyway
     }
 
     public override string Describe() => $"service {Name} -> disabled";

@@ -6,6 +6,7 @@
 #define N_INSTANCE L"DB3.Instance"
 #define N_HOOKS L"DB3.Hooks"
 #define N_WINKEY L"DB3.WinKey"
+#define N_CLIPKEY L"DB3.ClipKey"   // Win+V: the input helper asks for the clipboard history
 #define N_READY L"DB3.Ready"
 #define N_TYPEAHEAD L"DB3.TypeAhead"
 #define N_TYPEAHEAD_LOCK L"DB3.TypeAheadLock"
@@ -26,7 +27,18 @@ extern HINSTANCE g_inst;
 struct Mon { HMONITOR h; RECT bounds, work; float scale; ws device; bool primary; };
 std::vector<Mon> Monitors();             // ordered left to right
 ws MonSignature();
-bool BugReportsOn(); void OpenBugReport(); int BugSendTest(const ws& text);   // bugreport.cpp
+// Screen geometry with no window calls, so the self-test can try it on pretend layouts (mixed scaling, screens added / removed, a second screen left of or above the main one)
+ws MonSignatureOf(const std::vector<Mon>& mons);                          // shellx.cpp: changes whenever a screen is added, removed, moved, rescaled or made the main one
+int BarHeightFor(float scale);                                            // bar.cpp: the bar's height in that screen's pixels
+RECT BarRectOn(const RECT& monitor, float scale, bool top);               // bar.cpp: where the bar goes on a screen
+RECT BarWorkAreaOn(const RECT& monitor, float scale);                     // bar.cpp: the work area the bar leaves for maximized windows
+int MainMonIndex(const std::vector<Mon>& mons);                           // bar.cpp: which of these screens is the main (primary) one
+RECT SettingsRectOn(const RECT& work, float scale);                       // settingswin.cpp: the settings window's first place and size on a screen
+RECT FlyoutRectOn(const RECT& work, const RECT& monitor, float scale, float widthDip, float heightDip, bool anchorRight, float* maxHDip = nullptr);   // flyout.cpp: Start / Quick Settings on a screen
+bool BugReportsOn(); void OpenBugReport(const ws& prefill = {}, const ws& status = {}, bool activate = true); int BugSendTest(const ws& text);   // bugreport.cpp
+struct CrashSeen { ws app, when; };   // the newest crash not offered yet (empty app = none)
+CrashSeen CrashNewest(const ws& seen, const ws& cutoff); bool CrashReportCheck();   // bugreport.cpp: after a crash of DeskBar, DeskDrawer or DeskTune, offer Report a bug once
+void WriteCrashReport(EXCEPTION_POINTERS* e);   // watchdog.cpp: crash.txt
 bool IsFullscreenOn(const RECT& monBounds, ws* who = nullptr, bool barHidden = false);   // who: class, title and exe of the window that covers the screen
 HWND MainTray();                         // Windows' own Shell_TrayWnd (never ours)
 namespace Explorer { void Hide(); void KeepHidden(); void Restore(); }
@@ -56,6 +68,10 @@ bool IsFlashing(HWND h);
 ws PackageFamilyFromPath(const ws& exe);
 ws AumidOfShortcut(const ws& lnk);
 bool WinMoveSelfTest(ws& detail);                                      // winmove.cpp: the maximized-edge and hidden-window rules
+bool GuardThreadSelfTest(ws& detail);
+bool MenuGuardSelfTest(ws& detail);                                    // winmove.cpp: a right-click menu runs what you pick, and no touch strip sits over it
+std::vector<MenuItem> BarMenuItems();                           // bar.cpp: the bar's right-click menu                                  // winmove.cpp: the touch guard strips on their own thread
+bool WinMoveMoreSelfTest(ws& detail);                                  // winmove.cpp: touch on the bar edge, dropping and sending windows between screens
 void GesturesStart();                                                   // three-finger swipe down on the touchpad minimises everything (gesture.cpp)
 struct SwipeTracker { bool armed = false; float sx = 0, sy = 0, lx = 0, ly = 0; int Feed(int fingers, float x, float y); };   // 1 = a three-finger swipe down just ended
 
@@ -144,7 +160,24 @@ void SysPoke();                                  // something changed on the UI 
 ws KeyboardLabel(HWND fg);                       // "ENG", "ΕΛ", ... ("" if only one layout is installed)
 
 // ---------- panels (flyouts) ----------
-enum class Panel { None, Start, Quick, Clock };
+enum class Panel { None, Start, Quick, Clock, Clip };
+// clipboard.cpp: clipboard history (Win+V), pinned snippets saved encrypted, private copies never kept
+constexpr size_t kClipMaxRecent = 25, kClipMaxPinned = 50, kClipMaxChars = 20000;   // ~1 MB at most for a full history of the longest texts
+struct ClipItem { ws text; bool pinned = false; uint64_t at = 0; };          // at: unix seconds it was copied (0 = unknown)
+struct ClipStore {
+    std::vector<ClipItem> pinned, recent;                                     // newest first
+    bool Add(const ws& t, uint64_t at);                                       // false = not kept (blank or too long)
+    bool Pin(const ws& t, bool on); void Remove(const ws& t); void ClearRecent();
+    std::vector<const ClipItem*> Find(const ws& q) const;                     // pinned first, then recent; case-insensitive
+    size_t Bytes() const;
+};
+struct ClipFlags { bool exclude = false, viewerIgnore = false; int canInclude = -1; };   // what the copying app said about privacy (-1: nothing)
+ws ClipSkipReason(const ClipFlags& f, const ws& ownerExe, const ws& text);   // "" = keep it
+bool ClipIsPasswordApp(const ws& exe);
+bool ClipKeyIsOurs(UINT vk, bool winDown, bool ctrl, bool alt, bool shift, bool on);   // hooks.cpp: Win+V opens DeskBar's clipboard
+bool ClipSavePins(const std::vector<ClipItem>& pins, const ws& path); bool ClipLoadPins(std::vector<ClipItem>& pins, const ws& path);
+ws ClipPreview(const ws& t, size_t maxChars);
+void ClipStart(); void ClipClearHistory(); void ClipSetOn(bool on); ClipStore& ClipHistory(); bool ClipSelfTest(ws& detail); void OpenClipboardPanel(Wnd* from);
 // webwidget.cpp: extras you switch on in DeskBar settings, drawn on the bar
 struct WidgetDef { const wchar_t* id; const wchar_t* name; };
 extern const WidgetDef kWidgets[]; extern const int kWidgetCount;
@@ -179,6 +212,8 @@ int RunInstall(); int RunUninstall();
 bool UpdateFetchLatest(ws& path); bool EvictOlderCopies(); void EnsureSignInTask(); void SetSignInTask(bool on); ws SignInTaskState(); int SignInTest(const ws& report);   // the scheduled task that starts DeskBar at sign-in (install.cpp)
 // update.cpp: once-a-day look for a newer release on GitHub, and "update now" (details at the top of that file)
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
+ws UpdateBuiltFor(const std::string& sums, const ws& file); ws UpdateStamp(int64_t unixSeconds);
+bool UpdateReleaseNotNewer(const ws& releaseBuilt, const ws& mine);   // update.cpp: true = never offer that release (it is not later than this build; a list without build times is older than any build that has one)   // "# built <file> <yyyyMMddTHHmmssZ>" lines in the release list (update.cpp)
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);
 void BarsWorkAreaUpkeep();
 
@@ -195,7 +230,7 @@ void SendToNextScreen(HWND h);
 // ---------- icons ----------
 // key forms: "exe:<path>", "aum:<AUMID>", "file:<path>" (any shell path).  Returns null until the image has arrived; onReady runs on the UI thread.
 ImgP IconGet(const ws& key, int px); size_t IconTrim(size_t keep, uint64_t idleMs = 600000); bool IconTrimSelfTest(ws& detail);
-void IconInit();
+void IconInit(); ws IconCachedFile(const ws& key, int px);   // icons.cpp: the cached picture for the stand-in bar (empty = none)
 bool IconSettled(const ws& key, int px);   // arrived or failed for good (starts the fetch if neither)
 ws ShellNameOf(const ws& key);          // display name for "aum:..." / "exe:..." keys (blocking: call from workers)
 
@@ -224,3 +259,6 @@ void DeskAppsChanged();   // settingswin.cpp: redraw the Desk apps page
 bool ThemesSeparate(); ws ThemeOf(const ws& app); void ThemeSet(const ws& app, const ws& id); void ThemesSetSeparate(bool on);   // deskapps.cpp: Settings > Colours
 Json DeskDrawerSettings(); bool DeskDrawerIsDefault(); void DeskDrawerSet(const ws& key, const ws& value);
 void SettingsReopenAfterRestart(); void SettingsReopenCheck(); void SettingsOpenFromApp(int code);   // settingswin.cpp
+int SettingsPageForCode(int code); int PageNamed(const ws& n);   // settingswin.cpp: which page another app's code, or a --page name, opens
+ws ExeOfOpenCommand(const ws& cmd); ws DeskDrawerPipeName();   // shellx.cpp / deskapps.cpp, for the launch self-test
+bool LaunchSelfTest(ws& detail);   // launchtest.cpp

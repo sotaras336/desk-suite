@@ -41,6 +41,15 @@ bool Get(const ws& url, std::string& out, size_t cap) {
 
 ws SelfHash() { wchar_t m[MAX_PATH]; GetModuleFileNameW(nullptr, m, MAX_PATH); std::string d; return ReadAll(m, d) ? Sha256HexOf(d) : ws(); }
 
+// "Different" is not "newer": a build made on the PC after the release (a fix not published yet) was offered the older release as "a new version",
+// and Update now put the old build back. The release list now says when each file was built ("# built DeskBar-Setup.exe 20261125T101500Z"), and this
+// exe knows when it was linked (the PE header's time stamp, UTC). A release only counts as newer when it was built later. No "built" line: as before.
+ws SelfBuilt() {
+    auto* dos = (const IMAGE_DOS_HEADER*)GetModuleHandleW(nullptr); if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return {};
+    auto* nt = (const IMAGE_NT_HEADERS*)((const BYTE*)dos + dos->e_lfanew); if (nt->Signature != IMAGE_NT_SIGNATURE) return {};
+    return UpdateStamp((int64_t)nt->FileHeader.TimeDateStamp);
+}
+
 // the whole check, on the calling thread: true = the newest release holds a different build of DeskBar
 bool DoCheck(ws& status) {
     std::string sums;
@@ -48,6 +57,8 @@ bool DoCheck(ws& status) {
     ws want = UpdateHashFor(sums, kAsset); if (want.empty()) { status = L"Couldn't read the release list."; return false; }
     { std::lock_guard<std::mutex> l(g_mu); g_known = want; }
     ws me = SelfHash(); bool newer = !me.empty() && want != me;
+    ws built = UpdateBuiltFor(sums, kAsset), mine = SelfBuilt();
+    if (newer && UpdateReleaseNotNewer(built, mine)) { status = L"You have a newer build than the latest release."; return false; }
     status = newer ? L"A new version is available." : L"You have the latest version."; return newer;
 }
 // download + verify, on the calling thread; true = the checked setup file is at `path`
@@ -92,6 +103,33 @@ ws UpdateHashFor(const std::string& sums, const ws& file) {   // "hash *name" pe
         if (EqI(name, file)) return Lower(line.substr(0, 64));
     }
     return {};
+}
+// "# built <file> <yyyyMMddTHHmmssZ>" in the release list: when that file was built (empty = the list doesn't say)
+ws UpdateBuiltFor(const std::string& sums, const ws& file) {
+    ws all = Widen(sums), line; size_t p = 0;
+    while (p < all.size()) {
+        size_t e = all.find(L'\n', p); if (e == ws::npos) e = all.size(); line = Trim(all.substr(p, e - p)); p = e + 1;
+        if (!StartsI(line, L"# built ")) continue;
+        ws rest = Trim(line.substr(8)); size_t sp = rest.rfind(L' '); if (sp == ws::npos) continue;
+        ws stamp = rest.substr(sp + 1); if (stamp.size() != 16 || stamp[8] != L'T' || stamp[15] != L'Z') continue;
+        if (EqI(Trim(rest.substr(0, sp)), file)) return stamp;
+    }
+    return {};
+}
+// The one rule for "is the release newer than me", the same in all three apps. A release is only newer when it says it was built later than this copy.
+// A release list with no "built" line comes from before 4.0, when builds started carrying their time: every copy that knows its own build time is newer than
+// that, so it is never offered (the test builds on the PC were offered the older public release over and over, and Update put the old one back).
+// Only a copy that doesn't know its own build time (older than 4.0) still goes by "the file is different".
+bool UpdateReleaseNotNewer(const ws& releaseBuilt, const ws& mine) {
+    if (mine.empty()) return false;              // no time of our own: different = newer, as before
+    if (releaseBuilt.empty()) return true;       // the release doesn't say: it is older than any copy that does
+    return releaseBuilt <= mine;                 // same-length stamps: text order is time order
+}
+ws UpdateStamp(int64_t unixSeconds) {   // seconds since 1970 (UTC) -> "yyyyMMddTHHmmssZ"
+    if (unixSeconds <= 0) return {};
+    ULARGE_INTEGER u; u.QuadPart = (ULONGLONG)(unixSeconds + 11644473600LL) * 10000000ULL; FILETIME ft{u.LowPart, u.HighPart}; SYSTEMTIME t;
+    if (!FileTimeToSystemTime(&ft, &t)) return {};
+    return Fmt(L"%04d%02d%02dT%02d%02d%02dZ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 }
 // On the calling thread: when the newest release holds a different DeskBar than this exe, download and verify it. True = the checked setup is at `path`.
 bool UpdateGet(const ws& url, std::string& out, size_t cap) { return Get(url, out, cap); }

@@ -138,7 +138,7 @@ void DeskModeFirst() {
 // (no blink when alt-tabbing). Pressed again, the window gets its frame and place back.
 namespace { std::map<HWND, std::pair<LONG_PTR, RECT>> g_framed; }
 void ToggleBorderless(HWND h) {
-    if (!h || !IsWindow(h)) return; DWORD pid = 0; GetWindowThreadProcessId(h, &pid); if (pid == GetCurrentProcessId()) return;
+    if (!h || !IsWindow(h)) return; DWORD pid = 0; GetWindowThreadProcessId(h, &pid); if (pid == GetCurrentProcessId() || IsHungAppWindow(h)) return;
     if (auto it = g_framed.find(h); it != g_framed.end()) {
         SetWindowLongPtrW(h, GWL_STYLE, it->second.first); RECT r = it->second.second;
         SetWindowPos(h, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_FRAMECHANGED); g_framed.erase(it); return;
@@ -166,7 +166,7 @@ void DeskModeHotkeysStart() {
         MSG m; while (GetMessageW(&m, nullptr, 0, 0) > 0) {
             if (m.message != WM_HOTKEY) continue;
             int id = (int)m.wParam - 0xD300;
-            if (id == 0) UiPost([] { if (!AllBars().empty()) OpenDeskModePanel(AllBars()[0]); });
+            if (id == 0) UiPost([] { if (Bar* b = BarHere()) OpenDeskModePanel(b); });   // Ctrl+Alt+D: on the screen you are on, not always the leftmost
             else if (id == 3) ToggleBorderless(GetForegroundWindow());
             else std::thread([id] { DeskModeGo(id == 1); }).detach();
         }

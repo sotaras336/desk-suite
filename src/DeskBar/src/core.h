@@ -47,7 +47,7 @@ struct Json {
     enum T { Null, Bool, Num, Str, Arr, Obj } t = Null;
     bool b = false; double n = 0; ws s;
     std::vector<Json> a; std::vector<std::pair<ws, Json>> o;
-    static Json Parse(const std::string& u8);
+    static Json Parse(const std::string& u8, bool* ok = nullptr);   // ok: false when the text was cut short or not JSON (what could be read is still returned)
     std::string Dump(int indent = 0) const;
     const Json* Find(const wchar_t* k) const;
     Json& Set(const wchar_t* k, Json v);
@@ -70,6 +70,7 @@ struct Settings {
     bool dmMaxSaverOff = true, dmEasySaverOn = true;
     bool showMedia = true, showBatteryPercent = true;
     bool hoverMagnify = false;   // optional, off by default: app icons grow under the mouse with a liquid bounce
+    bool clipHistory = true, clipWinV = true;   // clipboard history (clipboard.cpp) and Win+V opening it instead of Windows' own
     std::vector<ws> mirrorDevices;
     std::vector<ws> quickFolders; bool foldersInit = false;
     std::vector<ws> startPins; bool startPinsInit = false, startPinsImported = false;   // imported: this PC's own Start pins were read once
@@ -81,7 +82,8 @@ struct Settings {
     bool updateCheck = true; ws updateKnown; double updateLast = 0;   // once-a-day look for a newer release (update.cpp): on/off, the newest build's checksum, when (unix seconds)
 };
 extern Settings S;
-void LoadSettings();                   // also imports DeskBar2's file on first run
+void LoadSettings();                   // also imports DeskBar2's file on first run; an unreadable file is set aside and settings.bak.json used
+bool SettingsRecovered();              // this run's settings came from the spare copy (or the defaults) because settings.json was unreadable
 void SaveSettingsSoon();               // debounced 400 ms, atomic
 void SaveSettingsNow();
 bool SettingsFileChanged();            // for the input helper: re-read when the file changes
@@ -90,18 +92,23 @@ bool SettingsFileChanged();            // for the input helper: re-read when the
 // Every blue in the UI is written as the original blue and mapped through the current theme at use. hue < 0: leave the blues alone (the original look).
 // soft: the calm light look of the pink edition; the other themes rotate the hue and keep each colour's saturation and lightness.
 // kind: 0 = a hue theme (above), 1 = black (neutral dark), 2 = white (light: text and fills invert), 3 = glass (dark and translucent over a blurred backdrop).
-struct ThemeDef { const wchar_t* id; const wchar_t* name; float hue; bool soft; int kind; float sat = 1, val = 1; };   // sat/val (0-1): how vivid a custom colour is, how bright its backgrounds are
+struct ThemeDef { const wchar_t* id; const wchar_t* name; float hue; bool soft; int kind; float sat = 1, val = 1, softness = 0, fadeHue = -1; };   // sat/val (0-1): how vivid a custom colour is, how bright its backgrounds are; softness (0-1): pastel backgrounds; fadeHue: the hue the fade runs to (-1 = a lighter shade of the same colour)
 extern const ThemeDef kThemes[]; extern const int kThemeCount;
 const ThemeDef& CurrentTheme();
 D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl);
+D2D1_COLOR_F FadeEnd(const ThemeDef& t, D2D1_COLOR_F c, float g, float dl);   // the far end of a fade of strength g (0-100) from c: toward t.fadeHue if set
 ws ThemeIdNow();
 ws SharedThemeRead(); void SharedThemeWrite(const ws& id);   // Desk 4.0: the suite's one theme, %LOCALAPPDATA%\Desk\theme.txt (deskapps.cpp)
 float ThemeGrad();                                  // >= 0: the custom colour's second hue (gradient), -1 = none
 inline bool ThemeIsGlass(const ThemeDef& t) { return t.kind == 3; }
 void SetTheme(const ws& id);
 void SetDeskModeTheme(const ws& id); const ThemeDef& DeskModeTheme(); float DeskModeGrad();   // DeskMode's own colour (Desk settings > Colours), else the bar's                   // unknown or empty id = this edition's default (pink in the PINK build, blue otherwise)
+ThemeDef ThemeFromId(const ws& id, float& grad);   // what a theme id means ("blue:40", "custom:200:40:80:90"), the fade in grad; nothing changes (core.cpp)
+float LightStart(const ThemeDef& cur); ws ColourIdOf(float t, const ws& base, bool moved, float hue, float fade, float sat);   // the colour picker's light bar and the id it makes (quickpages.cpp)
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a = 255);   // for swatches that show a theme other than the current one
 D2D1_COLOR_F Col(uint32_t rgb, int a = 255);   // 0xRRGGBB, alpha 0..255; mapped through the current theme
+bool HighContrastOn();                          // Windows' high contrast is on: Col() returns its system colours instead (ui_access.cpp)
+D2D1_COLOR_F HighContrastCol(uint32_t rgb, int a);
 bool DuoTone(uint32_t rgb);                     // true: the colour is a light accent, filled as a two-tone gradient (SolidB does it)
 namespace K {
     constexpr uint32_t Bar = 0x003D91, Accent = 0x4CC2FF, Green = 0x6CE08A, Amber = 0xFFC83D, Charge = 0x6CCB5F, Flash = 0xE8A33A;

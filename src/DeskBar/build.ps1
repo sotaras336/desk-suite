@@ -2,6 +2,10 @@
 param([switch]$Pink, [switch]$Debug, [string]$Out = "$PSScriptRoot\out")
 $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
 $vc = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+if (-not (Test-Path $vc)) {   # not the Build Tools: ask vswhere for any VS with the C++ tools (Community, Enterprise on CI runners)
+    $vs = & vswhere.exe -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if ($vs) { $vc = "$vs\VC\Auxiliary\Build\vcvars64.bat" }
+}
 $obj = "$PSScriptRoot\obj" + $(if ($Pink) { '-pink' } else { '' })
 New-Item -ItemType Directory -Force $obj, $Out | Out-Null
 Remove-Item "$obj\*.obj" -ErrorAction SilentlyContinue

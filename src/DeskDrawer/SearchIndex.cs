@@ -96,14 +96,22 @@ public sealed unsafe class SharedIndex : IDisposable
                     }
             }
             catch { }
-            if (_cached != null) _cached._users++;
+            if (_cached != null) { _cached._users++; _idle ??= new System.Threading.Timer(_ => ReleaseIfIdle(), null, 60_000, 60_000); }
             return _cached;
         }
     }
-    public void Done() { lock (Gate) { if (--_users == 0 && _retired) Dispose(); } }
+    public void Done() { lock (Gate) { _lastUse = Environment.TickCount64; if (--_users == 0 && _retired) Dispose(); } }
+    // Searching the whole PC pulls ~90 MB of the map into DeskDrawer's memory, and Windows kept it there while the window stayed open: let go after three idle minutes
+    // (the next whole-PC search maps it again in a few tens of milliseconds).
+    private static System.Threading.Timer? _idle; private static long _lastUse;
+    internal static void ReleaseIfIdle(long idleMs = 180_000) { lock (Gate) { if (_cached is { _users: 0 } && Environment.TickCount64 - _lastUse >= idleMs) Release(); } }
+    internal static bool IsHeld { get { lock (Gate) return _cached != null; } }
     private void Retire() { _retired = true; if (_users == 0) Dispose(); }
     /// Lets go of the map (DeskDrawer is going to sleep in the background).
     public static void Release() { lock (Gate) { _cached?.Retire(); _cached = null; } }
+
+    /// For the self-test: maps one given index file (null if it is not usable). Dispose it when done.
+    internal static SharedIndex? OpenFile(string file) { var ix = new SharedIndex(); if (ix.TryMap(file)) return ix; ix.Dispose(); return null; }
 
     private bool TryMap(string file)
     {
@@ -151,33 +159,55 @@ public sealed unsafe class SharedIndex : IDisposable
     }
 
     /// The best matches, best first. Same rules as the live search: all words in the name or in a folder above it.
-    public List<(int Id, double Score)> Find(Matcher m, int keep, CancellationToken ct)
+    public List<(int Id, double Score)> Find(Matcher m, int keep, CancellationToken ct, int maxThreads = 0)   // 0: as many cores as help
     {
         var toks = m.Tokens; var tb = toks.Select(t => Encoding.UTF8.GetBytes(t)).ToArray();
         var order = Enumerable.Range(0, toks.Length).OrderByDescending(i => tb[i].Length).ToArray();
         var hits = new Dictionary<uint, double>();
+        // The folded names are cut into slices at name boundaries ('\n') and the slices are searched on several cores at once: a word never spans two
+        // names, so they are independent. A small index (most PCs' first minutes) stays on one thread.
+        int slices = _lowBytes < (8L << 20) ? 1 : (int)Math.Min(maxThreads > 0 ? maxThreads : Math.Min(8, Environment.ProcessorCount), _lowBytes / (4L << 20));
+        var cut = new List<long> { 0 };
+        for (int k = 1; k < slices; k++)
+        {
+            long c = _lowBytes * k / slices; int nl = new ReadOnlySpan<byte>(_low + c, (int)Math.Min(int.MaxValue, _lowBytes - c)).IndexOf((byte)'\n');
+            if (nl >= 0 && c + nl + 1 > cut[^1] && c + nl + 1 < _lowBytes) cut.Add(c + nl + 1);
+        }
+        cut.Add(_lowBytes); int found = 0;
         foreach (int a in order)
         {
-            var needle = tb[a]; if (needle.Length < 2) continue; long pos = 0;
-            while (pos < _lowBytes)
+            var needle = tb[a]; if (needle.Length < 2) continue;
+            var parts = new List<(uint, double)>[cut.Count - 1];
+            void Scan(int s)
             {
-                ct.ThrowIfCancellationRequested();
-                int len = (int)Math.Min(32L << 20, _lowBytes - pos);
-                int at = new ReadOnlySpan<byte>(_low + pos, len).IndexOf(needle);
-                if (at < 0) { if (pos + len >= _lowBytes) break; pos += len - (needle.Length - 1); continue; }
-                uint ei = EntryAt(pos + at); pos = _noff[ei + 1];
-                if (hits.ContainsKey(ei)) continue;
-                string name = Folded(ei); bool ok = true;
-                for (int k = 0; k < toks.Length && ok; k++)
+                var mine = parts[s] = new List<(uint, double)>(); long pos = cut[s], end = cut[s + 1];
+                while (pos < end)
                 {
-                    if (k == a || name.Contains(toks[k], StringComparison.Ordinal)) continue;
-                    ok = false; for (uint q = _parent[ei]; (q & kRoot) == 0; q = _parent[q]) if (Folded(q).Contains(toks[k], StringComparison.Ordinal)) { ok = true; break; }
+                    ct.ThrowIfCancellationRequested();
+                    int len = (int)Math.Min(32L << 20, end - pos);
+                    int at = new ReadOnlySpan<byte>(_low + pos, len).IndexOf(needle);
+                    if (at < 0) { if (pos + len >= end) break; pos += len - (needle.Length - 1); continue; }
+                    uint ei = EntryAt(pos + at); pos = _noff[ei + 1];
+                    if (hits.ContainsKey(ei)) continue;   // found by an earlier word's pass (only read here: it is not written while slices run)
+                    string name = Folded(ei); bool ok = true;
+                    for (int k = 0; k < toks.Length && ok; k++)
+                    {
+                        if (k == a || name.Contains(toks[k], StringComparison.Ordinal)) continue;
+                        ok = false; for (uint q = _parent[ei]; (q & kRoot) == 0; q = _parent[q]) if (Folded(q).Contains(toks[k], StringComparison.Ordinal)) { ok = true; break; }
+                    }
+                    if (!ok) continue;
+                    mine.Add((ei, m.ScoreFolded(name, _dir[ei] != 0, 0, "", false)));
+                    if (Interlocked.Increment(ref found) >= 2_000_000) break;
                 }
-                if (!ok) continue;
-                hits[ei] = m.ScoreFolded(name, _dir[ei] != 0, 0, "", false);
-                if (hits.Count >= 2_000_000) break;
             }
-            if (toks.Length == 1 || hits.Count >= 30) break;   // one pass is enough unless a word only exists in a folder name above the file
+            if (parts.Length == 1) Scan(0);
+            else
+            {
+                try { Parallel.For(0, parts.Length, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = parts.Length }, Scan); }
+                catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is OperationCanceledException)) { throw new OperationCanceledException(ct); }
+            }
+            foreach (var part in parts) if (part != null) foreach (var (ei, sc) in part) hits.TryAdd(ei, sc);
+            if (toks.Length == 1 || hits.Count >= 30 || found >= 2_000_000) break;   // one pass is enough unless a word only exists in a folder name above the file
         }
         var top = hits.OrderByDescending(h => h.Value).Take(Math.Max(keep, 600)).Select(h => (Id: (int)h.Key, Score: h.Value)).ToList();
         for (int k = 0; k < top.Count; k++)   // the best by name, then where they live decides (your own folders before Windows and AppData)

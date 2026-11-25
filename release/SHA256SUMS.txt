@@ -1,3 +1,7 @@
-087c2fb81e2be20f7e1117d0a0fd41cf2dfe962acfeeb87729affd59a7355918 *DeskBar-Setup.exe
-5a98ff372b431cb85f14ddca07af4ac71b5e22b0e0b373f8eea98e96806d05aa *DeskDrawer-Setup.exe
-c467c4208221df3a5b14ab881245d641f46a235303b3a0c3d749920db08aad70 *DeskTune-Setup.exe
+7ec64abef55fb793eeb14ebc547d0dad31bf08ba286c16ad809ff4ab4de502b6 *DeskBar-Setup.exe
+e1637d238e32b4dd4f4401868e56812e40e52c8971cd45b51923055bb6f34a4f *DeskDrawer-Setup.exe
+821a9b45f9db1f8b6061b4b00b453a3556e163137cf86a85587b080a6d6659dd *DeskTune-Setup.exe
+433b153e8c4b8bbce123d4f04af921da75dd4c94a46efcafa46488274ba7bdc3 *Desk-Setup.exe
+# built DeskBar-Setup.exe 20261125T071222Z
+# built DeskDrawer-Setup.exe 20261125T072915Z
+# built DeskTune-Setup.exe 20261125T072915Z

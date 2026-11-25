@@ -27,6 +27,12 @@ public sealed class Settings
     public double PreviewWidth { get; set; } = 320;
     public string SortKey { get; set; } = "Name";
     public bool SortAscending { get; set; } = true;
+    /// Split view (MainWindow.Split.cs): the number of the tab on the other side (-1 = off), whether you were working on the right-hand side, and the left side's share of the width.
+    public int SplitWith { get; set; } = -1;
+    public bool SplitRight { get; set; }
+    public double SplitShare { get; set; } = 0.5;
+    /// Self-tests that drive a real window set this, so they never overwrite your own tabs and folder views.
+    internal static bool NoSave;
 
     private static readonly string FilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskDrawer", "settings.json");
 
@@ -61,15 +67,55 @@ public sealed class Settings
         string old = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Dexplorer", "settings.json");
         if (!File.Exists(FilePath) && File.Exists(old))
             try { var s = JsonSerializer.Deserialize(File.ReadAllText(old), SettingsJson.Default.Settings) ?? new(); s.ShortcutsMade = false; s.Save(); return s; } catch { }
-        try { return JsonSerializer.Deserialize(File.ReadAllText(FilePath), SettingsJson.Default.Settings) ?? new(); } catch { return new(); }
+        return ReadFrom(FilePath, out _);
     }
 
-    public void Save()
+    /// settings.json, else settings.json.bak (the copy from the save before). A file that can't be read (cut short by a crash or a full disk, zeros after
+    /// a power cut, a sync tool's half-written copy) is kept aside as .unreadable and the spare copy is used, so tabs and folder views survive. A file
+    /// another program holds open (antivirus, OneDrive at sign-in) is tried again for half a second: it used to give the defaults, which the next
+    /// save then wrote over everything. recovered: the spare copy (or the defaults, with the real file kept aside) was used.
+    internal static Settings ReadFrom(string file, out bool recovered)
     {
+        recovered = false; string bak = file + ".bak";
+        if (!File.Exists(file))
+        {
+            if (TryRead(bak, out var spare, out _)) { recovered = true; return spare!; }
+            return new();
+        }
+        if (TryRead(file, out var s, out bool locked)) return s!;
+        recovered = true;
+        if (!locked) try { File.Copy(file, file + ".unreadable", true); } catch { }
+        if (TryRead(bak, out var b, out _)) { if (!locked) try { File.Copy(bak, file, true); } catch { } return b!; }
+        if (locked) _keepAside = file;   // the real file may be fine: never write the defaults over it without a copy
+        return new();
+    }
+
+    private static string? _keepAside;
+
+    private static bool TryRead(string file, out Settings? s, out bool locked)
+    {
+        s = null; locked = false; if (!File.Exists(file)) return false;
+        for (int i = 0; i < 5; i++)
+        {
+            try { s = JsonSerializer.Deserialize(File.ReadAllText(file), SettingsJson.Default.Settings); locked = false; return s != null; }   // "null" in the file counts as unreadable
+            catch (JsonException) { return false; }
+            catch (IOException) { locked = true; Thread.Sleep(100); }
+            catch { return false; }
+        }
+        return false;
+    }
+
+    public void Save() => SaveTo(FilePath);
+
+    internal void SaveTo(string file)
+    {
+        if (NoSave) return;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            var tmp = FilePath + ".tmp"; File.WriteAllText(tmp, JsonSerializer.Serialize(this, SettingsJson.Default.Settings)); File.Move(tmp, FilePath, true);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            if (_keepAside == file) { try { File.Copy(file, file + ".unreadable", true); } catch { } _keepAside = null; }
+            if (TryRead(file, out _, out _)) try { File.Copy(file, file + ".bak", true); } catch { }   // only a good file becomes the spare copy
+            var tmp = file + ".tmp"; File.WriteAllText(tmp, JsonSerializer.Serialize(this, SettingsJson.Default.Settings)); File.Move(tmp, file, true);
         }
         catch { }
     }

@@ -84,8 +84,16 @@ void PageTaskbar(View* col) {
     Row(c, 0xE768, L"Media player", L"Song, artist and play controls while something plays.", S.showMedia, [](bool v) { S.showMedia = v; });
     Row(c, 0, L"DeskMode button", L"Next to the keyboard language; opens DeskMode.", S.dmButton, [](bool v) { S.dmButton = v; for (auto* b : AllBars()) if (b->dmBtn) b->dmBtn->Show(v); }, IconRes(2, 32));
     for (int i = 0; i < kWidgetCount; i++) { ws id = kWidgets[i].id; Row(c, 0xE721, L"Search box", id == L"search" ? ws(L"Next to the Windows key. Type, press Enter: searches Google.") : ws(kWidgets[i].name), HasWidget(id), [id](bool v) { SetWidget(id, v); }); }
+    c = Card(col, L"Clipboard");
+    Row(c, 0xE77F, L"Clipboard history", L"Keeps the last 25 texts you copied, until you sign out. Pin what you use often. Copies from password managers are never kept.", S.clipHistory, [](bool v) { ClipSetOn(v); });
+    Row(c, 0xE765, L"Windows key + V opens it", L"Off: Windows key + V opens Windows' own clipboard.", S.clipWinV, [](bool v) { S.clipWinV = v; });
+    Sep(c);
+    { auto* r = MkBox(c, Lay::H); r->pad = Thick(12, 10); r->gap = 10;
+      auto* d = Dim(r, L"Pinned snippets are saved on this PC, locked to your Windows account.", 13); d->star = 1; d->va = Al::Center;
+      Btn(r, L"Open", 0xE77F, false, [] { if (Bar* b = BarHere()) OpenClipboardPanel(b); })->va = Al::Center;
+      Btn(r, L"Clear history", 0xE74D, false, [] { ClipClearHistory(); })->va = Al::Center; }
     c = Card(col, L"Effects");
-    Row(c, 0xE71E, L"Magnify apps under the mouse", L"An app's icon swells with a liquid bounce while you point at it.", S.hoverMagnify, [](bool v) { S.hoverMagnify = v; for (auto* b : AllBars()) for (auto* t : b->btns) t->Invalidate(); });
+    Row(c, 0xE71E, L"Magnify apps under the mouse", L"The icon you point at grows smoothly, the others stay put.", S.hoverMagnify, [](bool v) { S.hoverMagnify = v; for (auto* b : AllBars()) for (auto* t : b->btns) t->Invalidate(); });
 }
 
 void Show(int page);
@@ -113,7 +121,7 @@ void PageDeskMode(View* col) {
         MkLabel(tx, L"Go max, Go easy, or pick each screen's rate", FText(15, 600));
         auto* s = MkLabel(tx, L"Opens from the DeskMode button on the taskbar, or Ctrl+Alt+D.", FText(12.5f), Raw(0xFFFFFF, 0xC8)); s->wrap = true;
         auto* b = MkBox(h, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 9); b->va = Al::Center; b->bg = SolidC(Raw(0xFFFFFF, 0xF0)); b->bgHover = SolidC(Raw(0xFFFFFF));
-        MkLabel(b, L"Open DeskMode", FText(13.5f, 600), Raw(0x0B3A66)); b->onClick = [] { if (!AllBars().empty()) OpenDeskModePanel(AllBars()[0]); };
+        MkLabel(b, L"Open DeskMode", FText(13.5f, 600), Raw(0x0B3A66)); b->onClick = [] { if (Bar* bb = BarHere()) OpenDeskModePanel(bb); };
     }
     auto* c = Card(col, L"By itself");
     Row(c, 0xE945, L"Go max when docked", L"A monitor and the charger connected: every screen at its top rate, Best performance.", S.dmAutoMax, [](bool v) { S.dmAutoMax = v; });
@@ -121,7 +129,7 @@ void PageDeskMode(View* col) {
     Row(c, 0xE7FC, L"Hands off during games", L"Nothing changes by itself while a full-screen game is up.", S.dmGameLock, [](bool v) { S.dmGameLock = v; });
     c = Card(col, L"Presets");
     LinkRow(c, 0xE713, L"Choose what Go max and Go easy do", L"The rate for each screen, the power mode, Energy saver.", [] {
-        if (AllBars().empty()) return; OpenDeskModePanel(AllBars()[0]); if (auto* q = (QuickPanel*)Panel_(Panel::Quick)) if (q->shown) q->ShowDetail(MakeDeskModeSettings(q), true); });
+        Bar* bb = BarHere(); if (!bb) return; OpenDeskModePanel(bb); if (auto* q = (QuickPanel*)Panel_(Panel::Quick)) if (q->shown) q->ShowDetail(MakeDeskModeSettings(q), true); });
     c = Card(col, L"Shortcuts");
     auto key = [&](const ws& what, const wchar_t* k) { Sep(c); auto* r = MkBox(c, Lay::H); r->pad = Thick(12, 9); auto* l = MkLabel(r, what, FText(13.5f)); l->star = 1; l->va = Al::Center; Keys(r, {L"Ctrl", L"Alt", k}); };
     key(L"Open DeskMode", L"D"); key(L"Go max", L"M"); key(L"Go easy", L"B"); key(L"Borderless full screen for the window in front", L"F");
@@ -254,12 +262,18 @@ void Show(int page) {
 }
 }
 
+// 860 wide, 460..680 tall (layout units), centred in the work area, never bigger than the screen: 860 at 150% is 1290 px, wider than a 1280 x 800 tablet, and at 225% wider than a 1080p screen
+RECT SettingsRectOn(const RECT& wk, float sc) {
+    int ww = wk.right - wk.left, wh = wk.bottom - wk.top, m = (int)(16 * sc);
+    int w = std::min((int)(860 * sc), ww - 2 * m), h = std::min((int)(std::clamp(wh / sc - 120, 460.f, 680.f) * sc), wh - 2 * m);
+    int x = wk.left + (ww - w) / 2, y = wk.top + (wh - h) / 2; return {x, y, x + w, y + h};
+}
 void OpenSettingsWindow() {
     if (g_sw && g_sw->hwnd) { ShowWindow(g_sw->hwnd, SW_SHOW); SetForegroundWindow(g_sw->hwnd); return; }
     g_sw = std::make_unique<SettingsWnd>(); POINT at{}; GetCursorPos(&at);   // opens on the screen you clicked on
     HMONITOR mon = MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(mon, &mi); UINT dx = 96, dy = 96; GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy); float sc = dx / 96.f;
-    int w = (int)(860 * sc), h = (int)(std::clamp((mi.rcWork.bottom - mi.rcWork.top) / sc - 120, 460.f, 680.f) * sc);
-    int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - w) / 2, y = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - h) / 2;
+    RECT sr = SettingsRectOn(mi.rcWork, sc); int x = sr.left, y = sr.top, w = sr.right - sr.left, h = sr.bottom - sr.top;
+    g_sw->followDpi = true;   // you can drag it to another screen: take the size Windows suggests for that screen's scaling, or the page is cut off (or swims in space) there
     g_sw->Create(0, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, x, y, w, h); if (!g_sw->hwnd) return;
     SetWindowTextW(g_sw->hwnd, L"DeskBar settings"); int dark = 1; DwmSetWindowAttribute(g_sw->hwnd, 20, &dark, 4);
     COLORREF cap = RGB(0x20, 0x22, 0x26); DwmSetWindowAttribute(g_sw->hwnd, 35, &cap, 4);   // the title bar in the page's own colour: one surface
@@ -307,7 +321,9 @@ void DeskAppsChanged() { DeskAppsRefresh(); }   // deskapps.cpp: an app's state 
 int PageNamed(const ws& n) { return n == L"colours" ? kPgColours : n == L"drawer" ? kPgDrawer : n == L"tune" ? kPgTune : n == L"apps" ? kPgApps : n == L"deskmode" ? kPgDeskMode : kPgTaskbar; }
 void SettingsShowPage(const ws& name) { Show(PageNamed(name)); }   // dev snapshots: --open settings --page colours
 // Another Desk app's Settings (DeskDrawer, DeskTune) opens this window at its page: one settings window for the suite. code: 1 DeskDrawer, 2 DeskTune, 3 Colours.
-void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
+// The codes are the other apps' (Theme.cs DeskSettings.Open: "deskdrawer" 1, "desktune" 2, "colours" 3); 4 is DeskMode's own gear; anything else the Taskbar page.
+int SettingsPageForCode(int code) { return code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar; }
+void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(SettingsPageForCode(code)); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
 // A colour change restarts DeskBar: the window comes back on the page it was on
 void SettingsReopenAfterRestart() { if (g_sw && g_sw->hwnd && IsWindowVisible(g_sw->hwnd)) WriteAtomic(DataPath(L"reopen-settings.txt"), std::to_string(g_cur)); }
 void SettingsReopenCheck() {

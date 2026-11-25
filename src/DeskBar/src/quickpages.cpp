@@ -441,12 +441,13 @@ struct DotsBtn : View {
     void PaintContent(Gfx& g) override { for (int i = -1; i <= 1; i++) g.Circle(rc.cx() + i * 8, rc.cy(), 2.2f, Col(K::White)); }
 };
 struct HueBar : View {
-    float value = 300; int special = 0; bool drag = false, strength = false; std::function<void(float)> onChange; std::function<void()> onRelease;   // special: 1 = the black end of the bar, 2 = the white end
+    float value = 300; int special = 0; bool drag = false, strength = false, plain = false;   // plain: the rainbow only, no black/white ends (the fade colour)
+    std::function<void(float)> onChange; std::function<void()> onRelease;   // special: 1 = the black end of the bar, 2 = the white end
     static constexpr float Z = 0.07f;   // share of the track each end takes
     HueBar() { hit = true; fh = 34; }
     Sz MeasureContent(Sz) override { return {120, 34}; }
     void From(float x) { float a = rc.l + 14, b = rc.r - 14; float pos = b > a ? std::clamp((x - a) / (b - a), 0.f, 1.f) : 0;
-        if (strength) value = pos * 359.f; else if (pos < Z) special = 1; else if (pos > 1 - Z) special = 2; else { special = 0; value = (pos - Z) / (1 - 2 * Z) * 359.f; }
+        if (strength || plain) value = pos * 359.f; else if (pos < Z) special = 1; else if (pos > 1 - Z) special = 2; else { special = 0; value = (pos - Z) / (1 - 2 * Z) * 359.f; }
         if (onChange) onChange(value); Invalidate(); }   // colours first, then the paint
     bool OnDown(float x, float, bool) override { drag = true; From(x); return true; }
     void OnDrag(float x, float) override { if (drag) From(x); }
@@ -455,12 +456,12 @@ struct HueBar : View {
         float a = rc.l + 14, b = rc.r - 14, cy = rc.cy();
         auto acc = [this](float h) { if (strength) { auto c = ColFor(CurrentTheme(), K::Accent); return h <= 0 ? c : ShiftColor(c, -0.5f * h * 100.f / 359.f, 0.002f * h * 100.f / 359.f); } ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
         Rf track{rc.l, cy - 9, rc.r, cy + 9}; g.PushClip(track, 9); const int n = 36;   // brushes take 3 stops: the rainbow is drawn in slices
-        float z = strength ? 0.f : Z, w = track.w();
-        if (!strength) { g.Fill({track.l, track.t, track.l + w * z + 0.5f, track.b}, SolidC(D2D1::ColorF(0.04f, 0.04f, 0.04f))); g.Fill({track.r - w * z, track.t, track.r, track.b}, SolidC(D2D1::ColorF(1, 1, 1))); }   // black and white at the ends
+        float z = strength || plain ? 0.f : Z, w = track.w();
+        if (!strength && !plain) { g.Fill({track.l, track.t, track.l + w * z + 0.5f, track.b}, SolidC(D2D1::ColorF(0.04f, 0.04f, 0.04f))); g.Fill({track.r - w * z, track.t, track.r, track.b}, SolidC(D2D1::ColorF(1, 1, 1))); }   // black and white at the ends
         for (int i = 0; i < n; i++) { float x0 = track.l + w * (z + (1 - 2 * z) * i / n), x1 = track.l + w * (z + (1 - 2 * z) * (i + 1) / n) + 0.5f; g.Fill({x0, track.t, x1, track.b}, LinearB(0, 0.5f, 1, 0.5f, {{0, acc(359.f * i / n)}, {1, acc(359.f * (i + 1) / n)}})); }
         g.PopClip();
-        float pos = strength ? value / 359.f : special == 1 ? Z / 2 : special == 2 ? 1 - Z / 2 : Z + (1 - 2 * Z) * value / 359.f, x = a + (b - a) * pos; ThemeDef t{L"custom", L"Custom", value, false, 0};
-        g.Circle(x, cy, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, cy, 11, strength ? acc(value) : special == 1 ? D2D1::ColorF(0.04f, 0.04f, 0.04f) : special == 2 ? D2D1::ColorF(0.85f, 0.85f, 0.85f) : ColFor(t, K::Accent));
+        float pos = strength || plain ? value / 359.f : special == 1 ? Z / 2 : special == 2 ? 1 - Z / 2 : Z + (1 - 2 * Z) * value / 359.f, x = a + (b - a) * pos; ThemeDef t{L"custom", L"Custom", value, false, 0};
+        g.Circle(x, cy, 14, D2D1::ColorF(1, 1, 1, 1)); g.Circle(x, cy, 11, strength ? acc(value) : plain ? ColFor(t, K::Accent) : special == 1 ? D2D1::ColorF(0.04f, 0.04f, 0.04f) : special == 2 ? D2D1::ColorF(0.85f, 0.85f, 0.85f) : ColFor(t, K::Accent));
     }
 };
 
@@ -469,6 +470,16 @@ struct HueBar : View {
 struct PadState { float hue = 300, sat = 100, t = 0.25f; };
 static int LightZone(float t) { return t < 0.10f ? 2 : t > 0.92f ? 1 : 0; }   // the theme kind it lands on: 2 = white, 1 = black, 0 = a colour
 static float LightVal(float t) { return t <= 0.30f ? 1.f : std::clamp((0.92f - t) / 0.62f, 0.f, 1.f); }
+float LightStartOf(const ThemeDef& cur) { return cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f; }   // where the light bar's handle starts for the colour in use
+// The theme id the colour picker gives (the same ids DeskDrawer and DeskTune's pickers make): black and white at the light bar's ends; a ready-made colour not moved
+// keeps its name with the fade ("blue:40"); anything else is "custom:<hue>:<fade>", with ":<vividness>:<light>" when either is below 100.
+ws ColourIdFrom(float t, const ws& base, bool moved, float hue, float fade, float sat, float soft, float fadeHue) {   // soft/fadeHue: the PC's softness + fade colour (":sat:val:soft:fadeHue")
+    if (int z = LightZone(t)) return z == 1 ? L"black" : L"white";   // black and white: no fade
+    ws f = Fmt(L":%d", (int)lroundf(fade)); int sv = (int)lroundf(sat), val = (int)lroundf(LightVal(t) * 100);
+    if (!base.empty() && !moved) return base + f;
+    ws extra = soft >= 0.5f || fadeHue >= 0 ? Fmt(L":%d:%d:%d:%d", sv, val, (int)lroundf(soft), fadeHue >= 0 ? (int)lroundf(fadeHue) : -1) : sv < 100 || val < 100 ? Fmt(L":%d:%d", sv, val) : ws();
+    return Fmt(L"custom:%d", (int)lroundf(hue)) + f + extra;
+}
 static D2D1_COLOR_F PadColor(const PadState& s, bool accent, bool bright) {   // the colour a custom theme gives at this spot (accent = the bright one, else a surface)
     ThemeDef d{L"custom", L"Custom", s.hue, false, 0, s.sat / 100, bright ? 1.f : LightVal(s.t)}; return ColFor(d, accent ? K::Accent : 0x1257B8);
 }
@@ -518,7 +529,7 @@ struct ThemePage : PageBase {
         if (dm) { ThemeSet(L"deskmode", id); if (!ThemesSeparate()) S.theme = id; } else { S.theme = id; SharedThemeWrite(id); }
         SaveSettingsNow(); ClosePanels(); UiOnce(300, [] { AppQuit(true); });
     }
-    struct St { PadState pad; float fade; bool moved = false; ws base; };
+    struct St { PadState pad; float fade, soft = 0, fadeHue = -1; bool moved = false; ws base; };
     ThemePage(QuickPanel* p, bool dm) : PageBase(p) {
         PageHeader(this, dm ? L"DeskMode colour" : L"Color", [p, dm] { if (dm) p->ShowDetail(MakeDisplayPage(p), true); else p->Back(); });
         ws what = ThemesSeparate() ? ws(dm ? L"DeskMode's own colour." : L"The bar's and the panels' own colour.") : ws(L"Every Desk app's colour (one colour for all is on in Settings > Colours).");
@@ -526,8 +537,8 @@ struct ThemePage : PageBase {
         QuickPanel* qp = q; const ThemeDef cur = dm ? DeskModeTheme() : CurrentTheme(); float curGrad = dm ? DeskModeGrad() : ThemeGrad();
         auto st = std::make_shared<St>();
         st->pad.hue = cur.kind != 0 ? 300.f : cur.hue >= 0 ? cur.hue : 205.f;   // the pad sits on the colour in use (Blue is the unshifted original, about 205)
-        st->pad.sat = cur.sat * 100; st->pad.t = cur.kind == 1 ? 0.96f : cur.kind == 2 ? 0.04f : cur.val >= 1 ? 0.25f : 0.92f - cur.val * 0.62f;
-        st->fade = curGrad > 0 ? curGrad : 0.f;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
+        st->pad.sat = cur.sat * 100; st->pad.t = LightStartOf(cur);
+        st->fade = curGrad > 0 ? curGrad : 0.f; st->soft = cur.softness * 100; st->fadeHue = cur.fadeHue;   // the far end of the gradient: "custom:<hue>:<fade>", 0 = none
         st->base = cur.kind == 0 && !EqI(cur.id, L"custom") ? ws(cur.id) : ws();   // a ready-made colour keeps its exact look until the colour bar is moved ("blue:40")
         bool previewing = !dm && !EqI(ThemeIdNow(), S.theme);
 
@@ -548,16 +559,22 @@ struct ThemePage : PageBase {
         auto* fadeBox = MkBox(card, Lay::V); fadeBox->gap = 8; fadeBox->visible = !LightZone(st->pad.t);
         auto* fv = head(fadeBox, L"Fade", st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off"));
         auto* bar2 = fadeBox->Add(new HueBar()); bar2->value = st->fade * 359.f / 100.f; bar2->strength = true;
-        auto id = [st]() -> ws {
-            if (int z = LightZone(st->pad.t)) return z == 1 ? L"black" : L"white";   // black and white: no fade
-            ws fade = Fmt(L":%d", (int)lroundf(st->fade)); int sat = (int)lroundf(st->pad.sat), val = (int)lroundf(LightVal(st->pad.t) * 100);
-            if (!st->base.empty() && !st->moved) return st->base + fade;
-            return Fmt(L"custom:%d", (int)lroundf(st->pad.hue)) + fade + (sat < 100 || val < 100 ? Fmt(L":%d:%d", sat, val) : ws()); };
+        auto* fcv = head(fadeBox, L"Fade colour", st->fadeHue < 0 ? ws(L"a lighter shade") : ws(L"your pick"));
+        auto* bar3 = fadeBox->Add(new HueBar()); bar3->plain = true; bar3->value = st->fadeHue >= 0 ? st->fadeHue : fmodf(st->pad.hue + 330, 360);
+        // vividness is also the pad's up-down; softness turns the bar's colour pastel
+        auto slider = [card, head](const wchar_t* t, const wchar_t* hint, float v) { head(card, t, hint); auto* s = card->Add(new Slider()); s->value = v; return s; };
+        auto* vivid = slider(L"Saturation", L"grey to vivid", st->pad.sat);
+        auto* soft = slider(L"Softness", L"deep to pastel", st->soft);
+        auto id = [st]() -> ws { return ColourIdFrom(st->pad.t, st->base, st->moved, st->pad.hue, st->fade, st->pad.sat, st->soft, st->fadeHue); };
         auto paint = [qp, id, show, lite, pad, fadeBox, st, dm] {   // DeskMode: only the preview strip takes the colour (the bar is not DeskMode's)
             fadeBox->Show(!LightZone(st->pad.t));
             if (dm) { SetDeskModeTheme(id()); show(DeskModeTheme()); } else { ThemeRepaintLive(qp, id()); show(CurrentTheme()); }
             lite->Invalidate(); pad->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
-        pad->onChange = lite->onChange = [st, paint] { st->moved = true; paint(); };
+        pad->onChange = [st, paint, vivid] { st->moved = true; vivid->Set(st->pad.sat); paint(); };
+        lite->onChange = [st, paint] { st->moved = true; paint(); };
+        vivid->onChange = [st, paint](float v, bool) { st->pad.sat = v; st->moved = true; paint(); };
+        soft->onChange = [st, paint](float v, bool) { st->soft = v; st->moved = true; paint(); };
+        bar3->onChange = [st, fcv, paint](float h) { st->fadeHue = h; st->moved = true; fcv->Set(L"your pick"); paint(); };
         bar2->onChange = [st, fv, paint](float h) { st->fade = h * 100.f / 359.f; fv->Set(st->fade >= 0.5f ? Fmt(L"%d%% lighter on the right", (int)lroundf(st->fade)) : ws(L"off")); paint(); };
         auto* row = MkBox(card, Lay::H); row->gap = 8; row->ha = Al::End; row->margin = Thick(0, 4, 0, 0);
         auto pill = [row](const wchar_t* t, bool primary, std::function<void()> fn) { auto* b = MkBox(row, Lay::H); b->hit = true; b->radius = 10; b->pad = Thick(16, 8); b->bg = primary ? SolidB(K::Accent) : SolidB(K::White, 0x14); b->bgHover = primary ? SolidB(K::Accent) : SolidB(K::White, 0x22); b->onClick = std::move(fn); MkLabel(b, t, FText(13, primary ? 600 : 400), primary ? Col(K::Black) : Col(K::White)); };
@@ -708,7 +725,7 @@ Brush Glow() {
     const ThemeDef& t = T(); if (t.soft) return SolidC(ColFor(t, K::Accent));
     auto acc = [&](uint32_t c) { return t.kind == 1 || t.kind == 3 ? D2D1::ColorF(c) : Raw(c); };   // the accent stays a colour in Black and Glass (Raw makes surfaces neutral there)
     float g = G(); auto a = acc(0x1167C4);
-    return LinearB(0, 0, 1, 1, {{0, a}, {1, g < 0 ? acc(0x1FA7B9) : g == 0 ? a : ShiftColor(a, -0.5f * g, 0.002f * g)}});
+    return LinearB(0, 0, 1, 1, {{0, a}, {1, g < 0 ? acc(0x1FA7B9) : g == 0 ? a : FadeEnd(t, a, g, 0.002f)}});
 }   // DeskMode's accent gradient
 Brush Fill(int a) { return SolidC(Raw(0xFFFFFF, a)); }
 View* Card(View* parent) { auto* c = MkBox(parent, Lay::V); c->bg = Fill(0x0C); c->radius = 14; c->pad = Thick(14, 12); c->borderW = 1; c->border = Raw(0xFFFFFF, 0x14); c->margin = Thick(0, 0, 0, 10); return c; }
@@ -864,7 +881,7 @@ struct DeskModeRates : PageBase {
         auto* note = MkLabel(this, L"Each change makes Windows blank the screen for a moment.", FText(11.5f), Col(K::White, 0xA0)); note->wrap = true; note->margin = Thick(4, 2, 0, 0);
     }
 };
-View* MakeDeskModeRates(QuickPanel* q) { return new DeskModeRates(q); }
+View* MakeDeskModeRates(QuickPanel* q) { dm::Scope s; return new DeskModeRates(q); }   // DeskMode's own colour, like the page it opens from
 
 // DeskMode's Settings page, in the same panel and the same look: what Go max and Go easy set, and what DeskMode does by itself.
 struct DeskModeSettings : PageBase {
@@ -903,3 +920,7 @@ struct DeskModeSettings : PageBase {
     void Reload() { GUARD UiOnce(0, [this, w_] { IFALIVE q->ShowDetail(MakeDeskModeSettings(q), true); }); }
 };
 View* MakeDeskModeSettings(QuickPanel* q) { dm::Scope s; return new DeskModeSettings(q); }
+
+// the colour picker's rules, for the self-test (core.h)
+float LightStart(const ThemeDef& cur) { return LightStartOf(cur); }
+ws ColourIdOf(float t, const ws& base, bool moved, float hue, float fade, float sat) { return ColourIdFrom(t, base, moved, hue, fade, sat, 0, -1); }

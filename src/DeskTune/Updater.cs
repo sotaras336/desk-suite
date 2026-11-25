@@ -22,7 +22,7 @@ public static class Updater
     /// Where the on/off choice and the last check live.
     public static string StateDir = Testing && Environment.GetEnvironmentVariable("DESK_UPDATE_STATE") is { Length: > 0 } t ? t : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Product);
 
-    sealed class State { public bool Check { get; set; } = true; public DateTime Last { get; set; } public string? Known { get; set; } }
+    sealed class State { public bool Check { get; set; } = true; public DateTime Last { get; set; } public string? Known { get; set; } public string? Built { get; set; } }   // Built: when the installed copy was built (DeskBar's Desk apps page reads it)
     static string StateFile => Path.Combine(StateDir, "update.json");
     static State Load() { try { return JsonSerializer.Deserialize<State>(File.ReadAllText(StateFile)) ?? new(); } catch { return new(); } }
     static void Save(State s) { try { Directory.CreateDirectory(StateDir); File.WriteAllText(StateFile, JsonSerializer.Serialize(s)); } catch { } }
@@ -42,6 +42,38 @@ public static class Updater
     static readonly HttpClient Http = MakeClient();
     static HttpClient MakeClient() { var c = new HttpClient { Timeout = TimeSpan.FromSeconds(60) }; c.DefaultRequestHeaders.UserAgent.ParseAdd("Desk-updater"); return c; }
 
+    /// When this exe was built, "yyyyMMddTHHmmssZ" (UTC), from the DeskBuilt metadata the project file stamps in; null for a build without it.
+    public static readonly string? SelfBuilt = typeof(Updater).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+        .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "DeskBuilt")?.Value is { Length: 16 } b ? b : null;
+
+    /// When the release list says a file was built ("# built name yyyyMMddTHHmmssZ"), or null. Older release lists have no such line.
+    public static string? BuiltFor(string sums, string file)
+    {
+        foreach (var raw in sums.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim(); if (!line.StartsWith("# built ", StringComparison.OrdinalIgnoreCase)) continue;
+            var rest = line[8..].Trim(); int sp = rest.LastIndexOf(' '); if (sp < 0) continue;
+            var stamp = rest[(sp + 1)..];
+            if (stamp.Length == 16 && stamp[8] == 'T' && stamp[15] == 'Z' && rest[..sp].Trim().Equals(file, StringComparison.OrdinalIgnoreCase)) return stamp;
+        }
+        return null;
+    }
+
+    /// The one rule, the same in all three apps (DeskBar: update.cpp UpdateReleaseNotNewer). A release list with no "built" line is from before 4.0, when builds
+    /// started carrying their time, so any copy that knows its own time is newer than it: a test build on the PC is never offered the older public release.
+    /// Only a copy without its own time (older than 4.0) still goes by "the file is different".
+    public static bool ReleaseNotNewer(string? releaseBuilt, string? self) => self != null && (releaseBuilt == null || string.CompareOrdinal(releaseBuilt, self) <= 0);
+
+    /// "Different" is not "newer": a build made after the release (a fix not published yet) was offered the older release, and Update now put the old build back.
+    /// A different file only counts as newer when the release says it was built later than this exe. Without the dates, different means newer, as before.
+    static bool IsNewer(string sums, string? want, out bool ahead)
+    {
+        ahead = false;
+        if (want == null || want == SelfHash()) return false;
+        if (ReleaseNotNewer(BuiltFor(sums, Asset), SelfBuilt)) { ahead = true; return false; }
+        return true;
+    }
+
     /// The checksum SHA256SUMS.txt lists for a file ("hash *name" per line), or null.
     public static string? HashFor(string sums, string file)
     {
@@ -60,10 +92,10 @@ public static class Updater
         Busy = true; Status = "Checking…"; Changed?.Invoke();
         try
         {
-            var want = HashFor(await Http.GetStringAsync(Base + "SHA256SUMS.txt"), Asset);
+            var sums = await Http.GetStringAsync(Base + "SHA256SUMS.txt"); var want = HashFor(sums, Asset);
             var s = Load(); s.Last = DateTime.UtcNow; s.Known = want; Save(s);
-            Newer = want != null && want != SelfHash();
-            Status = want == null ? "Couldn't read the release list." : Newer ? "A new version is available." : "You have the latest version.";
+            Newer = IsNewer(sums, want, out bool ahead);
+            Status = want == null ? "Couldn't read the release list." : Newer ? "A new version is available." : ahead ? "You have a newer build than the latest release." : "You have the latest version.";
             return want != null;
         }
         catch { Status = "Couldn't reach GitHub. Try again later."; return false; }
@@ -76,6 +108,7 @@ public static class Updater
         // The last check saw a different build than this one: a newer release, or this IS the newer build (installed since that check). Only a fresh look can tell,
         // so look again soon instead of saying "a new version is available" (it said so wrongly right after every update).
         bool recheck = Load().Known is { } known && known != SelfHash();
+        try { NoteBuilt(); } catch { }
         _ = Task.Run(async () =>
         {
             await Task.Delay(Testing ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(20));
@@ -98,12 +131,12 @@ public static class Updater
         try
         {
             // look again first: the checksum kept from an earlier check can belong to an older release than the one "latest" serves now
-            var want = HashFor(await Http.GetStringAsync(Base + "SHA256SUMS.txt"), Asset);
+            var sums = await Http.GetStringAsync(Base + "SHA256SUMS.txt"); var want = HashFor(sums, Asset);
             var st = Load(); st.Last = DateTime.UtcNow; st.Known = want; Save(st);
-            Newer = want != null && want != SelfHash();
-            if (!Newer) { Status = want == null ? "Couldn't read the release list." : "You already have the latest version."; return false; }
+            Newer = IsNewer(sums, want, out bool ahead);
+            if (!Newer) { Status = want == null ? "Couldn't read the release list." : ahead ? "You have a newer build than the latest release." : "You already have the latest version."; return false; }
             Status = "Downloading…"; Changed?.Invoke();
-            var data = await Http.GetByteArrayAsync(Base + Asset);
+            var data = await Download(Base + Asset);
             if (Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant() != want) { Status = "The download didn't match its checksum, so it was not run. Try again later."; return false; }
             var dir = Path.Combine(Path.GetTempPath(), "DeskUpdate-" + Product); Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, Asset);   // "setup" in the name makes the exe install itself
@@ -116,4 +149,23 @@ public static class Updater
         finally { Busy = false; Changed?.Invoke(); }
     }
     public static string? LastDownload { get; private set; }
+
+    /// The setup file, capped at 400 MB so a wrong answer from the network can't fill the memory (the same cap DeskBar uses for these files).
+    static async Task<byte[]> Download(string url)
+    {
+        const long Cap = 400L << 20;
+        using var r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead); r.EnsureSuccessStatusCode();
+        if (r.Content.Headers.ContentLength > Cap) throw new IOException("too big");
+        await using var src = await r.Content.ReadAsStreamAsync(); using var ms = new MemoryStream(); var buf = new byte[81920]; int n;
+        while ((n = await src.ReadAsync(buf)) > 0) { ms.Write(buf, 0, n); if (ms.Length > Cap) throw new IOException("too big"); }
+        return ms.ToArray();
+    }
+
+    /// The installed copy writes when it was built into update.json, so DeskBar's Desk apps page can tell "newer than the release" from "an update is out".
+    static void NoteBuilt()
+    {
+        var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", Product, Product + ".exe");
+        if (Testing || SelfBuilt == null || !string.Equals(Environment.ProcessPath, installed, StringComparison.OrdinalIgnoreCase)) return;
+        var s = Load(); if (s.Built != SelfBuilt) { s.Built = SelfBuilt; Save(s); }
+    }
 }

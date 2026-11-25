@@ -123,7 +123,7 @@ void Boot(const wchar_t* step) {
 const UINT WM_UIPOST = WM_APP + 1;
 static HWND g_ui; static DWORD g_uiTid;
 static std::mutex g_uiMu; static std::deque<std::function<void()>> g_uiQ;
-static std::map<UINT_PTR, std::function<void()>> g_timers; static UINT_PTR g_nextTimer = 100;
+static std::map<UINT_PTR, std::function<void()>> g_timers; static std::atomic<UINT_PTR> g_nextTimer{100};
 static LRESULT CALLBACK UiProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_UIPOST) {
         for (;;) {
@@ -153,9 +153,13 @@ void UiPost(std::function<void()> f) {
     PostMessageW(g_ui, WM_UIPOST, 0, 0);
 }
 UINT_PTR UiTimer(UINT ms, std::function<void()> f) {
-    UINT_PTR id = g_nextTimer++; g_timers[id] = std::move(f); SetTimer(g_ui, id, ms, nullptr); return id;
+    UINT_PTR id = g_nextTimer++;
+    // g_timers is the UI thread's alone (unlocked), and SetTimer on g_ui fails from another thread: a timer asked for from a worker (a Bluetooth or Wi-Fi answer,
+    // the installer check) is set up on the UI thread instead. The id is handed out now, so a later UiKillTimer, posted after this, still finds it.
+    if (g_ui && !OnUiThread()) { UiPost([id, ms, f = std::move(f)]() mutable { g_timers[id] = std::move(f); SetTimer(g_ui, id, ms, nullptr); }); return id; }
+    g_timers[id] = std::move(f); SetTimer(g_ui, id, ms, nullptr); return id;
 }
-void UiKillTimer(UINT_PTR id) { KillTimer(g_ui, id); g_timers.erase(id); }
+void UiKillTimer(UINT_PTR id) { if (g_ui && !OnUiThread()) { UiPost([id] { UiKillTimer(id); }); return; } KillTimer(g_ui, id); g_timers.erase(id); }
 void UiOnce(UINT ms, std::function<void()> f) {
     auto id = std::make_shared<UINT_PTR>(0);
     *id = UiTimer(ms, [id, f = std::move(f)] { UiKillTimer(*id); f(); });
@@ -163,8 +167,12 @@ void UiOnce(UINT ms, std::function<void()> f) {
 
 // ================= JSON =================
 namespace {
+// Never reads past the end and never throws: a settings file cut short (a crash, a full disk, a sync tool) used to throw out_of_range
+// from the \u code below, which crashed DeskBar at every start until the supervisor gave up. `bad` says the text was not well-formed.
 struct JP {
-    const std::string& s; size_t i = 0;
+    const std::string& s; size_t i = 0; bool bad = false; int depth = 0;
+    char at(size_t k) const { return k < s.size() ? s[k] : '\0'; }
+    unsigned hex4(size_t k) { unsigned v = 0; for (size_t n = 0; n < 4; n++) { char c = at(k + n); int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; if (d < 0) { bad = true; return 0xFFFD; } v = v * 16 + d; } return v; }
     void ws_() { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n' || (unsigned char)s[i] == 0xEF || (unsigned char)s[i] == 0xBB || (unsigned char)s[i] == 0xBF)) i++; }
     ws str() {
         std::string out; i++;   // opening quote
@@ -174,9 +182,9 @@ struct JP {
                 switch (c) {
                 case 'n': out += '\n'; break; case 't': out += '\t'; break; case 'r': out += '\r'; break; case 'b': out += '\b'; break; case 'f': out += '\f'; break;
                 case 'u': {
-                    unsigned cp = (unsigned)strtoul(s.substr(i + 1, 4).c_str(), nullptr, 16); i += 4;
-                    if (cp >= 0xD800 && cp < 0xDC00 && s.compare(i + 1, 2, "\\u") == 0) { unsigned lo = (unsigned)strtoul(s.substr(i + 3, 4).c_str(), nullptr, 16); i += 6; cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); }
-                    wchar_t w[2]; int n = 0; if (cp >= 0x10000) { cp -= 0x10000; w[0] = (wchar_t)(0xD800 + (cp >> 10)); w[1] = (wchar_t)(0xDC00 + (cp & 0x3FF)); n = 2; } else { w[0] = (wchar_t)cp; n = 1; }
+                    unsigned cp = hex4(i + 1); i += 4;
+                    if (cp >= 0xD800 && cp < 0xDC00 && at(i + 1) == '\\' && at(i + 2) == 'u') { unsigned lo = hex4(i + 3); i += 6; cp = lo >= 0xDC00 && lo < 0xE000 ? 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00) : 0xFFFD; }
+                    wchar_t w[2]; int n = 0; if (cp >= 0x10000 && cp <= 0x10FFFF) { cp -= 0x10000; w[0] = (wchar_t)(0xD800 + (cp >> 10)); w[1] = (wchar_t)(0xDC00 + (cp & 0x3FF)); n = 2; } else { w[0] = (wchar_t)(cp < 0x10000 ? cp : 0xFFFD); n = 1; }
                     out += Narrow(ws(w, n)); break;
                 }
                 default: out += c;
@@ -184,25 +192,27 @@ struct JP {
             } else out += s[i];
             i++;
         }
+        if (i >= s.size()) bad = true;   // no closing quote
         i++; return Widen(out);
     }
     Json val() {
-        ws_(); Json j; if (i >= s.size()) return j;
+        ws_(); Json j; if (i >= s.size()) { bad = true; return j; }
+        if (++depth > 200) { bad = true; i = s.size(); depth--; return j; }   // a broken file of "[[[[..." must not run the stack out
         char c = s[i];
         if (c == '{') {
             j.t = Json::Obj; i++; ws_();
-            while (i < s.size() && s[i] != '}') { ws_(); if (s[i] != '"') break; ws k = str(); ws_(); if (s[i] == ':') i++; j.o.emplace_back(k, val()); ws_(); if (s[i] == ',') i++; ws_(); }
-            i++;
+            while (i < s.size() && s[i] != '}') { ws_(); if (at(i) != '"') { bad = true; break; } ws k = str(); ws_(); if (at(i) == ':') i++; else bad = true; j.o.emplace_back(k, val()); ws_(); if (at(i) == ',') i++; else if (at(i) != '}') { bad = true; break; } ws_(); }
+            if (at(i) != '}') bad = true; i++;
         } else if (c == '[') {
             j.t = Json::Arr; i++; ws_();
-            while (i < s.size() && s[i] != ']') { j.a.push_back(val()); ws_(); if (s[i] == ',') i++; ws_(); }
-            i++;
+            while (i < s.size() && s[i] != ']') { size_t was = i; j.a.push_back(val()); ws_(); if (at(i) == ',') i++; else if (at(i) != ']') { bad = true; break; } ws_(); if (i == was) { bad = true; break; } }
+            if (at(i) != ']') bad = true; i++;
         } else if (c == '"') { j.t = Json::Str; j.s = str(); }
         else if (s.compare(i, 4, "true") == 0) { j.t = Json::Bool; j.b = true; i += 4; }
         else if (s.compare(i, 5, "false") == 0) { j.t = Json::Bool; i += 5; }
         else if (s.compare(i, 4, "null") == 0) { i += 4; }
-        else { char* e; j.n = strtod(s.c_str() + i, &e); j.t = Json::Num; i = e - s.c_str(); if (e == s.c_str() + i && i < s.size() && !isdigit((unsigned char)s[i]) && s[i] != '-') i++; }
-        return j;
+        else { const char* b = s.c_str() + i; char* e; j.n = strtod(b, &e); j.t = Json::Num; if (e == b) { bad = true; i++; } else i += (size_t)(e - b); }
+        depth--; return j;
     }
 };
 void DumpStr(std::string& o, const ws& w) {
@@ -225,7 +235,7 @@ void DumpJ(const Json& j, std::string& o, int ind, int lvl) {
     }
 }
 }
-Json Json::Parse(const std::string& u8) { JP p{u8}; return p.val(); }
+Json Json::Parse(const std::string& u8, bool* ok) { JP p{u8}; Json j = p.val(); p.ws_(); if (ok) *ok = !p.bad && p.i >= u8.size(); return j; }
 std::string Json::Dump(int indent) const { std::string o; DumpJ(*this, o, indent, 0); return o; }
 const Json* Json::Find(const wchar_t* k) const { for (auto& p : o) if (p.first == k) return &p.second; return nullptr; }
 Json& Json::Set(const wchar_t* k, Json v) {
@@ -251,6 +261,7 @@ static void ApplySettings(const Json& j) {
     S.rescueWindows = BoolOf(j.Find(L"RescueWindows"), true); S.popupsFollowOwner = BoolOf(j.Find(L"PopupsFollowOwner"), true); S.dmAutoMax = BoolOf(j.Find(L"DmAutoMax"), true); S.dmRestore = BoolOf(j.Find(L"DmRestore"), true); S.dmGameLock = BoolOf(j.Find(L"DmGameLock"), true); S.dmButton = BoolOf(j.Find(L"DmButton"), true); S.showMedia = BoolOf(j.Find(L"ShowMedia"), true);
     S.showBatteryPercent = BoolOf(j.Find(L"ShowBatteryPercent"), true);
     S.hoverMagnify = BoolOf(j.Find(L"HoverMagnify"), false);
+    S.clipHistory = BoolOf(j.Find(L"ClipHistory"), true); S.clipWinV = BoolOf(j.Find(L"ClipWinV"), true);
     S.widgets = StrList(j.Find(L"Widgets"));
     S.updateCheck = BoolOf(j.Find(L"UpdateCheck"), true); S.bugReports = BoolOf(j.Find(L"BugReports"), false); if (auto p = j.Find(L"BtLagMs")) if (p->t == Json::Num) S.btLagMs = std::clamp((int)p->n, 0, 500); if (auto p = j.Find(L"UpdateLast")) if (p->t == Json::Num) S.updateLast = p->n;
     if (auto p = j.Find(L"UpdateKnown")) if (p->t == Json::Str) S.updateKnown = p->s;
@@ -265,12 +276,26 @@ static void ApplySettings(const Json& j) {
     S.launchCounts.clear();
     if (auto lc = j.Find(L"LaunchCounts")) if (lc->t == Json::Obj) for (auto& p : lc->o) S.launchCounts[p.first] = (int)p.second.n;
 }
+// settings.json is kept twice: the file itself and settings.bak.json, the copy from the save before. A file that can't be read (cut short,
+// zeros after a power cut, a bad hand edit, a sync tool's conflict) is set aside as settings.broken.json and the copy is used: pins, Start
+// and the theme survive instead of starting over (and the next save no longer writes the defaults over what was there).
+static bool g_setRecovered = false;
+bool SettingsRecovered() { return g_setRecovered; }
+static bool ReadSettingsFile(const ws& path, Json& out) { std::string raw; if (!ReadAll(path, raw)) return false; bool ok = false; out = Json::Parse(raw, &ok); return ok && out.t == Json::Obj; }
 void LoadSettings() {
-    std::string raw; ws path = DataPath(L"settings.json");
-    if (ReadAll(path, raw)) { ApplySettings(Json::Parse(raw)); }
-    else {   // first run: take what DeskBar2 had
+    std::string raw; ws path = DataPath(L"settings.json"), bak = DataPath(L"settings.bak.json"); Json j;
+    if (FileExists(path)) {
+        if (ReadSettingsFile(path, j)) ApplySettings(j);
+        else {
+            MoveFileExW(path.c_str(), DataPath(L"settings.broken.json").c_str(), MOVEFILE_REPLACE_EXISTING);
+            if (ReadSettingsFile(bak, j)) { ApplySettings(j); CopyFileW(bak.c_str(), path.c_str(), FALSE); Log(L"settings.json could not be read: set aside as settings.broken.json, the copy from the save before is used"); }
+            else { ApplySettings(Json::O()); Log(L"settings.json could not be read and there is no good copy: set aside as settings.broken.json, starting from the defaults"); }
+            g_setRecovered = true;
+        }
+    } else {   // first run: take what DeskBar2 had
         ws old = KnownFolder(FOLDERID_LocalAppData) + L"\\DeskBar2\\settings.json";
         if (ReadAll(old, raw)) { ApplySettings(Json::Parse(raw)); Log(L"settings imported from DeskBar2"); }
+        else if (ReadSettingsFile(bak, j)) { ApplySettings(j); Log(L"settings.json was missing: the copy from the save before is used"); g_setRecovered = true; }
     }
     WIN32_FILE_ATTRIBUTE_DATA d{}; if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &d)) g_setStamp = ((ULONGLONG)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
 }
@@ -281,6 +306,7 @@ void SaveSettingsNow() {
     j.Set(L"SnapOnRelease", Json::B(S.snapOnRelease)); j.Set(L"KeepSizeRatio", Json::B(S.keepSizeRatio)); j.Set(L"RescueWindows", Json::B(S.rescueWindows)); j.Set(L"DmAutoMax", Json::B(S.dmAutoMax)); j.Set(L"DmRestore", Json::B(S.dmRestore)); j.Set(L"DmGameLock", Json::B(S.dmGameLock)); j.Set(L"DmButton", Json::B(S.dmButton)); j.Set(L"DmMaxLaptopHz", Json::N(S.dmMaxLaptopHz)); j.Set(L"DmMaxMonitorHz", Json::N(S.dmMaxMonitorHz)); j.Set(L"DmMaxMode", Json::N(S.dmMaxMode)); j.Set(L"DmEasyHz", Json::N(S.dmEasyHz)); j.Set(L"DmEasyMode", Json::N(S.dmEasyMode)); j.Set(L"DmMaxSaverOff", Json::B(S.dmMaxSaverOff)); j.Set(L"DmEasySaverOn", Json::B(S.dmEasySaverOn)); j.Set(L"PopupsFollowOwner", Json::B(S.popupsFollowOwner));
     j.Set(L"ShowMedia", Json::B(S.showMedia)); j.Set(L"ShowBatteryPercent", Json::B(S.showBatteryPercent));
     j.Set(L"HoverMagnify", Json::B(S.hoverMagnify));
+    j.Set(L"ClipHistory", Json::B(S.clipHistory)); j.Set(L"ClipWinV", Json::B(S.clipWinV));
     j.Set(L"Widgets", ListJ(S.widgets)); j.Set(L"UpdateCheck", Json::B(S.updateCheck)); j.Set(L"BugReports", Json::B(S.bugReports)); j.Set(L"BtLagMs", Json::N(S.btLagMs)); j.Set(L"UpdateLast", Json::N(S.updateLast)); j.Set(L"UpdateKnown", Json::S(S.updateKnown));
     j.Set(L"MirrorDevices", ListJ(S.mirrorDevices));
     j.Set(L"QuickFolders", ListJ(S.quickFolders)); j.Set(L"FoldersInit", Json::B(S.foldersInit));
@@ -290,6 +316,7 @@ void SaveSettingsNow() {
     Json lc = Json::O(); for (auto& p : S.launchCounts) lc.Set(p.first.c_str(), Json::N(p.second));
     j.Set(L"LaunchCounts", lc);
     ws path = DataPath(L"settings.json");
+    { Json cur; if (ReadSettingsFile(path, cur)) CopyFileW(path.c_str(), DataPath(L"settings.bak.json").c_str(), FALSE); }   // the save before becomes the spare copy (only a good one)
     WriteAtomic(path, j.Dump(2));
     WIN32_FILE_ATTRIBUTE_DATA d{}; if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &d)) g_setStamp = ((ULONGLONG)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
 }
@@ -336,12 +363,17 @@ D2D1_COLOR_F ShiftColor(D2D1_COLOR_F c, float dh, float dl) {   // hue turned by
     float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, x = h / 360;
     return D2D1_COLOR_F{Hue2(p, q, x + 1.f / 3), Hue2(p, q, x), Hue2(p, q, x - 1.f / 3), c.a};
 }
+D2D1_COLOR_F FadeEnd(const ThemeDef& t, D2D1_COLOR_F c, float g, float dl) {
+    if (t.fadeHue < 0) return ShiftColor(c, -0.5f * g, dl * g);
+    float h, s, l; ToHsl(c.r, c.g, c.b, h, s, l); float d = fmodf(t.fadeHue - h + 540, 360) - 180;   // the short way round the colour wheel; 100% lands on the chosen colour
+    return ShiftColor(c, d * g / 100, dl * g);
+}
 static ThemeDef ParseTheme(const ws& id, float& grad);
 void SetTheme(const ws& id) {
     static ThemeDef cur; cur = ParseTheme(id, g_grad); g_theme = &cur; g_themeId = id;
 }
 static ThemeDef g_dm; static float g_dmGrad = -1; static bool g_dmSet = false;
-void SetDeskModeTheme(const ws& id) { g_dm = ParseTheme(id, g_dmGrad); g_dmSet = true; }
+void SetDeskModeTheme(const ws& id) { if (id.empty()) { g_dmSet = false; return; } g_dm = ParseTheme(id, g_dmGrad); g_dmSet = true; }   // no colour of its own (no theme files yet): DeskMode wears the bar's, not the default
 const ThemeDef& DeskModeTheme() { return g_dmSet ? g_dm : *g_theme; }
 float DeskModeGrad() { return g_dmSet ? g_dmGrad : g_grad; }
 static ThemeDef ParseTheme(const ws& id, float& g_grad) {
@@ -355,8 +387,8 @@ static ThemeDef ParseTheme(const ws& id, float& g_grad) {
     const ThemeDef* d = &kThemes[1];
 #endif
     for (int i = 0; i < kThemeCount; i++) if (EqI(kThemes[i].id, name)) d = &kThemes[i];
-    static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>:<fade>:<sat>:<val>": any colour; DeskDrawer and DeskTune read the same id
-    custom.sat = custom.val = 1;
+    static ThemeDef custom{L"custom", L"Custom", 0, false, 0};   // "custom:<hue>:<fade>:<sat>:<val>:<soft>:<fadeHue>": any colour (DeskDrawer and DeskTune ignore the last two); DeskDrawer and DeskTune read the same id
+    custom.sat = custom.val = 1; custom.softness = 0; custom.fadeHue = -1;
     if (EqI(name, L"accent")) {   // Windows' accent colour (Settings > Personalisation > Colours), as DeskDrawer and DeskTune read it
         DWORD abgr = 0, n = sizeof abgr;
         if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", L"AccentColor", RRF_RT_REG_DWORD, nullptr, &abgr, &n) == 0) {
@@ -365,13 +397,15 @@ static ThemeDef ParseTheme(const ws& id, float& g_grad) {
         }
     }
     if (isCustom) {
-        custom.id = L"custom"; custom.name = L"Custom"; float p[4] = {0, 0, 100, 100}; int n = 0;
-        for (const wchar_t* c = id.c_str() + 7; c && n < 4; c = wcschr(c, L':'), c = c ? c + 1 : c) p[n++] = (float)_wtof(c);
+        custom.id = L"custom"; custom.name = L"Custom"; float p[6] = {0, 0, 100, 100, 0, -1}; int n = 0;
+        for (const wchar_t* c = id.c_str() + 7; c && n < 6; c = wcschr(c, L':'), c = c ? c + 1 : c) p[n++] = (float)_wtof(c);
         if (n > 1) g_grad = std::clamp(p[1], 0.f, 100.f);
-        custom.hue = fmodf(fmodf(p[0], 360) + 360, 360); custom.sat = std::clamp(p[2], 0.f, 100.f) / 100; custom.val = std::clamp(p[3], 0.f, 100.f) / 100; d = &custom;
+        custom.hue = fmodf(fmodf(p[0], 360) + 360, 360); custom.sat = std::clamp(p[2], 0.f, 100.f) / 100; custom.val = std::clamp(p[3], 0.f, 100.f) / 100;
+        custom.softness = std::clamp(p[4], 0.f, 100.f) / 100; custom.fadeHue = p[5] < 0 ? -1.f : fmodf(p[5], 360); d = &custom;
     }
     return *d;
 }
+ThemeDef ThemeFromId(const ws& id, float& grad) { return ParseTheme(id, grad); }   // for the self-test: what an id means, without wearing it
 D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f; float al = a / 255.f;
     if (t.kind > 0) {   // black / white / glass: the dark blues of the original become neutral; the light blues (accents) stay, darker on white
@@ -395,14 +429,16 @@ D2D1_COLOR_F ColFor(const ThemeDef& t, uint32_t rgb, int a) {
             else { h = t.hue + (h - 225) * 0.25f; if (t.soft) { s = std::min(s * 0.5f, 0.5f); l = l < 0.5f ? 0.52f + l * 0.22f : std::min(0.9f, l + 0.14f); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
             s *= t.sat; if (l < 0.5f) l *= t.val;   // vividness for everything blue, brightness only for the dark backgrounds (accents keep their contrast)
+            if (t.softness > 0 && l < 0.5f) { s *= 1 - 0.5f * t.softness; l += (0.5f + l * 0.2f - l) * t.softness; }   // softness: backgrounds go pastel, kept under mid-light so white text stays readable
             float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, hh = h / 360;
             r = Hue2(p, q, hh + 1.f / 3); g = Hue2(p, q, hh); b = Hue2(p, q, hh - 1.f / 3);
         }
     }
     return D2D1_COLOR_F{r, g, b, a / 255.f};
 }
-D2D1_COLOR_F Col(uint32_t rgb, int a) { return ColFor(*g_theme, rgb, a); }
+D2D1_COLOR_F Col(uint32_t rgb, int a) { return HighContrastOn() ? HighContrastCol(rgb, a) : ColFor(*g_theme, rgb, a); }   // high contrast: Windows' own colours (ui_access.cpp)
 bool DuoTone(uint32_t rgb) {   // every theme fills its light accents in two tones (SolidB): Pink #FFCCF9 to #F61693, the others a light and a deep shade of their accent
+    if (HighContrastOn()) return false;   // high contrast: one flat system colour
     float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f, h, s, l; ToHsl(r, g, b, h, s, l);
     return h >= 185 && h <= 280 && s > 0.2f && l >= 0.5f;
 }

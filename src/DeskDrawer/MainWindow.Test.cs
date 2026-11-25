@@ -334,7 +334,16 @@ public partial class MainWindow
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle); times.Add(swp.ElapsedMilliseconds);
                     if (round == 0) { var ph = new System.Windows.Interop.WindowInteropHelper(pw).Handle; PickGetWindowRect(ph, out var pr); var pd = new PRECT { L = 200, T = 200, R = 900, B = 700 }; var pm = new PMONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<PMONITORINFO>() }; PickGetMonitorInfo(PickMonitorFromRect(ref pd, 2), ref pm);
                         int gx = pr.L - pm.rcWork.L, gy = pr.T - pm.rcWork.T; Check("pick: opens in the top-left corner of the screen", gx >= 0 && gy >= 0 && gx <= 40 && gy <= 40, $"({gx}, {gy} px from the corner)"); }
-                    if (round == 2) { Check("pick: a name that arrives late fills an untouched box", pw.PickLateName("", "report.docx") && pw.PickName.Text == "report.docx"); pw.PickName.Text = "mine.txt"; Check("pick: ...but never one you typed", !pw.PickLateName("", "other.docx") && pw.PickName.Text == "mine.txt"); }
+                    if (round == 1)   // a double click on a file answers the dialog with it
+                    {
+                        string pf = Path.Combine(pdir, "p3.txt"); FileEntry? pe = null;
+                        for (int i = 0; i < 40 && (pe = pw._tab.Entries?.FirstOrDefault(x => x.FullPath.Equals(pf, StringComparison.OrdinalIgnoreCase))) == null; i++) await Task.Delay(50);
+                        if (pe != null) { pw.List.SelectedItems.Clear(); pw.List.SelectedItem = pe; pw.List.UpdateLayout(); var lvi = pw.List.ItemContainerGenerator.ContainerFromItem(pe) as ListViewItem;
+                            pw.List.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = Control.MouseDoubleClickEvent, Source = (object?)lvi ?? pw.List }); await Task.Delay(100); }
+                        Check("pick: a double click on a file answers the dialog with that file", pw.Result is { Count: 1 } dr && dr[0].Equals(pf, StringComparison.OrdinalIgnoreCase), $"(found {pe != null}, got {(pw.Result == null ? "nothing" : string.Join("|", pw.Result))})");
+                    }
+                    if (round == 2) { Check("pick: a name that arrives late fills an untouched box", pw.PickLateName("", "report.docx") && pw.PickName.Text == "report.docx"); pw.PickName.Text = "mine.txt"; Check("pick: ...but never one you typed", !pw.PickLateName("", "other.docx") && pw.PickName.Text == "mine.txt");
+                        string hf = Path.Combine(pdir, "p5.txt"); pw.OpenFile(hf); Check("pick: opening a file another way (Home's recent files, Quick Look) answers the dialog too", pw.Result is { Count: 1 } hr && hr[0] == hf); }
                     pw.FinishPick(); pw.Opacity = 1; await Task.Delay(300);
                 }
                 sb.AppendLine("INFO pick: shown and drawn in " + string.Join(", ", times) + " ms (first = prewarmed window)");
@@ -352,6 +361,8 @@ public partial class MainWindow
                 r = await Search(ThisPcTag, "lecture7 stamatina");
                 Check("the whole-PC search uses DeskBar's list when it is there", SearchDetail.Text.Contains("From DeskBar's list") && r.Count >= 1 && r.All(x => x.Name.Contains("Lecture7", StringComparison.OrdinalIgnoreCase)), $"({items:N0} items; {r.Count} found; {SearchDetail.Text})");
                 r = await Search(ThisPcTag, "εργασια"); Check("the whole-PC search folds Greek accents too", r.Count >= 1, "(" + r.Count + ")");
+                bool heldAfter = SharedIndex.IsHeld; SharedIndex.ReleaseIfIdle(0); bool gone = !SharedIndex.IsHeld;
+                r = await Search(ThisPcTag, "lecture7 stamatina"); Check("DeskBar's list is let go when idle and maps again for the next search", heldAfter && gone && r.Count >= 1, $"(held {heldAfter}, let go {gone}, then {r.Count} found)");
             }
         }
         catch (Exception ex) { Check("no exception", false, ex.ToString()); }

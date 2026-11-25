@@ -18,13 +18,15 @@ struct Flyout : Wnd {
     virtual void OnShown() {}                       // window is up and being brought to the foreground
     bool keepOpen = false;                          // a modal dialog of ours is up: don't dismiss
     virtual float ContentHeight(float maxH);        // dip; default = measured
-    void Place(bool animate);
+    virtual void Place(bool animate);
     void Refit();   // the height follows the content again (a page that is taller or shorter), kept on the same spot at the bottom
 };
 Flyout* Panel_(Panel p);
+HMONITOR RecentPanelScreen();   // the screen of the panel that is open or closed a moment ago (nullptr: none)
 void PanelsSysChanged();
 Flyout* MakeClockPanel();
 Flyout* MakeQuickPanel();
 Flyout* MakeStartPanel();
+Flyout* MakeClipPanel();   // clipboard.cpp
 Brush PanelBrush(bool right = true);   // right: the panel sits over the bar's lighter right end, false: over its left end (Start)
 bool MenuContains(POINT p);

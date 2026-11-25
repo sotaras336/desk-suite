@@ -57,6 +57,8 @@ public partial class MainWindow : Window
         SourceInitialized += (_, _) => { if (App.Background && _pick == null) Cloak(true); ApplyChrome(); HwndSource.FromHwnd(Hwnd)!.AddHook(CaptionHook); OnStateChanged(); };
         if (App.Background && _pick == null) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
         StateChanged += (_, _) => OnStateChanged();
+        Loaded += (_, _) => { if (App.SnapshotFile == null && App.UiTest == null && _pick == null) ScreenFit.Apply(this); };   // sized above from the MAIN screen: keep it inside the screen it actually opened on
+        DpiChanged += (_, _) => RequestThumbs();   // moved to a screen with other scaling: pictures at that screen's sharpness, not stretched
         MouseMove += (_, _) => MaxBtn.Tag = null;   // back in the client area: no longer over the (hit-test) maximise button
         List.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(ThumbsAfterScroll)); Loaded += (_, _) => { Start(); ShellNew.Preload(); ShellMenu.WarmUp(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)); };
         Closing += (_, e) => { if (_pick != null) { e.Cancel = PickClosing(); return; }   /* a picker window: nothing of yours is saved, and it really closes */ SaveSession(); if (App.Resident && _settings.KeepReady && !App.Quitting) { e.Cancel = true; GoToBackground(); } };
@@ -174,11 +176,19 @@ public partial class MainWindow : Window
     {
         var pick = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // a file path asked for = its folder, with that file selected ("Open file location")
         asked = asked.Select(p => { if (!IsVirtual(p) && Reach.File(p) && Path.GetDirectoryName(p) is { } d) { pick[d] = p; return d; } return p; }).ToList();
-        var paths = asked.Where(p => IsVirtual(p) || Reach.Dir(p)).ToList(); int active = paths.Count - 1;
-        if (paths.Count == 0 && App.SnapshotFile == null) { paths = _settings.Tabs.Where(p => IsPage(p) || Reach.Dir(p)).ToList(); active = _settings.ActiveTab; }
+        var paths = asked.Where(p => IsVirtual(p) || Reach.Dir(p)).ToList(); int active = paths.Count - 1, partner = -1;
+        if (paths.Count == 0 && App.SnapshotFile == null && _pick == null)
+        {
+            // the saved tabs whose folders are still there; kept = their numbers in the saved list, so the active tab and the split's other tab are found again
+            var kept = Enumerable.Range(0, _settings.Tabs.Count).Where(i => IsPage(_settings.Tabs[i]) || Reach.Dir(_settings.Tabs[i])).ToList();
+            paths = kept.Select(i => _settings.Tabs[i]).ToList();
+            active = TabMath.Remap(kept, _settings.ActiveTab) is var a and >= 0 ? a : Math.Min(_settings.ActiveTab, paths.Count - 1);
+            partner = TabMath.Remap(kept, _settings.SplitWith);
+        }
         if (paths.Count == 0) paths.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
         foreach (var p in paths) { AddTab(p); if (pick.TryGetValue(p, out var f)) _tabs[^1].SelectAfterLoad.Add(f); }
         Activate(_tabs[Math.Clamp(active, 0, _tabs.Count - 1)]);
+        if (partner >= 0) RestoreSplit(partner);
     }
 
     // ---------- kept ready in the background ----------
@@ -191,7 +201,7 @@ public partial class MainWindow : Window
         foreach (var t in _tabs) t.Cts?.Cancel();
         Thumbs.Request(Array.Empty<FileEntry>(), 0);   // drop the thumbnails still waiting for the closed folder
         SharedIndex.Release();   // the map of DeskBar's file list goes back to the system while we sleep
-        _tabs.Clear(); _tab = new TabState();
+        SetSplit(false); _tabs.Clear(); _tab = new TabState();
         List.ItemsSource = null; HomeContent.Children.Clear();
         _watch?.Dispose(); _watch = null; _reload.Stop(); _previewTimer.Stop();
         // The lists are freed, but the working set is NOT emptied any more: that pushed every page of WPF and of our own code out too, and when Windows had since
@@ -228,7 +238,8 @@ public partial class MainWindow : Window
     private void SaveSession()
     {
         if (App.SnapshotFile != null || App.UiTest != null) return;
-        _settings.Tabs = _tabs.Select(t => t.Current).Where(p => p != null).Select(p => p!).ToList(); _settings.ActiveTab = Math.Max(0, _tabs.IndexOf(_tab));
+        _settings.Tabs = _tabs.Select(t => t.Current ?? HomeTag).ToList(); _settings.ActiveTab = Math.Max(0, _tabs.IndexOf(_tab));   // every tab, so the numbers below still point at the right ones
+        SaveSplit();   // split view: which tab is on the other side (MainWindow.Split.cs)
         _settings.Maximized = WindowState == WindowState.Maximized;
         _settings.PreviewOpen = _previewOpen; if (_previewOpen && PreviewCol.ActualWidth > 120) _settings.PreviewWidth = PreviewCol.ActualWidth;
         _settings.Theme = Theme.FullId;   // sort and view are saved per folder (Folders)
@@ -268,13 +279,17 @@ public partial class MainWindow : Window
 
     private void Activate(TabState t)
     {
-        foreach (var x in _tabs) x.IsActive = x == t;
+        bool swap = SplitOn && t == _partner && _tabs.Contains(_tab);   // split view: picking the other side's tab makes that side the one you work on
+        if (swap) { _partner = _tab; _activeRight = !_activeRight; }
+        foreach (var x in _tabs) { x.IsActive = x == t; x.IsPartner = SplitOn && x == _partner; }
         _tab = t; BindTab();
+        if (SplitOn) { LayoutPanes(); BindPeer(); }
     }
 
     private void CloseTab(TabState t)
     {
         if (_tabs.Count == 1) { Close(); return; }
+        if (SplitOn && (t == _tab || t == _partner)) { var keep = t == _tab ? _partner! : _tab; SetSplit(false); if (t == _tab) Activate(keep); }   // closing either side ends split view
         int i = _tabs.IndexOf(t); t.Cts?.Cancel(); _tabs.Remove(t); if (t.Current != null) _closed.Push(t.Current);
         if (t == _tab) Activate(_tabs[Math.Min(i, _tabs.Count - 1)]);
     }
@@ -377,7 +392,7 @@ public partial class MainWindow : Window
         tab.Glyph = IsPage(path) ? Pages[path].Glyph : "\uE8B7";
         tab.Icon = null; if (!IsPage(path)) IconCache.PathIcon(iconOf, true, ic => { if (tab.Current == path) tab.Icon = ic; });
         LoadTab(tab);
-        if (tab == _tab) BindTab();
+        Shown(tab);
     }
 
     private void UpdateNavButtons()
@@ -402,7 +417,9 @@ public partial class MainWindow : Window
         bool alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0, ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         bool done = true;
-        if (alt && key == Key.Left) GoBack();
+        if (SplitOn && PeerList.IsKeyboardFocusWithin && TabMath.WorksOnPeer(key, ctrl, shift, alt)) WorkOnPeer();   // Delete, F2, Ctrl+C... on the other side: it becomes the side you work on, then the key does its usual job
+        if (TabKey(key, ctrl, shift, alt)) { }   // Ctrl+\ split view, F6 other side, Ctrl+1..9, Ctrl+Page Up / Down, Ctrl+Shift+Page Up / Down (MainWindow.Split.cs)
+        else if (alt && key == Key.Left) GoBack();
         else if (alt && key == Key.Right) GoForward();
         else if (alt && key == Key.Up) GoUp();
         else if (key == Key.Escape && CancelZip()) { }   // a compress or extract in progress: Esc stops it
@@ -414,7 +431,7 @@ public partial class MainWindow : Window
         else if (ctrl && key == Key.H) ToggleHidden();
         else if (ctrl && key == Key.OemComma) ShowSettings();
         else if (ctrl && key == Key.N && !shift) OpenNewWindow();
-        else if (ctrl && shift && key == Key.D2) SideBySide();
+        else if (ctrl && shift && key == Key.S) SideBySide();   // was Ctrl+Shift+2, which is also Large icons: that view could never be picked from the keyboard
         else if (ctrl && key == Key.Z && Keyboard.FocusedElement is not TextBox) Undo();
         else if (ctrl && key is Key.OemPlus or Key.Add) Zoom(1);
         else if (ctrl && key is Key.OemMinus or Key.Subtract) Zoom(-1);
@@ -424,7 +441,7 @@ public partial class MainWindow : Window
         else if (ctrl && shift && key == Key.T) ReopenClosed();
         else if (ctrl && key == Key.T) NewTab(_tab.Current);
         else if (ctrl && key == Key.W) CloseTab(_tab);
-        else if (ctrl && key == Key.Tab) Activate(_tabs[(_tabs.IndexOf(_tab) + (shift ? _tabs.Count - 1 : 1)) % _tabs.Count]);
+        else if (ctrl && key == Key.Tab) Activate(_tabs[TabMath.Cycle(_tabs.IndexOf(_tab), shift ? -1 : 1, _tabs.Count)]);
         else if (Keyboard.FocusedElement is TextBox) done = false;   // typing in the address, filter or rename box: leave the keys alone
         else if (!List.IsKeyboardFocusWithin) done = false;
         else if (ctrl && key == Key.C) CopySelection(false);
@@ -649,6 +666,7 @@ public partial class MainWindow : Window
         var group = MI("Group by", "", () => { }); AddGroupItems(group.Items); m.Items.Add(group);
         m.Items.Add(new Separator());
         m.Items.Add(MI("Preview pane", _previewOpen ? Check : "", () => SetPreview(!_previewOpen), "Alt+P"));
+        if (_pick == null) m.Items.Add(MI("Split view", SplitOn ? Check : "", ToggleSplit, "Ctrl+\\"));   // two folders in this window (MainWindow.Split.cs)
         m.Items.Add(MI("Hidden items", _settings.ShowHidden ? Check : "", ToggleHidden, "Ctrl+H"));
         m.Items.Add(new Separator());
         var color = MI("Color", "", () => { });
@@ -797,7 +815,7 @@ public partial class MainWindow : Window
             tab.Loading = false; tab.Error = error; tab.Entries = list; tab.IconsRequested = false;
             if (_cutPaths.Count > 0) foreach (var en in list) en.IsCut = _cutPaths.Contains(en.FullPath);
             var v = new ListCollectionView(list); tab.View = v; ApplyGrouping(tab); ApplyFilter(tab);
-            if (tab == _tab) BindTab();
+            Shown(tab);   // this side, or the other side of a split
             if (!IsVirtual(path))   // Home holds whole drives and OneDrive, search results come from everywhere: too much to add up
                 FolderSizes.Start(list, cts.Token, () => { if (_sortKey == "Size" && tab.View != null) ApplySort(tab.View); if (tab == _tab) UpdateSelectionStatus(); });
         }
@@ -1078,6 +1096,7 @@ public partial class MainWindow : Window
     private void OpenFile(string path)
     {
         if (FolderBehind(path) is { } dir) { Navigate(dir); return; }
+        if (_pick != null) { PickDone(new List<string> { path }); return; }   // picker: Home's recent files and Quick Look's Enter answer the dialog, they never start the file
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "DeskDrawer", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -1162,7 +1181,7 @@ public partial class MainWindow : Window
         if (tab.Entries == null || tab.Loading) return;
         if (tab.Entries.RemoveAll(x => !Exists(x.FullPath)) == 0) return;
         tab.View = new ListCollectionView(tab.Entries); ApplyGrouping(tab); ApplyFilter(tab);
-        if (tab == _tab) BindTab();
+        Shown(tab);
     }
 
     private void NewItem(bool folder)
@@ -1276,10 +1295,17 @@ public partial class MainWindow : Window
         {
             items.Add(MI("Open", "", OpenSelected, "Enter", bold: true));
             if (sel.All(x => x.IsDir)) items.Add(MI(sel.Count == 1 ? "Open in new tab" : "Open each in a new tab", "", () => { foreach (var d in sel) { AddTab(d.FullPath); } }));
+            if (sel.Count == 1 && sel[0].IsDir && _pick == null) items.Add(MI("Open on the other side", "", () => OpenOnOtherSide(sel[0].FullPath)));   // split view
             if (sel.Count == 1 && !sel[0].IsDir) items.Add(MI("Open with…", "", () => ShellOps.OpenWith(sel[0].FullPath)));
             items.Add(new Separator());
             items.Add(MI("Cut", "", () => CopySelection(true), "Ctrl+X"));
             items.Add(MI("Copy", "", () => CopySelection(false), "Ctrl+C"));
+            if (SplitOn && _partner!.Current is { } other && !IsVirtual(other) && _pick == null)   // split view: the touch- and keyboard-friendly way across, no dragging needed
+            {
+                var srcs = sel.Select(x => x.FullPath).ToList(); bool same = srcs.All(x => string.Equals(Path.GetDirectoryName(x), other, StringComparison.OrdinalIgnoreCase));
+                items.Add(MI("Copy to the other side", "", () => Transfer(srcs, other, move: false, sameFolder: same)));
+                items.Add(MI("Move to the other side", "", () => Transfer(srcs, other, move: true, sameFolder: same), enabled: !same));
+            }
             if (sel.Count == 1 && sel[0].IsDir) items.Add(MI("Paste into folder", "", () => Paste(sel[0].FullPath), "Ctrl+V", enabled: ShellOps.ReadClipboard() != null));
             items.Add(new Separator());
             items.Add(MI(sel.Count > 1 ? $"Rename all {sel.Count}" : "Rename", "", RenameSelection, "F2", enabled: sel.Count >= 1));
@@ -1556,7 +1582,7 @@ public partial class MainWindow : Window
 
     private static void SwapIcon(StackPanel sp, ImageSource src) { sp.Children.RemoveAt(0); sp.Children.Insert(0, TreeIcon(src)); }
 
-    private static string KnownDownloads()
+    internal static string KnownDownloads()
     {
         try { if (SHGetKnownFolderPath(FolderDownloads, 0, IntPtr.Zero, out var p) == 0) { var s = Marshal.PtrToStringUni(p) ?? ""; Marshal.FreeCoTaskMem(p); return s; } } catch { }
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -1565,5 +1591,23 @@ public partial class MainWindow : Window
     private void Tree_Selected(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is TreeViewItem { Tag: string path } && path != Placeholder) Navigate(path);
+    }
+
+    /// Clicking the item that is already selected goes back to it (Local Disk (C:), then into PerfLogs, then Local Disk (C:) again). The tree only reports a change of
+    /// selection, so that click used to do nothing. Only a press that started on an item already selected counts: a new selection has already navigated on the press,
+    /// and the expand arrow only expands.
+    private TreeViewItem? _treeReclick;
+    private void Tree_LeftDown(object s, MouseButtonEventArgs e) => _treeReclick = OnTreeArrow(e.OriginalSource) ? null : TreeItemOf(e.OriginalSource) is { IsSelected: true } item ? item : null;
+    private void Tree_LeftUp(object s, MouseButtonEventArgs e)
+    {
+        var item = _treeReclick; _treeReclick = null;
+        if (item == null || TreeItemOf(e.OriginalSource) != item || !item.IsSelected || item.Tag is not string path || path == Placeholder) return;
+        if (_tab.Current != null && string.Equals(_tab.Current.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return;   // already there
+        Navigate(path);
+    }
+    private static bool OnTreeArrow(object? src)
+    {
+        for (var d = AsVisual(src as DependencyObject); d != null && d is not TreeViewItem; d = VisualTreeHelper.GetParent(d)) if (d is System.Windows.Controls.Primitives.ToggleButton) return true;
+        return false;
     }
 }
