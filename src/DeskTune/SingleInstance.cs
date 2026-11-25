@@ -29,6 +29,10 @@ public static class SingleInstance
         return args.Contains("--undoall") ? UndoAll : Show;
     }
 
+    /// What an administrator window does with a message. Anyone without rights can post it (the filter below lets them), so it never closes
+    /// itself or runs "Put everything back" on that say-so: it only comes forward, and the person clicks what they want. Pure, for the self-test.
+    public static int? Accept(int what, bool elevated) => !elevated || what == Show ? what : what == UndoAll ? Show : null;
+
     /// The open DeskTune's window (another process, same exe, a real window), or zero.
     static (IntPtr h, int pid) Other()
     {
@@ -76,12 +80,12 @@ public static class SingleInstance
     /// On the main window: answers the next start.
     public static void Listen(MainWindow w)
     {
-        var h = new WindowInteropHelper(w).Handle;
+        var h = new WindowInteropHelper(w).Handle; bool elevated = Elevated(Environment.ProcessId);
         ChangeWindowMessageFilterEx(h, Message, 1 /*MSGFLT_ALLOW*/, IntPtr.Zero);   // a start without rights can still reach a window that has them
         HwndSource.FromHwnd(h)?.AddHook((IntPtr hwnd, int msg, IntPtr wp, IntPtr lp, ref bool handled) =>
         {
             if ((uint)msg != Message || Message == 0) return IntPtr.Zero;
-            handled = true; int what = (int)wp;
+            handled = true; if (Accept((int)wp, elevated) is not int what) return IntPtr.Zero;
             w.Dispatcher.BeginInvoke(() =>
             {
                 if (what == Close) { w.Close(); return; }
@@ -102,6 +106,7 @@ public static class SingleInstance
         yield return ("one window: Unlock services (administrator) replaces the window without rights", Decide(none, true, true, false) == Close, "");
         yield return ("one window: a start without rights goes to the administrator window", Decide(none, true, false, true) == Show && Decide(none, true, true, true) == Show, "");
         yield return ("one window: tests and pictures get their own window", Decide(new[] { "--snapshot", "x.png" }, true, false, false) == null && Decide(new[] { "--settingsshot", "x.png" }, true, false, false) == null, "");
+        yield return ("one window: an administrator window only comes forward; it never closes or undoes because someone without rights asked", Accept(Close, true) == null && Accept(UndoAll, true) == Show && Accept(Show, true) == Show && Accept(Close, false) == Close && Accept(UndoAll, false) == UndoAll, "");
         yield return ("one window: the hand-over message is registered", Message != 0, "");
     }
 }
