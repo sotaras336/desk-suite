@@ -169,21 +169,35 @@ void PageApps(View* col) {
     auto* c = Card(col, L"One look");
     auto* t = Dim(c, L"The colour theme you pick in Quick settings, or in DeskDrawer's View menu, is worn by all three apps.", 13); t->margin = Thick(12, 10, 12, 10);
     c = Card(col, L"Apps");
+    auto ver = [](const ws& stamp) { ws d = UpdateDay(stamp); return d.empty() ? ws() : L"Version of " + d + L" · "; };
+    {   // DeskBar itself: running (this window is DeskBar), so no Open; its own self-update (update.cpp)
+        auto* r = RowBase(c, 0xE90C, nullptr, L"DeskBar", L"The taskbar, Start, search and Quick settings.");
+        if (UpdateNewer() && !UpdateBusy()) Btn(r, L"Update", 0xE896, true, [] { UpdateNow(); })->va = Al::Center;
+        ws st = UpdateStatus(); auto* s = Dim(c, ver(UpdateSelfBuilt()) + (st.empty() ? ws(L"Running") : st), 12); s->margin = Thick(58, 0, 12, 10);
+    }
     for (int i = 0; i < DeskAppCount(); i++) {
         ws name = DeskAppName(i), state = DeskAppState(name); bool have = FileExists(DeskAppExe(name));
         auto* r = RowBase(c, DeskAppGlyph(i), nullptr, name, DeskAppWhat(i));
         if (have) Btn(r, L"Open", 0xE8A7, false, [name] { Launch(DeskAppExe(name)); })->va = Al::Center;
         if (!have || ContainsI(state, L"new version")) Btn(r, have ? L"Update" : L"Install", have ? 0xE896 : 0xE896, true, [name] { DeskAppInstall(name); })->va = Al::Center;
-        auto* s = Dim(c, state.empty() ? ws(have ? L"Installed" : L"Not installed") : state, 12); s->margin = Thick(58, 0, 12, 10);
+        auto* s = Dim(c, (have ? ver(DeskAppBuilt(name)) : ws()) + (state.empty() ? ws(have ? L"Installed" : L"Not installed") : state), 12); s->margin = Thick(58, 0, 12, 10);
     }
-    auto* b = MkBox(col, Lay::H); b->margin = Thick(0, 6, 0, 0); Btn(b, L"Look for updates", 0xE72C, false, [] { DeskAppsCheck(); });
+    auto* b = MkBox(col, Lay::H); b->margin = Thick(0, 6, 0, 0); Btn(b, L"Look for updates", 0xE72C, false, [] { DeskAppsCheck(); UpdateCheck(); });
     if (DeskAppState(DeskAppName(0)).empty()) UiPost([] { DeskAppsCheck(); });   // first visit: look once
+    if (UpdateStatus().empty()) UiPost([] { UpdateCheck(); });
 }
 
 // ---- Colours: one for the suite, or one per app (deskapps.cpp keeps them in %LOCALAPPDATA%\Desk)
 D2D1_COLOR_F SwatchColour(const ThemeDef& t) {   // what a theme looks like, as one dot
     if (t.kind == 1) return Raw(0x1A1A1A); if (t.kind == 2) return Raw(0xF2F2F2); if (t.kind == 3) return Raw(0x9AA4B4, 0x90);
     return ColFor(t, 0x1167C4);
+}
+// The one colour editor (Quick settings > Colour): every app's colour while "Same colour for every app" is on, else the bar's or DeskMode's own (MakeThemePage).
+// DeskDrawer and DeskTune open it too (code 5) when the colour is shared, so a colour is always edited in the same place.
+void OpenColourEditor(bool dm) {
+    Bar* b = BarHere(); auto* q = (QuickPanel*)Panel_(Panel::Quick); if (!b || !q) return;
+    if (!q->shown || q->hiding) TogglePanel(Panel::Quick, b);
+    if (q->shown && !q->hiding) q->ShowDetail(MakeThemePage(q, dm), dm && ThemesSeparate());
 }
 void Swatches(View* col, const ws& title, const ws& app) {
     auto* c = Card(col, title); ws cur = ThemeOf(app);
@@ -196,7 +210,10 @@ void Swatches(View* col, const ws& title, const ws& app) {
         sw->onClick = [app, id] { ThemeSet(app, id); UiPost([] { Show(kPgColours); }); };
     }
     ws name = known ? ws() : cur.empty() ? ws(L"the bar's colour") : StartsI(cur, L"custom") ? ws(L"a custom colour") : StartsI(cur, L"accent") ? ws(L"Windows' accent colour") : cur;
-    auto* d = Dim(c, known ? ws(L"Point at a dot for its name.") : L"Now: " + name + L". Any colour and fades: Quick settings > Colour.", 12); d->margin = Thick(12, 0, 12, 10);
+    bool ours = app.empty() || app == L"deskbar" || app == L"deskmode";   // DeskBar's editor; DeskDrawer and DeskTune have their own for their own colour
+    if (ours) Btn(row, L"Any colour…", 0xE790, false, [app] { OpenColourEditor(app == L"deskmode"); })->va = Al::Center;
+    ws more = ours ? ws() : L" Any colour and fades: " + ws(app == L"deskdrawer" ? L"DeskDrawer" : L"DeskTune") + L"'s own colour button.";
+    auto* d = Dim(c, (known ? ws(L"Point at a dot for its name.") : L"Now: " + name + L".") + more, 12); d->margin = Thick(12, 0, 12, 10);
 }
 void PageColours(View* col) {
     Head(col, 0xE790, nullptr, L"Colours", L"One colour for the whole suite, or a different one for each app.");
@@ -305,6 +322,7 @@ void OpenSettingsWindow() {
         if (g_railUpd) g_railUpd->Show(UpdateNewer() && !UpdateBusy());
         if (g_pageUpd) g_pageUpd->Show(UpdateNewer());
         if (g_updStatus) g_updStatus->Set(UpdateStatus().empty() ? ws(L"Not checked yet.") : UpdateStatus());
+        DeskAppsRefresh();   // DeskBar's own line on the Desk apps page
     });
     { auto* w = LinkRow(rail, 0xE713, L"Windows Settings", L"", [] { Launch(L"ms-settings:"); }); w->margin = Thick(0, 0, 0, 8); }   // the gears open this window now: Windows' own stays a click away
     auto* foot = Dim(rail, L"Changes apply right away.", 12); foot->margin = Thick(8, 0, 0, 0);
@@ -323,7 +341,8 @@ void SettingsShowPage(const ws& name) { Show(PageNamed(name)); }   // dev snapsh
 // Another Desk app's Settings (DeskDrawer, DeskTune) opens this window at its page: one settings window for the suite. code: 1 DeskDrawer, 2 DeskTune, 3 Colours.
 // The codes are the other apps' (Theme.cs DeskSettings.Open: "deskdrawer" 1, "desktune" 2, "colours" 3); 4 is DeskMode's own gear; anything else the Taskbar page.
 int SettingsPageForCode(int code) { return code == 1 ? kPgDrawer : code == 2 ? kPgTune : code == 3 ? kPgColours : code == 4 ? kPgDeskMode : kPgTaskbar; }
-void SettingsOpenFromApp(int code) { OpenSettingsWindow(); Show(SettingsPageForCode(code)); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
+void SettingsOpenFromApp(int code) { if (code == 5) { OpenColourEditor(false); return; }   // DeskDrawer / DeskTune: "edit the shared colour"
+    OpenSettingsWindow(); Show(SettingsPageForCode(code)); if (g_sw && g_sw->hwnd) ForceForeground(g_sw->hwnd); }
 // A colour change restarts DeskBar: the window comes back on the page it was on
 void SettingsReopenAfterRestart() { if (g_sw && g_sw->hwnd && IsWindowVisible(g_sw->hwnd)) WriteAtomic(DataPath(L"reopen-settings.txt"), std::to_string(g_cur)); }
 void SettingsReopenCheck() {

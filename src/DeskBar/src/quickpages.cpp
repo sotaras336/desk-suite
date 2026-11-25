@@ -700,7 +700,7 @@ struct SoundPage : PageBase {
 View* MakeWifiPage(QuickPanel* q) { return new WifiPage(q); }
 View* MakeBtPage(QuickPanel* q) { return new BtPage(q); }
 View* MakeSoundPage(QuickPanel* q) { return new SoundPage(q); }
-View* MakeThemePage(QuickPanel* q, bool deskMode) { return new ThemePage(q, deskMode); }
+View* MakeThemePage(QuickPanel* q, bool deskMode) { return new ThemePage(q, deskMode && ThemesSeparate()); }   // one colour for every app: DeskMode's colour button opens the one shared editor
 
 // ======================================================= Screens and power (what DeskMode did, now here, in DeskMode's own look)
 // DeskMode's panel, piece by piece: the big readout of each screen, the two preset cards, the power-mode strip, and one card per screen with its refresh rates.

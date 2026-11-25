@@ -209,11 +209,12 @@ public static partial class SelfTest
                 SharedTheme.Write("teal"); bool one = File.ReadAllText(all) == "teal" && SharedTheme.Read() == "teal" && !File.Exists(own);
                 File.WriteAllText(own, "teal"); File.WriteAllText(bar, "teal");   // "Same colour for every app" turned off in DeskBar: every app gets its own file, starting from the suite's colour
                 SharedTheme.Write("custom:120:40"); bool sep = File.ReadAllText(own) == "custom:120:40" && File.ReadAllText(all) == "teal" && File.ReadAllText(bar) == "teal" && SharedTheme.Read() == "custom:120:40";
+                File.Delete(own); SharedTheme.Write("green"); bool mine = File.ReadAllText(own) == "green" && File.ReadAllText(all) == "teal";   // separate, but this app's own file is missing: its pick is still only its own
                 File.Delete(own); File.Delete(bar);   // turned back on: DeskBar removes the apps' own files
                 bool again = SharedTheme.Read() == "teal";
                 File.WriteAllText(all, "  pink\r\n"); File.WriteAllText(own, new string('x', 300));
                 bool tidy = SharedTheme.Read() == "pink";
-                Check("shared colours: one for all, or each app its own (read and written as DeskBar does)", inTest && none && one && sep && again && tidy, $"own folder {inTest}, empty {none}, one {one}, separate {sep}, one again {again}, untidy files {tidy}");
+                Check("shared colours: one for all, or each app its own (read and written as DeskBar does)", inTest && none && one && sep && mine && again && tidy, $"own folder {inTest}, empty {none}, one {one}, separate {sep}, own file missing {mine}, one again {again}, untidy files {tidy}");
             }
             catch (Exception ex) { Check("shared colours: no exception", false, ex.Message); }
             finally { Environment.SetEnvironmentVariable("DESK_DIR", realDir); try { Directory.Delete(dir, true); } catch { } }

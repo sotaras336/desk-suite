@@ -76,6 +76,7 @@ static ws InstalledBuilt(const ws& name) {
     std::string d; if (!ReadAll(KnownFolder(FOLDERID_LocalAppData) + L"\\" + name + L"\\update.json", d)) return {};
     Json j = Json::Parse(d); const Json* b = j.Find(L"Built"); return b && b->t == Json::Str ? b->s : ws();
 }
+ws DeskAppBuilt(const ws& name) { return InstalledBuilt(name); }
 // Looks at the newest release (worker thread): for each app, installed or not, and whether the release holds a different build.
 void DeskAppsCheck() {
     if (g_busy.exchange(true)) return;

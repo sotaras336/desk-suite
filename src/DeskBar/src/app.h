@@ -214,6 +214,7 @@ bool UpdateFetchLatest(ws& path); bool EvictOlderCopies(); void EnsureSignInTask
 ws Sha256HexOf(const std::string& d); ws UpdateHashFor(const std::string& sums, const ws& file);
 ws UpdateBuiltFor(const std::string& sums, const ws& file); ws UpdateStamp(int64_t unixSeconds);
 bool UpdateReleaseNotNewer(const ws& releaseBuilt, const ws& mine);   // update.cpp: true = never offer that release (it is not later than this build; a list without build times is older than any build that has one)   // "# built <file> <yyyyMMddTHHmmssZ>" lines in the release list (update.cpp)
+ws UpdateSelfBuilt(); ws UpdateDay(const ws& stamp); ws DeskAppBuilt(const ws& name);   // build times, for Settings > Desk apps
 void UpdateStart(); void UpdateCheck(); void UpdateNow(); bool UpdateNewer(); bool UpdateBusy(); ws UpdateStatus(); void UpdateListen(std::function<void()> f); int UpdateTest(const ws& report);
 void BarsWorkAreaUpkeep();
 

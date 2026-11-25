@@ -89,6 +89,7 @@ public partial class MainWindow
 
     private void PickColour()
     {
+        if (!SharedTheme.Separate && DeskSettings.Open("colour")) return;   // one colour for every app: DeskBar's editor is the one editor (ours only when DeskBar isn't running)
         string before = Theme.FullId; bool ok = false;
         // a ready-made colour keeps its exact look until the colour bar is moved; the fade then rides on top of it ("blue:40")
         string? baseId = Theme.Current.Kind == 0 && !Theme.Current.Id.StartsWith("custom:") ? Theme.Current.Id : null; bool moved = false;

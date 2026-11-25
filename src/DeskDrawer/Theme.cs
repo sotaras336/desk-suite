@@ -198,8 +198,11 @@ public static class SharedTheme
     static string? ReadFile(string f) { try { var t = System.IO.File.ReadAllText(f).Trim(); return t.Length is > 0 and < 200 ? t : null; } catch { return null; } }
     /// This app's colour: its own if it has one, else the suite's.
     public static string? Read() => ReadFile(Own) ?? ReadFile(File);
+    static readonly string[] Apps = { "deskbar", "deskmode", "deskdrawer", "desktune" };   // DeskBar's kColourApps (deskapps.cpp)
+    /// "Same colour for every app" is off: any app has its own colour file. The same rule as DeskBar's ThemesSeparate, so all three apps agree.
+    public static bool Separate => Apps.Any(a => System.IO.File.Exists(System.IO.Path.Combine(Dir, "theme-" + a + ".txt")));
     /// A colour picked in this app: its own when the apps have separate colours, else the suite's.
-    public static void Write(string id) { try { System.IO.Directory.CreateDirectory(Dir); var f = System.IO.File.Exists(Own) ? Own : File; if (ReadFile(f) != id) System.IO.File.WriteAllText(f, id); } catch { } }
+    public static void Write(string id) { try { System.IO.Directory.CreateDirectory(Dir); var f = Separate ? Own : File; if (ReadFile(f) != id) System.IO.File.WriteAllText(f, id); } catch { } }
 }
 
 /// One settings window for the Desk suite: DeskBar's. Settings here opens it at this app's page when DeskBar is running (false = it isn't: use our own).
@@ -212,11 +215,11 @@ public static class DeskSettings
     const long Ack = 0x44534B;   // DeskBar 4.0 answers this (ui_wnd.cpp kOpenSettingsAck); an older DeskBar or its stand-in bar answers 0
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out int pid);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
-    /// page: the page's name in DeskBar's settings ("deskdrawer", "desktune", "colours").
+    /// page: the page's name in DeskBar's settings ("deskdrawer", "desktune", "colours"); "colour" = DeskBar's colour editor (Quick settings > Colour).
     public static bool Open(string page)
     {
         if (Environment.GetEnvironmentVariable("DESK_OWN_SETTINGS") != null) return false;   // tests and pictures of our own window
-        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, _ => 0 }; uint msg = RegisterWindowMessageW("DeskOpenSettings");
+        int code = page switch { "deskdrawer" => 1, "desktune" => 2, "colours" => 3, "colour" => 5, _ => 0 }; uint msg = RegisterWindowMessageW("DeskOpenSettings");
         // every DeskBar window gets asked until one says it opened the window: a plain post to the first one found did nothing with DeskBar 3.x
         // (which doesn't know the message) and the Settings button looked dead
         IntPtr h = IntPtr.Zero;

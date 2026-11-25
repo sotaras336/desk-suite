@@ -14,6 +14,7 @@ public static class ColourWindow
 {
     public static void Show(Window owner)
     {
+        if (!SharedTheme.Separate && DeskSettings.Open("colour")) return;   // one colour for every app: DeskBar's editor is the one editor (ours only when DeskBar isn't running)
         string before = Theme.FullId; bool ok = false;
         string? baseId = Theme.Current.Kind == 0 && !Theme.Current.Id.StartsWith("custom:") ? Theme.Current.Id : null; bool moved = false;
         var cur = Theme.Current;

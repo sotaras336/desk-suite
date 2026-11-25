@@ -157,6 +157,7 @@ int RunSelfTest(const ws& outFile) {
             UpdateReleaseNotNewer(L"", L"20261124T221200Z") && UpdateReleaseNotNewer(L"20261120T100000Z", L"20261124T221200Z") && UpdateReleaseNotNewer(L"20261124T221200Z", L"20261124T221200Z")
             && !UpdateReleaseNotNewer(L"20261126T080000Z", L"20261124T221200Z") && !UpdateReleaseNotNewer(L"", L"") && !UpdateReleaseNotNewer(L"20261120T100000Z", L""));
         check(L"update: link time stamps are written as UTC dates", UpdateStamp(1764065700) == L"20251125T101500Z" && UpdateStamp(0).empty(), UpdateStamp(1764065700));
+    check(L"update: build times read as a day", UpdateDay(L"20261125T101500Z") == L"25 Nov 2026" && UpdateDay(L"").empty() && UpdateDay(L"20261325T101500Z").empty(), UpdateDay(L"20261125T101500Z"));
     }
     {   // File Explorer requests that DeskDrawer takes over (when it is the folder handler), and the ones that stay with Explorer
         ws a;

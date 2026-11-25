@@ -135,6 +135,13 @@ ws UpdateStamp(int64_t unixSeconds) {   // seconds since 1970 (UTC) -> "yyyyMMdd
 bool UpdateGet(const ws& url, std::string& out, size_t cap) { return Get(url, out, cap); }
 bool UpdateFetchLatest(ws& path) { ws status; return DoCheck(status) && DoDownload(status, path); }
 bool UpdateNewer() { std::lock_guard<std::mutex> l(g_mu); return g_newer; }
+ws UpdateSelfBuilt() { return SelfBuilt(); }
+ws UpdateDay(const ws& stamp) {   // "yyyyMMddTHHmmssZ" -> "25 Nov 2026" (the apps carry no version numbers: when they were built is their version)
+    static const wchar_t* m[] = {L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec"};
+    if (stamp.size() != 16 || stamp[8] != L'T') return {};
+    int mo = _wtoi(stamp.substr(4, 2).c_str()); if (mo < 1 || mo > 12) return {};
+    return Fmt(L"%d %s %s", _wtoi(stamp.substr(6, 2).c_str()), m[mo - 1], stamp.substr(0, 4).c_str());
+}
 bool UpdateBusy() { return g_busy; }
 ws UpdateStatus() { std::lock_guard<std::mutex> l(g_mu); return g_status; }
 void UpdateListen(std::function<void()> f) { g_listener = std::move(f); }
