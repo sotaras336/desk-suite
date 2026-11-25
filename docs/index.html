@@ -98,6 +98,12 @@
   .bar { --accent: var(--bar); } .drawer { --accent: var(--drawer); } .tune { --accent: var(--tune); } .mode { --accent: var(--mode); }
   h2 .dot { color: var(--accent); }
   .inline-shot { margin-top: 28px; }
+  .new40 { padding-block: clamp(56px, 7vw, 96px); }
+  .new40 h3 { font: 800 clamp(26px, 3vw, 38px)/1.1 var(--display); margin: 0 0 8px; }
+  .new-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 36px; align-items: start; margin-top: 28px; }
+  .new40 figure { margin: 0; } .new40 figure img { width: 100%; height: auto; display: block; }
+  .new40 figure.wide { grid-column: span 2; } @media (max-width: 760px) { .new40 figure.wide { grid-column: auto; } }
+  .new40 figcaption { margin-top: 14px; color: var(--muted); font-size: 15px; line-height: 1.5; } .new40 figcaption b { color: var(--ink); }
   html:not(.live) .story-grid { grid-template-columns: minmax(0, 64ch); }   /* no script: a plain stack, each app with its own screenshot */
   html:not(.live) .chapter { min-height: 0; padding-block: 56px; }
   .live .inline-shot, .stage { display: none; }
@@ -201,7 +207,7 @@
         <li>Native code, about 2.7&nbsp;MB. Windows' own taskbar comes back the moment DeskBar quits.</li>
         </ul>
         <a class="btn btn-solid" data-asset="DeskBar-Setup.exe" href="#install">Download DeskBar <span class="size">2.7 MB</span></a>
-        <img class="shot inline-shot" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="830" loading="lazy">
+        <img class="shot inline-shot" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="610" loading="lazy">
       </article>
       <article class="chapter drawer" id="deskdrawer" data-app="drawer">
         <div class="app-head"><img src="img/icon-deskdrawer.png" alt=""><div><h2>DeskDrawer<span class="dot">.</span></h2><p class="replaces">Replaces File Explorer</p></div></div>
@@ -217,7 +223,7 @@
         <li>Stays ready in the background after you close it, like File Explorer, so folders open in about half a second. It uses about 20–30 MB of memory while it waits, and you can switch that off.</li>
         </ul>
         <a class="btn btn-solid" data-asset="DeskDrawer-Setup.exe" href="#install">Download DeskDrawer <span class="size">1.7 MB</span></a>
-        <img class="shot inline-shot" src="img/deskdrawer.png" alt="DeskDrawer showing a project folder in details view with a sidebar of pinned folders" width="2640" height="1520" loading="lazy">
+        <img class="shot inline-shot" src="img/deskdrawer.png" alt="DeskDrawer in split view: two folders side by side in one window, with a sidebar of pinned folders" width="2640" height="1520" loading="lazy">
       </article>
       <article class="chapter tune" id="desktune" data-app="tune">
         <div class="app-head"><img src="img/icon-desktune.png" alt=""><div><h2>DeskTune<span class="dot">.</span></h2><p class="replaces">Switches off what you don't use</p></div></div>
@@ -249,14 +255,24 @@
       <div class="stage">
         <div class="stage-box">
           <div class="stage-glow"></div>
-          <div class="pane" data-state="on"><div class="duo"><img class="start" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="830"><img class="quick" src="img/deskbar_quick_public.png" alt="DeskBar's Quick Settings: Wi-Fi, Bluetooth, sound and brightness" width="720" height="892"></div></div>
-          <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/deskdrawer.png" alt="DeskDrawer showing a project folder in details view with a sidebar of pinned folders" width="2640" height="1520"></div>
+          <div class="pane" data-state="on"><div class="duo"><img class="start" src="img/deskbar_start_public.png" alt="DeskBar's Start: a search box above a grid of pinned apps" width="1280" height="610"><img class="quick" src="img/deskbar_quick_public.png" alt="DeskBar's Quick Settings: Wi-Fi, Bluetooth, sound and brightness" width="720" height="892"></div></div>
+          <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/deskdrawer.png" alt="DeskDrawer in split view: two folders side by side in one window, with a sidebar of pinned folders" width="2640" height="1520"></div>
           <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/desktune.png" alt="DeskTune with memory in use, presets, and a list of switches with what each one costs" width="1934" height="1569"></div>
           <div class="pane" data-state="next" aria-hidden="true"><img class="shot" src="img/deskmode.png" alt="DeskMode's panel with presets, power mode, refresh rate and brightness, next to the DeskMode page of DeskBar's settings" width="2640" height="1520"></div>
         </div>
         <nav class="rail" aria-label="The apps">
           <a href="#deskbar" aria-current="true">DeskBar</a><a href="#deskdrawer" aria-current="false">DeskDrawer</a><a href="#desktune" aria-current="false">DeskTune</a><a href="#deskmode" aria-current="false">DeskMode</a>
         </nav>
+      </div>
+    </div>
+  </section>
+
+  <section class="new40" id="new">
+    <div class="wrap">
+      <h3>New in Desk 4.0</h3>
+      <div class="new-grid">
+        <figure><img class="shot" src="img/deskbar_clipboard.png" alt="DeskBar's clipboard history: a pinned text and the most recent texts you copied, with a search box" width="720" height="880" loading="lazy"><figcaption><b>Clipboard history.</b> Press Win+V for the last 25 texts you copied. Pin what you use often, search, press Enter to paste. Copies from password managers are never kept.</figcaption></figure>
+        <figure class="wide"><img class="shot" src="img/desk_settings.png" alt="The Desk settings window on its Colours page: one colour for every app, or a different one for each" width="1720" height="1360" loading="lazy"><figcaption><b>One settings window.</b> Every gear button in every Desk app opens it, on the right page. Pick one colour for the whole suite, or a different one for each app.</figcaption></figure>
       </div>
     </div>
   </section>
