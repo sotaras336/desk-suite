@@ -46,7 +46,10 @@ static void SetAutoHide(bool on) {
 void Explorer::Hide() { SetAutoHide(true); KeepHidden(); }   // auto-hide is remembered by Windows: next sign-in its taskbar starts out of the way
 void Explorer::KeepHidden() {
     static std::atomic<uint64_t> lastLog{0};   // the stand-in bar's thread calls this too
-    for (HWND h : ExplorerTrays()) if (IsWindowVisible(h)) { ShowWindowAsync(h, SW_HIDE); uint64_t n = Now(); if (n - lastLog > 5000) { lastLog = n; Log(L"Windows taskbar popped up, hidden again"); } }
+    for (HWND h : ExplorerTrays()) {
+        RECT r{}; GetWindowRect(h, &r); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), &mi);
+        if (IsWindowVisible(h)) { ShowWindowAsync(h, SW_HIDE); uint64_t n = Now(); if (n - lastLog > 5000) { lastLog = n; Log(L"Windows taskbar popped up, hidden again (at %d,%d,%d,%d)", (int)r.left, (int)r.top, (int)r.right, (int)r.bottom); } }
+    }
 }
 void Explorer::Restore() {   // always back to a visible, docked taskbar (a stale "auto-hide" must never survive a quit)
     SetAutoHide(false);

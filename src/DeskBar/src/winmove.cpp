@@ -136,6 +136,19 @@ void CALLBACK OnMoveSize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
                     (int)hr.left, (int)hr.top, (int)hr.right, (int)hr.bottom, (int)((GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0));
             }
             { auto& g = g_lastGuard; Log(L"  the guard strip let it through? last finger it claimed %llu ms ago; its last hit test %llu ms ago at %d,%d (cursor %d,%d): sig %d suppressed %d device %d(type %d) away %d", GetTickCount64() - g_guardTouch.load(), GetTickCount64() - g.at, (int)g.p.x, (int)g.p.y, (int)g.c.x, (int)g.c.y, (int)g.sig, (int)g.supp, (int)g.dev, g.type, (int)g.away); }
+            {   // where the finger really was (the cursor is Windows' adjusted point), what was in front, and whether the touch keyboard's full-screen layer was showing
+                HWND fg = GetForegroundWindow(); DWORD fp = 0; if (fg) GetWindowThreadProcessId(fg, &fp);
+                HWND tih = FindWindowW(L"Windows.UI.Core.CoreWindow", L"Windows Input Experience"); int cl = -1; if (tih) DwmGetWindowAttribute(tih, DWMWA_CLOAKED, &cl, sizeof cl);
+                Log(L"  fingers on the screen:%s; front window %s in %s; touch keyboard layer %s", TouchDownsText(3000).c_str(), fg ? ClassOf(fg).c_str() : L"none", FileNameOf(ExePathOfPid(fp)).c_str(), !tih ? L"absent" : cl ? L"hidden" : L"SHOWING");
+                POINT dp; if (LastTouchDown(dp)) {   // every window at the spot the finger came down, top first (visible or not): which one Windows may have given it to
+                    ws z; int n = 0; RECT wr;
+                    for (HWND w = GetTopWindow(nullptr); w && n < 8; w = GetWindow(w, GW_HWNDNEXT)) if (GetWindowRect(w, &wr) && PtInRect(&wr, dp)) {
+                        DWORD wp = 0; GetWindowThreadProcessId(w, &wp); int wc = 0; DwmGetWindowAttribute(w, DWMWA_CLOAKED, &wc, sizeof wc); bool v = IsWindowVisible(w);
+                        if (!v && ClassOf(w) != L"Shell_TrayWnd") continue;
+                        z += Fmt(L" [%s in %s at %d,%d,%d,%d%s%s]", ClassOf(w).c_str(), FileNameOf(ExePathOfPid(wp)).c_str(), (int)wr.left, (int)wr.top, (int)wr.right, (int)wr.bottom, v ? L"" : L" hidden", wc ? L" cloaked" : L""); n++; }
+                    Log(L"  windows at %d,%d, top first:%s", (int)dp.x, (int)dp.y, z.c_str());
+                }
+            }
             g_guardRenew = kGuardSlipped;   // the strip was there and still missed it: make it afresh, the way restarting DeskBar did (the bug came back after reboots and went away on a restart)
             if (!bar) bar = WindowFromPoint(p); SendKeys({VK_ESCAPE}); DWORD pid = 0; if (bar) GetWindowThreadProcessId(bar, &pid);
             if (pid == GetCurrentProcessId() && ClassOf(bar) == kWndClass) { POINT c = p; ScreenToClient(bar, &c); if (c.y < 1) c.y = 1; LPARAM lp = MAKELPARAM(c.x, c.y); Sleep(50); PostMessageW(bar, WM_LBUTTONDOWN, MK_LBUTTON, lp); Sleep(60); PostMessageW(bar, WM_LBUTTONUP, 0, lp); }
@@ -322,6 +335,20 @@ void FixMaximizedOverBar() {
 // ---- touch guard: an invisible strip along the bar's top edge, the height of a window's bottom resize band. A FINGER landing there is taken by the strip (and passed to the bar
 // as a tap) instead of reaching the window above, so that window's bottom edge cannot be grabbed with touch at all (before, the grab started and was cancelled, and Chrome
 // visibly shrank and snapped back). The mouse passes straight through it. ----
+bool IsBottomResizeHit(LRESULT ht) { return ht == HTBOTTOM || ht == HTBOTTOMLEFT || ht == HTBOTTOMRIGHT; }
+// The mouse passes through the strip, but a maximized Claude (Electron) calls its last 2 visible rows a bottom resize edge, and those rows are under the strip:
+// a mouse press there resized it (real log 2026-11-25 20:50, 6 times, strip hit at y 1030-1031 each time). So ask the window under the strip what it calls the spot.
+static bool MaxEdgeUnder(HWND strip, POINT p) {
+    for (HWND w = GetWindow(strip, GW_HWNDNEXT); w; w = GetWindow(w, GW_HWNDNEXT)) {
+        RECT r; int cl = 0; DWORD pid = 0;
+        if (!IsWindowVisible(w) || !GetWindowRect(w, &r) || !PtInRect(&r, p) || (GetWindowLongW(w, GWL_EXSTYLE) & WS_EX_TRANSPARENT)) continue;
+        if (SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cl, sizeof cl)) && cl) continue;   // the touch keyboard's full-screen layer is cloaked, not in the way
+        GetWindowThreadProcessId(w, &pid); if (pid == GetCurrentProcessId()) return false;
+        MONITORINFO mi{sizeof mi}; if (!IsZoomed(w) && !(GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), &mi) && NearlyFull(VisibleRect(w), mi.rcWork))) return false;   // a plain window may still be resized from its bottom with the mouse
+        DWORD_PTR ht = 0; return SendMessageTimeoutW(w, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y), SMTO_ABORTIFHUNG, 20, &ht) && IsBottomResizeHit((LRESULT)ht);
+    }
+    return false;
+}
 LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_NCHITTEST: {
@@ -334,7 +361,7 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)}, c{}; GetCursorPos(&c); bool away = abs(p.x - c.x) > 8 || abs(p.y - c.y) > 8;
         bool touch = GuardClaims(sig, supp, dev, away, GetTickCount64() - g_guardTouch);
         g_lastGuard = {GetTickCount64(), sig, supp, dev, away, (int)src.deviceType, p, c};
-        return touch ? HTCLIENT : HTTRANSPARENT; }
+        return touch || MaxEdgeUnder(h, p) ? HTCLIENT : HTTRANSPARENT; }
     case WM_TOUCHHITTESTING: {
         // Touch is targeted by its own rules: windows registered for touch hit testing (Chrome) are asked about a finger NEAR them and claim it for their
         // resize edge, and the strip, never asked, was skipped (real log 12:48-12:50: no hit test at all on the strip for those touches). Registered too, the strip
@@ -348,6 +375,7 @@ LRESULT CALLBACK GuardProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_LBUTTONDOWN: case WM_LBUTTONUP: {
         HWND bar = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA); if (!bar || !IsWindow(bar)) return 0;
+        if (m == WM_LBUTTONDOWN) Log(L"guard strip took a press at %d,%d (a window's bottom resize edge under it), passed to the bar", GET_X_LPARAM(l), GET_Y_LPARAM(l));
         POINT c{GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ClientToScreen(h, &c); ScreenToClient(bar, &c); if (c.y < 1) c.y = 1;
         PostMessageW(bar, m, w, MAKELPARAM(c.x, c.y)); return 0; }
     }
@@ -365,7 +393,7 @@ bool GuardRenewDue(uint64_t now, uint64_t lastTouch) { return now - lastTouch >=
 const wchar_t* GuardWhyText(int w) { switch (w) { case kGuardSlipped: return L"a touch got past it"; case kGuardScreens: return L"screens changed"; case kGuardSettled: return L"a minute after start";
     case kGuardRoutine: return L"routine"; case kGuardWoke: return L"after sleep or a stall"; case kGuardTest: return L"self-test"; default: return L"?"; } }
 void GuardApply() {   // guard thread only
-    static bool reg = false; if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = GuardProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.Guard"; RegisterClassW(&wc); reg = true; }
+    static bool reg = false; if (!reg) { WNDCLASSW wc{}; wc.lpfnWndProc = GuardProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.Guard"; wc.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&wc); reg = true; }
     std::vector<GuardWant> want; { std::lock_guard<std::mutex> l(g_guardMu); want = g_guardWant; }
     if (int why = g_guardRenew.load()) {
         if (GuardRenewDue(GetTickCount64(), g_guardTouch.load())) {
@@ -506,6 +534,7 @@ bool WinMoveMoreSelfTest(ws& detail) {
     { bool ok = true; int last = 0; for (UINT d : {96u, 120u, 144u, 168u, 192u, 240u}) { int frame = GetSystemMetricsForDpi(SM_CXSIZEFRAME, d) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, d), g = EdgeBandPx(d, 14); ok = ok && g >= frame + 14 && g >= last; last = g; }
       r.push_back({L"guard covers the resize band at 100-250%", ok}); }
     r.push_back({L"guard strip sits on the bar", is(GuardStripRect(bar, 44), 0, 1780, 2880, 1824)});
+    r.push_back({L"bottom resize codes", IsBottomResizeHit(HTBOTTOM) && IsBottomResizeHit(HTBOTTOMLEFT) && IsBottomResizeHit(HTBOTTOMRIGHT) && !IsBottomResizeHit(HTCLIENT) && !IsBottomResizeHit(HTTOP)});
     r.push_back({L"mouse passes through", !GuardClaims(false, false, false, false, 5000)});
     r.push_back({L"finger is claimed", GuardClaims(false, false, true, false, 5000) && GuardClaims(true, false, false, false, 5000) && GuardClaims(false, true, false, false, 5000)});
     r.push_back({L"clicks right after a finger stay claimed", GuardClaims(false, false, false, false, 300) && !GuardClaims(false, false, false, false, 1500)});

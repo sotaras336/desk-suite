@@ -72,6 +72,8 @@ bool GuardThreadSelfTest(ws& detail);
 bool MenuGuardSelfTest(ws& detail);                                    // winmove.cpp: a right-click menu runs what you pick, and no touch strip sits over it
 std::vector<MenuItem> BarMenuItems();                           // bar.cpp: the bar's right-click menu                                  // winmove.cpp: the touch guard strips on their own thread
 bool WinMoveMoreSelfTest(ws& detail);                                  // winmove.cpp: touch on the bar edge, dropping and sending windows between screens
+ws TouchDownsText(uint64_t withinMs);                                  // the touch-screen fingers of the last withinMs: where each came down, how big, where last (gesture.cpp, for the touch-resize log)
+bool LastTouchDown(POINT& p);                                          // where the newest touch-screen finger came down (gesture.cpp)
 void GesturesStart();                                                   // three-finger swipe down on the touchpad minimises everything (gesture.cpp)
 struct SwipeTracker { bool armed = false; float sx = 0, sy = 0, lx = 0, ly = 0; int Feed(int fingers, float x, float y); };   // 1 = a three-finger swipe down just ended
 
