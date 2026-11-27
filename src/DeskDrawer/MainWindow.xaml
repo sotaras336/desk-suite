@@ -83,7 +83,7 @@
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,-6,0,0" WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button Style="{StaticResource Caption}" Content="&#xE921;" ToolTip="Minimise" Click="Min_Click"/>
+                    <Button x:Name="MinBtn" Style="{StaticResource Caption}" Content="&#xE921;" ToolTip="Minimise" Click="Min_Click"/>
                     <Button x:Name="MaxBtn" Style="{StaticResource Caption}" Content="&#xE922;" ToolTip="Maximise" Click="Max_Click"/>
                     <Button Style="{StaticResource CaptionClose}" Content="&#xE8BB;" ToolTip="Close" Click="Close_Click"/>
                 </StackPanel>

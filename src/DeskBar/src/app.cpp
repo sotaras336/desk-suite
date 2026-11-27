@@ -17,7 +17,7 @@ static LONG WINAPI CrashFilter(EXCEPTION_POINTERS* e) {
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)at, &mod)) GetModuleFileNameW(mod, name, MAX_PATH);
     Log(L"CRASH code=%08lx addr=%p in %s +0x%llx", e->ExceptionRecord->ExceptionCode, at, FileNameOf(name).c_str(), (unsigned long long)((uintptr_t)at - (uintptr_t)mod));
     WriteCrashReport(e);                   // crash.txt: the stack with function names; the next start offers to send it (Report a bug)
-    if (!g_dev) Explorer::Restore();       // never leave the user without a taskbar if we can't continue (the supervisor will start us again)
+    if (!g_dev) Explorer::Restore(false);  // no Explorer restart from a crash: the supervisor starts us again at once; never leave the user without a taskbar if we can't continue (the supervisor will start us again)
     Sleep(300); return EXCEPTION_EXECUTE_HANDLER;
 }
 void AppQuit(bool restart) { g_exitCode = restart ? 3 : 0; g_restoreOnExit = !restart; PostQuitMessage(0); }

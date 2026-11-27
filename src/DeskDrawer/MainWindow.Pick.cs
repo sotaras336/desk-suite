@@ -49,6 +49,7 @@ public partial class MainWindow
         if (helper.Handle != IntPtr.Zero) PickCentre(); else { Left = -32000; Top = -32000; helper.EnsureHandle(); }   // drawn before: put it in place first, then show it (no step off screen)
         // Hidden until it has drawn the new folder: a window shown again shows an empty grey box (no glass, nothing in it) until WPF's first frame, 150-650 ms on sot's PC.
         Cloak(true); _pickCloaked = true;
+        { var h = helper.Handle; if (h != IntPtr.Zero) PickSetWindowLong(h, -16 /*GWL_STYLE*/, PickGetWindowLong(h, -16) & ~0x20000 /*WS_MINIMIZEBOX*/); }   // Win+M and the window menu skip it too
         Show(); PickFront();
         Dispatcher.BeginInvoke(() => { PickCentre(); PickCentre(); PickName.Focus(); PickSelectStem(); PickFront(); PickUncloakAfterFrame(); }, System.Windows.Threading.DispatcherPriority.Loaded);   // twice: the first move can change the scale (another screen)
     }
@@ -87,6 +88,9 @@ public partial class MainWindow
     {
         WindowState = WindowState.Normal;   // your own window size and maximised state stay yours
         Topmost = true; ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.Manual; Left = -32000; Top = -32000; PickBar.Visibility = Visibility.Visible;
+        // Never minimised, like Windows' own Save As: a minimised picker (no taskbar button) became a title-bar strip in the bottom-left corner, under the bar,
+        // that took no clicks, while the app that asked sat frozen behind its hidden dialog (a friend's PC, 27 Nov). No button, no minimise box, no SC_MINIMIZE.
+        MinBtn.Visibility = Visibility.Collapsed;
         // A picker, not a file manager: a title instead of tabs, a short toolbar (cut/copy/delete... stay on the keys and the right-click menu), a slimmer tree,
         // and the status line folded into the bottom bar.
         TabDock.Visibility = Visibility.Collapsed; PickHead.Visibility = Visibility.Visible; StatusRow.Height = new GridLength(0); TreeCol.Width = new GridLength(200);
@@ -305,5 +309,7 @@ public partial class MainWindow
     [DllImport("user32.dll", EntryPoint = "MonitorFromRect")] private static extern IntPtr PickMonitorFromRect(ref PRECT r, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")] private static extern bool PickGetMonitorInfo(IntPtr m, ref PMONITORINFO mi);
     [DllImport("user32.dll", EntryPoint = "GetWindowRect")] private static extern bool PickGetWindowRect(IntPtr h, out PRECT r);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLong")] private static extern int PickGetWindowLong(IntPtr h, int i);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLong")] private static extern int PickSetWindowLong(IntPtr h, int i, int v);
     [DllImport("user32.dll", EntryPoint = "SetWindowPos")] private static extern bool PickSetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
 }

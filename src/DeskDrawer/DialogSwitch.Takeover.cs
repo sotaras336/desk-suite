@@ -53,7 +53,7 @@ public static partial class DialogSwitch
             // The picker is shown and made the active window FIRST, and only then is the dialog hidden. Hiding the dialog while it was still the active window made Windows pick
             // another window to activate (the app that asked is disabled while its dialog is open): some other app jumped in front of it and the picker lost the keyboard.
             p.PickShow();
-            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); Guard(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
+            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); Guard(dlg); KeepHidden(dlg, p);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             LateName(dlg, p, d.Name, 0); if (start == fallback && !own) LateFolder(dlg, p, start, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
@@ -136,7 +136,14 @@ public static partial class DialogSwitch
     }
 
     /// Some apps show their dialog again by themselves (Word does, now and then): while the picker is open it is put away again.
-    private static void KeepHidden(IntPtr dlg) => After(250, () => { if (_picker == null || !IsWindow(dlg)) return; if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg); });
+    /// Also: the dialog is gone while its picker is still open (the app closed it, quit, crashed, or was ended in Task Manager): nobody is waiting for an answer, so the
+    /// picker closes as a cancel. It used to stay open for good, a picker for an app that no longer existed.
+    private static void KeepHidden(IntPtr dlg, MainWindow p) => After(250, () =>
+    {
+        if (_picker != p) return;
+        if (!IsWindow(dlg)) { Miss(dlg, "the dialog went away while the picker was open (its app closed it or quit): picker closed"); p.Close(); return; }
+        if (IsWindowVisible(dlg)) ShowWindow(dlg, 0); KeepHidden(dlg, p);
+    });
 
     /// Several files from one folder go to the dialog together, in quotes; files from different folders can't be picked together in these dialogs: the first one.
     internal static bool SeveralInOneFolder(List<string> paths) { string dir = Path.GetDirectoryName(paths[0]) ?? ""; return paths.Count > 1 && paths.All(p => string.Equals(Path.GetDirectoryName(p), dir, StringComparison.OrdinalIgnoreCase)); }

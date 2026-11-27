@@ -56,7 +56,7 @@ public partial class MainWindow : Window
         SetPreview(App.SnapshotFile != null);   // the preview pane starts closed; Alt+P or View opens it
         SourceInitialized += (_, _) => { if (App.Background && _pick == null) Cloak(true); ApplyChrome(); HwndSource.FromHwnd(Hwnd)!.AddHook(CaptionHook); OnStateChanged(); };
         if (App.Background && _pick == null) { ShowActivated = false; _maxAfterWarmUp = WindowState == WindowState.Maximized; WindowState = WindowState.Normal; ContentRendered += WarmedUp; }   // WPF refuses a maximised window that doesn't take the focus
-        StateChanged += (_, _) => OnStateChanged();
+        StateChanged += (_, _) => { if (_pick != null && WindowState == WindowState.Minimized) { WindowState = WindowState.Normal; return; } OnStateChanged(); };   // something outside minimised a picker anyway: never leave it as a strip
         Loaded += (_, _) => { if (App.SnapshotFile == null && App.UiTest == null && _pick == null) ScreenFit.Apply(this); };   // sized above from the MAIN screen: keep it inside the screen it actually opened on
         DpiChanged += (_, _) => RequestThumbs();   // moved to a screen with other scaling: pictures at that screen's sharpness, not stretched
         MouseMove += (_, _) => MaxBtn.Tag = null;   // back in the client area: no longer over the (hit-test) maximise button
@@ -129,6 +129,7 @@ public partial class MainWindow : Window
     private IntPtr CaptionHook(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
     {
         const int WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1, WM_NCLBUTTONUP = 0xA2, HTMAXBUTTON = 9, WM_MOUSEACTIVATE = 0x21, WM_CAPTURECHANGED = 0x215, WM_LBUTTONUP = 0x202;
+        if (msg == 0x112 /*WM_SYSCOMMAND*/ && _pick != null && (w.ToInt64() & 0xFFF0) == 0xF020 /*SC_MINIMIZE*/) { handled = true; return IntPtr.Zero; }   // a picker is never minimised (see PickInit)
         if (msg == WM_MOUSEACTIVATE) { if (OnMouseActivate(l, out var answer)) { handled = true; return answer; } }   // see MainWindow.DragBehind.cs
         else if (msg == WM_LBUTTONUP && _lazyPress) Dispatcher.BeginInvoke(() => EndLazyPress(true));   // after WPF has handled the release itself; a release WPF never routes (no capture) still ends the press
         else if (msg == WM_CAPTURECHANGED && _lazyPress && l == IntPtr.Zero) Dispatcher.BeginInvoke(() => { if (Mouse.LeftButton != MouseButtonState.Pressed) EndLazyPress(false); });
