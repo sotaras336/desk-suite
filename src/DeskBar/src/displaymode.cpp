@@ -5,7 +5,8 @@
 #include "quick.h"
 
 // DeskMode's core, inside DeskBar (one process less): every screen's refresh rate, the power mode, and the two presets. The same calls DeskMode used and proved
-// safe on this PC (ChangeDisplaySettingsEx, queued with CDS_NORESET and applied in one commit, then checked and retried); nothing here touches the GPU driver directly.
+// safe on this PC (ChangeDisplaySettingsEx, queued with CDS_NORESET and applied in one commit, then checked and retried; the built-in screen switches seamlessly via
+// SetDisplayConfig's virtual refresh rate); nothing here touches the GPU driver directly.
 
 namespace {
 bool IsInternalTarget(const ws& gdiName) {   // the built-in panel: Windows' own display topology says which output is internal
@@ -54,6 +55,43 @@ std::vector<ScreenMode> ScreenModes() {
     return out;
 }
 
+// The built-in screen: keep the panel's signal at its highest rate and change only the rate Windows draws at (Windows 11's "virtual refresh rate"), so a switch
+// never resets the screen. Measured on this PC 2026-11-26: a real mode change stops the screen ~1.3 s (the black flash), a virtual one under 42 ms.
+// Only the first switch after the panel left its top mode is a real one (one flash). False = not possible here: the caller uses the old way.
+// shortcut: built-in screens only (the LG is untested with it), try it on monitors once tested there.
+static bool SetVirtualRate(const ws& dev, int hz) {
+    int top = 0; DEVMODEW cur{}; cur.dmSize = sizeof cur; if (!EnumDisplaySettingsW(dev.c_str(), ENUM_CURRENT_SETTINGS, &cur)) return false;
+    for (DWORD m = 0;; m++) { DEVMODEW dm{}; dm.dmSize = sizeof dm; if (!EnumDisplaySettingsW(dev.c_str(), m, &dm)) break; if (dm.dmPelsWidth == cur.dmPelsWidth && dm.dmPelsHeight == cur.dmPelsHeight) top = std::max(top, (int)dm.dmDisplayFrequency); }
+    if (hz > top) return false;
+    const UINT32 qf = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE | QDC_VIRTUAL_REFRESH_RATE_AWARE;
+    for (int pass = 0; pass < 2; pass++) {
+        UINT32 np = 0, nm = 0; if (GetDisplayConfigBufferSizes(qf, &np, &nm) != ERROR_SUCCESS) return false;
+        std::vector<DISPLAYCONFIG_PATH_INFO> paths(np); std::vector<DISPLAYCONFIG_MODE_INFO> modes(nm);
+        if (QueryDisplayConfig(qf, &np, paths.data(), &nm, modes.data(), nullptr) != ERROR_SUCCESS) return false;
+        for (UINT32 i = 0; i < np; i++) {
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME src{}; src.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME; src.header.size = sizeof src; src.header.adapterId = paths[i].sourceInfo.adapterId; src.header.id = paths[i].sourceInfo.id;
+            if (DisplayConfigGetDeviceInfo(&src.header) != ERROR_SUCCESS || !EqI(src.viewGdiDeviceName, dev)) continue;
+            auto& t = paths[i].targetInfo; UINT32 ti = t.targetModeInfoIdx;
+            if (!(paths[i].flags & DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE) || ti >= nm || modes[ti].infoType != DISPLAYCONFIG_MODE_INFO_TYPE_TARGET) return false;
+            auto vs = modes[ti].targetMode.targetVideoSignalInfo.vSyncFreq; int panel = vs.Denominator ? (int)((vs.Numerator + vs.Denominator / 2) / vs.Denominator) : 0;
+            if (panel < top) {   // the panel's signal is below its top rate: one real switch up to it, then the rest is seamless
+                if (pass) return false;
+                DEVMODEW dm = cur; dm.dmDisplayFrequency = top; dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+                LONG r = ChangeDisplaySettingsExW(dev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr); Log(L"display: panel signal %d -> %d Hz (one real switch), result %ld", panel, top, r);
+                if (r != DISP_CHANGE_SUCCESSFUL) return false;
+                break;
+            }
+            t.refreshRate = {(UINT32)hz, 1};
+            LONG r = SetDisplayConfig(np, paths.data(), nm, modes.data(), SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_APPLY | SDC_SAVE_TO_DATABASE | SDC_VIRTUAL_MODE_AWARE | SDC_VIRTUAL_REFRESH_RATE_AWARE);
+            Log(L"display: %s drawn at %d Hz, panel signal stays %d Hz (seamless), result %ld", dev.c_str(), hz, panel, r);
+            return r == ERROR_SUCCESS;
+        }
+        if (!pass && np) continue;
+        return false;
+    }
+    return false;
+}
+
 // All the changes queued and applied in one commit (one blink), then checked: Windows reshuffles the screens while the power mode changes and can drop a request,
 // so it looks again and retries a few times (DeskMode's "Go easy stayed at 120 Hz" fix).
 static std::recursive_mutex g_dmMu;   // Go max, Go easy, the dock switch and a hand-picked rate each run on their own thread: one at a time, in the order asked, or their retry loops fight
@@ -63,6 +101,7 @@ bool SetScreenRates(const std::vector<std::pair<ws, int>>& want) {
         int queued = 0;
         for (auto& [dev, hz] : want) {
             DEVMODEW dm{}; dm.dmSize = sizeof dm; if (!EnumDisplaySettingsW(dev.c_str(), ENUM_CURRENT_SETTINGS, &dm) || (int)dm.dmDisplayFrequency == hz) continue;
+            if (IsInternalTarget(dev) && SetVirtualRate(dev, hz)) continue;
             dm.dmDisplayFrequency = hz; dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
             if (ChangeDisplaySettingsExW(dev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr) == DISP_CHANGE_SUCCESSFUL) queued++;
         }

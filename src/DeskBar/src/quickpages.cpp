@@ -454,7 +454,7 @@ struct HueBar : View {
     void OnUp(float x, float) override { if (drag) { drag = false; From(x); if (onRelease) UiOnce(1, onRelease); } }   // after the press: the page, this bar included, is rebuilt in the new colour
     void PaintContent(Gfx& g) override {
         float a = rc.l + 14, b = rc.r - 14, cy = rc.cy();
-        auto acc = [this](float h) { if (strength) { auto c = ColFor(CurrentTheme(), K::Accent); return h <= 0 ? c : ShiftColor(c, -0.5f * h * 100.f / 359.f, 0.002f * h * 100.f / 359.f); } ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
+        auto acc = [this](float h) { if (strength) { auto c = ColFor(CurrentTheme(), K::Accent); return h <= 0 ? c : FadeEnd(CurrentTheme(), c, h * 100.f / 359.f, 0.002f); }   /* toward the fade colour when one is picked, as the bar fades */ ThemeDef t{L"custom", L"Custom", fmodf(h, 360), false, 0}; return ColFor(t, K::Accent); };
         Rf track{rc.l, cy - 9, rc.r, cy + 9}; g.PushClip(track, 9); const int n = 36;   // brushes take 3 stops: the rainbow is drawn in slices
         float z = strength || plain ? 0.f : Z, w = track.w();
         if (!strength && !plain) { g.Fill({track.l, track.t, track.l + w * z + 0.5f, track.b}, SolidC(D2D1::ColorF(0.04f, 0.04f, 0.04f))); g.Fill({track.r - w * z, track.t, track.r, track.b}, SolidC(D2D1::ColorF(1, 1, 1))); }   // black and white at the ends
@@ -566,10 +566,10 @@ struct ThemePage : PageBase {
         auto* vivid = slider(L"Saturation", L"grey to vivid", st->pad.sat);
         auto* soft = slider(L"Softness", L"deep to pastel", st->soft);
         auto id = [st]() -> ws { return ColourIdFrom(st->pad.t, st->base, st->moved, st->pad.hue, st->fade, st->pad.sat, st->soft, st->fadeHue); };
-        auto paint = [qp, id, show, lite, pad, fadeBox, st, dm] {   // DeskMode: only the preview strip takes the colour (the bar is not DeskMode's)
+        auto paint = [qp, id, show, lite, pad, bar2, fadeBox, st, dm] {   // DeskMode: only the preview strip takes the colour (the bar is not DeskMode's)
             fadeBox->Show(!LightZone(st->pad.t));
             if (dm) { SetDeskModeTheme(id()); show(DeskModeTheme()); } else { ThemeRepaintLive(qp, id()); show(CurrentTheme()); }
-            lite->Invalidate(); pad->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
+            lite->Invalidate(); pad->Invalidate(); bar2->Invalidate(); };   // while dragging: the bars, the panel and the preview take the colour at once
         pad->onChange = [st, paint, vivid] { st->moved = true; vivid->Set(st->pad.sat); paint(); };
         lite->onChange = [st, paint] { st->moved = true; paint(); };
         vivid->onChange = [st, paint](float v, bool) { st->pad.sat = v; st->moved = true; paint(); };

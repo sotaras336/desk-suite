@@ -86,6 +86,10 @@ public static class SelfTest
             Theme.Load("custom:200:150:120:-5"); bool ic = Theme.Current.Hue == 200 && Theme.Grad == 100 && Theme.Current.Sat == 1 && Theme.Current.Val == 0;
             Theme.Load("PURPLE"); bool id2 = Theme.Current.Id == "purple" && Theme.Grad == -1;
             Check("colours: theme ids are read the same way as in DeskBar", ia && ib && ic && id2, $"blue:40 {ia}, custom:-30 {ib}, clamped {ic}, PURPLE {id2}");
+            Theme.Load("custom:200:100:100:100:0:30"); var fe = Theme.Shift(Color.FromRgb(0x10, 0x40, 0xC0), 100, 0); bool warm = Theme.FadeHue == 30 && fe.R > fe.B;   // the fade lands on the picked fade colour (30 = orange), as DeskBar's FadeEnd
+            var hard = Theme.Col(0x0A4096); Theme.Load("custom:200:100:100:100:80:30"); var pastel = Theme.Col(0x0A4096); warm &= Theme.Current.Softness == 0.8 && pastel.R + pastel.G + pastel.B > hard.R + hard.G + hard.B;   // softness lifts the backgrounds, as DeskBar
+            Theme.Load("custom:200:40"); bool noHue = Theme.FadeHue == -1 && Theme.Current.Softness == 0;
+            Check("colours: the fade runs to the fade colour picked in DeskBar", warm && noHue, $"fadeHue {warm}, reset {noHue}, end {fe}");
             Theme.Load("nonsense"); string broken = Theme.Current.Id; Theme.Load("x:40"); string broken2 = Theme.Current.Id; Theme.Load(""); string none = Theme.Current.Id;
             Check("colours: a broken theme name falls back to Blue, as in DeskBar (no theme at all: Black)", broken == "blue" && broken2 == "blue" && none == "black", $"{broken} {broken2} {none}");
             Check("colour picker: the colour and the fade are rounded as DeskBar rounds them", Theme.ColourId(0.25, null, true, 199.6, 39.5, 100) == "custom:200:40" && Theme.ColourId(0.25, null, true, 200.4, 0.4, 100) == "custom:200:0", Theme.ColourId(0.25, null, true, 199.6, 39.5, 100));

@@ -100,37 +100,73 @@ ws PinsPath() { return DataPath(L"clip-pins.dat"); }
 void LoadPinsOnce() { if (g_pinsLoaded) return; g_pinsLoaded = true; ClipLoadPins(g_clips.pinned, PinsPath()); }
 void SavePins() { auto pins = g_clips.pinned; std::thread([pins] { ClipSavePins(pins, PinsPath()); }).detach(); }
 
-bool OpenClip(HWND h) { for (int i = 0; i < 10; i++) { if (OpenClipboard(h)) return true; Sleep(20 + i * 10); } return false; }   // another app may hold it a moment
-void ReadNow(HWND h) {
-    if (!S.clipHistory) return;
-    DWORD seq = GetClipboardSequenceNumber(); if (seq && seq == g_ownSeq.load()) return;   // our own paste: the list already has it on top
+bool OpenClip(HWND h) { for (int i = 0; i < 10; i++) { if (OpenClipboard(h)) return true; Sleep(20 + i * 10); } return false; }   // only for our own ClipPut: another app may hold it a moment
+
+// Reading, the way Windows' own history does it: wait until the copying app has finished (some, like Quartus, write a copy in several
+// steps or render it late, and grabbing the clipboard between steps made their copy fail), then open it once, read fast, let go.
+// The listener never retries OpenClipboard in a loop: if the app still holds it, it tries once more later, then gives that copy up.
+constexpr UINT_PTR kReadTimer = 1; constexpr UINT kQuietMs = 500;
+int g_busyTries = 0; std::atomic<int> g_reads{0};
+ws OwnerExe() { ws owner; if (HWND o = GetClipboardOwner()) { DWORD pid = 0; GetWindowThreadProcessId(o, &pid); if (pid) owner = ExePathOfPid(pid); } return owner; }
+ws FormatList() {   // what the app put on the clipboard; asking does not open it
+    UINT f[48]; UINT n = 0; if (!GetUpdatedClipboardFormats(f, 48, &n)) return L"?";
+    ws s; wchar_t nm[64];
+    for (UINT i = 0; i < n && s.size() < 300; i++) { if (i) s += L','; if (f[i] >= 0xC000 && GetClipboardFormatNameW(f[i], nm, 64)) s += nm; else s += Fmt(L"%u", f[i]); }
+    return s;
+}
+enum class Read { Done, Busy };
+Read ReadNow(HWND h) {
+    g_reads++;
+    if (!S.clipHistory) return Read::Done;
+    DWORD seq = GetClipboardSequenceNumber(); if (seq && seq == g_ownSeq.load()) return Read::Done;   // our own paste: the list already has it on top
     static UINT fExclude = RegisterClipboardFormatW(L"ExcludeClipboardContentFromMonitorProcessing"), fIgnore = RegisterClipboardFormatW(L"Clipboard Viewer Ignore"),
                 fInclude = RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
+    ws owner = OwnerExe(), whoS = owner.empty() ? ws(L"?") : StemOf(owner);
+    auto skip = [&](const wchar_t* why) { Log(L"clip read seq=%lu %s: skipped, %s (not opened)", seq, whoS.c_str(), why); return Read::Done; };
     ClipFlags f; f.exclude = IsClipboardFormatAvailable(fExclude) != FALSE; f.viewerIgnore = IsClipboardFormatAvailable(fIgnore) != FALSE;
-    if (f.exclude || f.viewerIgnore || !IsClipboardFormatAvailable(CF_UNICODETEXT)) return;   // private, or not text: never opened, never read
-    ws owner; if (HWND o = GetClipboardOwner()) { DWORD pid = 0; GetWindowThreadProcessId(o, &pid); if (pid) owner = ExePathOfPid(pid); }
-    if (ClipIsPasswordApp(owner)) return;
-    if (!OpenClip(h)) return;
+    if (f.exclude || f.viewerIgnore) return skip(L"marked private");
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return skip(L"no text");
+    if (ClipIsPasswordApp(owner)) return skip(L"from a password manager");
+    if (!OpenClipboard(h)) { Log(L"clip read seq=%lu %s: busy, open failed (%lu)", seq, whoS.c_str(), GetLastError()); return Read::Busy; }
+    auto t0 = std::chrono::steady_clock::now();
+    if (GetClipboardSequenceNumber() != seq) { CloseClipboard(); Log(L"clip read seq=%lu %s: changed while opening, later", seq, whoS.c_str()); return Read::Busy; }
     ws text;
     if (IsClipboardFormatAvailable(fInclude)) if (HANDLE d = GetClipboardData(fInclude)) { if (auto* p = (DWORD*)GlobalLock(d)) { if (GlobalSize(d) >= sizeof(DWORD)) f.canInclude = (int)*p; GlobalUnlock(d); } }
     if (f.canInclude != 0) if (HANDLE d = GetClipboardData(CF_UNICODETEXT)) {
         if (auto* p = (const wchar_t*)GlobalLock(d)) { size_t cap = GlobalSize(d) / sizeof(wchar_t), n = 0; while (n < cap && n <= kClipMaxChars && p[n]) n++; if (n <= kClipMaxChars) text.assign(p, n); GlobalUnlock(d); }
     }
     CloseClipboard();
-    if (!ClipSkipReason(f, owner, text).empty()) return;
+    double heldMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    ws why = ClipSkipReason(f, owner, text);
+    Log(L"clip read seq=%lu %s: opened, held %.1f ms, %u chars%s%s", seq, whoS.c_str(), heldMs, (unsigned)text.size(), why.empty() ? L"" : L", skipped: ", why.c_str());
+    if (!why.empty()) return Read::Done;
     UiPost([text] { LoadPinsOnce(); if (g_clips.Add(text, (uint64_t)time(nullptr))) Changed(); });
+    return Read::Done;
 }
 LRESULT CALLBACK ListenProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == WM_CLIPBOARDUPDATE) { ReadNow(h); return 0; }
+    if (m == WM_CLIPBOARDUPDATE) {   // never read here: wait until the clipboard has been quiet a moment (a burst of updates = one read)
+        DWORD seq = GetClipboardSequenceNumber();
+        if (seq != g_ownSeq.load()) { ws owner = OwnerExe(); Log(L"clip update seq=%lu %s [%s]", seq, owner.empty() ? L"?" : StemOf(owner).c_str(), FormatList().c_str()); }
+        g_busyTries = 0; SetTimer(h, kReadTimer, kQuietMs, nullptr); return 0;
+    }
+    if (m == WM_TIMER && w == kReadTimer) {
+        KillTimer(h, kReadTimer);
+        if (ReadNow(h) == Read::Busy && ++g_busyTries <= 1) SetTimer(h, kReadTimer, kQuietMs, nullptr);
+        else { if (g_busyTries > 1) Log(L"clip read: still busy, this copy is not kept"); g_busyTries = 0; }
+        return 0;
+    }
     return DefWindowProcW(h, m, w, l);
+}
+const wchar_t* ListenClass() {
+    static const wchar_t* name = [] { WNDCLASSW wc{}; wc.lpfnWndProc = ListenProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.ClipListen"; RegisterClassW(&wc); return L"DB3.ClipListen"; }();
+    return name;
 }
 }
 
 void ClipStart() {
     static bool started = false; if (started) return; started = true;
     std::thread([] {
-        WNDCLASSW wc{}; wc.lpfnWndProc = ListenProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"DB3.ClipListen"; RegisterClassW(&wc);
-        HWND h = CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+        HWND h = CreateWindowExW(0, ListenClass(), L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (!h || !AddClipboardFormatListener(h)) { Log(L"clipboard: listener failed %lu", GetLastError()); return; }
         MSG msg; while (GetMessageW(&msg, nullptr, 0, 0) > 0) DispatchMessageW(&msg);
     }).detach();
@@ -317,6 +353,12 @@ bool ClipSelfTest(ws& detail) {
            && !ClipKeyIsOurs('V', true, true, false, false, true) && !ClipKeyIsOurs('V', true, false, false, true, true) && !ClipKeyIsOurs('C', true, false, false, false, true), L"Win+V and only Win+V");
     // preview
     expect(ClipPreview(L"  a\r\n\tb   c ", 50) == L"a b c" && ClipPreview(L"abcdef", 3) == L"abc\u2026", L"preview tidies spaces and cuts long text");
+    // a clipboard update is never read on the spot (the copying app may still be writing): the read waits on a timer
+    if (HWND lw = CreateWindowExW(0, ListenClass(), L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr)) {
+        int before = g_reads.load(); SendMessageW(lw, WM_CLIPBOARDUPDATE, 0, 0);
+        expect(g_reads.load() == before, L"clipboard update does not read at once");
+        DestroyWindow(lw);   // also drops the pending read, so the test never opens the real clipboard
+    } else expect(false, L"listener window for the deferred-read test");
     // pinned snippets on disk: encrypted, and they come back
     {
         ws dir = DataDir() + L"\\clip-selftest"; CreateDirectoryW(dir.c_str(), nullptr); ws p = dir + L"\\pins.dat";

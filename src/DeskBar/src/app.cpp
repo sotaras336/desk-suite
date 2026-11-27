@@ -61,6 +61,7 @@ static void AppTick() {
     BarsTick(); CheckReady();
     if (!g_dev && n == 120) TrimMemoryIfIdle();   // once, 30 s after start: the pages only start-up touched. Not again: under memory pressure a trimmed page comes back from disk, and the next Start would stutter
     if (n % 8 == 4) SharedThemeTick();   // another Desk app picked the suite's theme (every 2 s)
+    if (!g_dev && n % 8 == 0) FolderHandlerCheck();   // folders must open even when DeskDrawer.exe is gone (every 2 s)
     if (n % 2400 == 1200) if (size_t f = IconTrim(400)) Log(L"icons: let go of %zu KB of icons nobody looked at in 10 min", f / 1024);   // every 10 min (250 ms ticks)
     if (n % 4 == 0) { ws req = DataPath(L"snap.req"); if (FileExists(req)) {   // debug: drop a file named snap.req into the data dir to get PNGs of the bars and the open panel
         DeleteFileW(req.c_str()); int i = 0; for (auto* b : AllBars()) b->Snapshot(DataPath(Fmt(L"live_bar%d.png", i++).c_str()));
@@ -153,6 +154,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     if (!val(L"--bugsend").empty()) { LogInit(false); return BugSendTest(val(L"--bugsend")); }   // dev: send one report through the real form code; exit 0 = Google took it
     if (!val(L"--updatetest").empty()) { LogInit(false); return UpdateTest(val(L"--updatetest")); }   // dev: check + download + verify against DESK_UPDATE_BASE, never installs
     if (has(L"--wifilist")) { LogInit(false); return WifiDump(); }
+    if (!val(L"--setrate").empty()) { LogInit(false); for (auto& m : ScreenModes()) if (m.internal) return SetScreenRates({{m.device, _wtoi(val(L"--setrate").c_str())}}) ? 0 : 1; return 2; }   // dev: built-in screen to this rate through DeskMode's own switch
     if (!val(L"--wifitest").empty()) { LogInit(false); return WifiTest(val(L"--wifitest"), has(L"--keep")); }
     if (!val(L"--indexquery").empty() && argc > 3) { LogInit(false); FileIndexQuery(val(L"--indexquery"), argv[argc - 1]); return 0; }
     if (!val(L"--indexmem").empty()) { LogInit(false); FileIndexMemReport(val(L"--indexmem")); return 0; }   // loads the saved file index and writes entries + memory to the file

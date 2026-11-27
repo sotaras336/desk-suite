@@ -174,6 +174,9 @@ POINT Wnd::ToScreen(float dx, float dy) { POINT p{(LONG)lroundf(dx * scale), (LO
 RECT Wnd::ScreenRect(const View* v) {
     POINT a = ToScreen(v->rc.l, v->rc.t), b = ToScreen(v->rc.r, v->rc.b); return {a.x, a.y, b.x, b.y};
 }
+// A press, drag or release in the view's own coordinates: minus the scroll / slide offsets of the views it sits in, as HitIn applies them (not its own tx: a dragged task button moves itself by it)
+static float LX(const View* v, float x) { for (View* p = v->parent; p; p = p->parent) x -= p->tx; return x; }
+static float LY(const View* v, float y) { for (View* p = v->parent; p; p = p->parent) y -= p->ty; return y; }
 View* Wnd::HitIn(View* v, float x, float y) {
     if (!v->visible) return nullptr;
     x -= v->tx; y -= v->ty;
@@ -236,9 +239,9 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
         if (!tracking) { TRACKMOUSEEVENT t{sizeof t, TME_LEAVE, hwnd, 0}; TrackMouseEvent(&t); tracking = true; }
         if (panMode && panView) { panView->OnPan(x - panX, y - panY); panX = x; panY = y; return 0; }
         if (press) {
-            if (capture) { capture->OnDrag(x, y); return 0; }
+            if (capture) { capture->OnDrag(LX(capture, x), LY(capture, y)); return 0; }
             float dx = x - downX, dy = y - downY;
-            if (press->OnPressMove(x, y)) { capture = press; if (longTimer) { UiKillTimer(longTimer); longTimer = 0; } return 0; }
+            if (press->OnPressMove(LX(press, x), LY(press, y))) { capture = press; if (longTimer) { UiKillTimer(longTimer); longTimer = 0; } return 0; }
             if (touchLast && (std::fabs(dx) > 8 || std::fabs(dy) > 8)) {
                 for (View* v = press; v; v = v->parent) if (v->WantsPan(dx, dy)) {
                     panView = v; panMode = true; panX = x; panY = y; v->OnPan(dx, dy);
@@ -259,7 +262,7 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
         for (View* v = h; v; v = v->parent) if (v->Focusable()) { SetFocus(v); break; }
         if (!h->enabled) return 0;
         press = h; h->pressed = true; longFired = false; panMode = false; SetCapture(hwnd);
-        if (h->OnDown(x, y, touchLast)) capture = h;
+        if (h->OnDown(LX(h, x), LY(h, y), touchLast)) capture = h;
         if (!capture && touchLast && (Up(h, [](View* v) { return (bool)v->onLong || (bool)v->onRight; }))) {
             longTimer = UiTimer(500, [this] {
                 UiKillTimer(longTimer); longTimer = 0; if (!press) return;
@@ -277,7 +280,7 @@ LRESULT Wnd::Proc(UINT m, WPARAM w, LPARAM l) {
         if (panMode) { panMode = false; panView = nullptr; return 0; }
         if (!p) return 0;
         p->pressed = false;
-        if (cap) { cap->OnUp(x, y); Invalidate(); return 0; }
+        if (cap) { cap->OnUp(LX(cap, x), LY(cap, y)); Invalidate(); return 0; }
         View* h = HitTest(x, y);
         if (!ff && h) {
             View* t = nullptr; for (View* v = h; v; v = v->parent) { if (v == p) { t = p; break; } }

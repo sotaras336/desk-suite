@@ -255,6 +255,7 @@ ws WinIconKey(const WinInfo& w);
 
 // deskapps.cpp: Desk 4.0, the suite in one place (one theme file for all three apps, Settings > Desk apps installs and updates the others)
 void SharedThemeTick();   // SharedThemeRead/Write: core.h
+int FolderHandlerCheck();   // folders back to File Explorer while DeskDrawer's exe is missing (every 2 s)
 bool UpdateGet(const ws& url, std::string& out, size_t cap); ws UpdateHashFor(const std::string& sums, const ws& file); ws Sha256HexOf(const std::string& d);
 void DeskAppsCheck(); void DeskAppInstall(const ws& name); ws DeskAppExe(const ws& name); ws DeskAppState(const ws& name);
 int DeskAppCount(); ws DeskAppName(int i); ws DeskAppWhat(int i); wchar_t DeskAppGlyph(int i);

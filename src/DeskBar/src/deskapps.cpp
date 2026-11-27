@@ -43,6 +43,38 @@ Json DeskDrawerSettings() { std::string d; Json j = Json::O(); if (ReadAll(Known
 bool DeskDrawerIsDefault() {
     wchar_t v[64] = L""; DWORD n = sizeof v; return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shell", nullptr, RRF_RT_REG_SZ, nullptr, v, &n) == ERROR_SUCCESS && ContainsI(v, L"DeskDrawer");
 }
+// Folders must always open. "Open folders with DeskDrawer" points Windows straight at DeskDrawer.exe, and Windows has no fallback when that file is gone (deleted
+// by hand, or quarantined by an antivirus: Panda did it on 2026-11-25): every folder, drive and Win+E then fails with "Application not found". So while the
+// handler's exe is missing, folders go back to File Explorer (the keys DefaultApp.cs Set(false) removes), and to DeskDrawer again once its exe is back.
+// Returns what it did: 0 nothing, 1 gave folders back to Explorer, 2 asked DeskDrawer to take them again (part of the self-test).
+static const wchar_t* kWinE = L"Software\\Classes\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\opennewwindow";
+int FolderHandlerCheck() {
+    ws mark = DataPath(L"folders-given-back.txt");   // the DeskDrawer exe whose folders we gave back
+    std::string was; if (ReadAll(mark, was)) {
+        ws exe = Widen(was);
+        if (DeskDrawerIsDefault()) { DeleteFileW(mark.c_str()); return 0; }   // switched on again already (by hand)
+        if (!FileExists(exe)) return 0;
+        DeleteFileW(mark.c_str()); Log(L"folders: DeskDrawer is back (%s), handing folders to it again", exe.c_str()); Launch(exe, L"--default on"); return 2;
+    }
+    if (!DeskDrawerIsDefault()) return 0;
+    wchar_t b[1024]; DWORD n = sizeof b;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shell\\deskdrawer\\command", nullptr, RRF_RT_REG_SZ, nullptr, b, &n) != ERROR_SUCCESS) return 0;
+    ws exe = ExeOfOpenCommand(b);
+    static int misses = 0;   // missing twice in a row (2 s apart): never act on a single odd moment
+    if (exe.empty() || FileExists(exe)) { misses = 0; return 0; }
+    if (++misses < 2) return 0;
+    misses = 0;
+    for (auto* cls : {L"Software\\Classes\\Directory\\shell", L"Software\\Classes\\Drive\\shell"}) {
+        HKEY k; if (RegOpenKeyExW(HKEY_CURRENT_USER, cls, 0, KEY_ALL_ACCESS, &k) != ERROR_SUCCESS) continue;
+        wchar_t v[64] = L""; DWORD vn = sizeof v; if (RegGetValueW(k, nullptr, nullptr, RRF_RT_REG_SZ, nullptr, v, &vn) == ERROR_SUCCESS && EqI(v, L"deskdrawer")) RegDeleteValueW(k, nullptr);
+        RegDeleteTreeW(k, L"deskdrawer"); RegCloseKey(k);
+    }
+    RegDeleteTreeW(HKEY_CURRENT_USER, kWinE);
+    SHChangeNotify(SHCNE_ASSOCCHANGED, 0, nullptr, nullptr);
+    WriteAtomic(mark, Narrow(exe));
+    Log(L"folders: %s is missing, folders and Win+E open in File Explorer until it is back", exe.c_str());
+    return 1;
+}
 // DeskDrawer's own pipe (Instance.cs PipeName: "DeskDrawer-" + user name + "-" + session id): a running DeskDrawer takes "--set" lines on it
 ws DeskDrawerPipeName() {
     DWORD sid = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sid); wchar_t user[256] = L""; DWORD un = 256; GetUserNameW(user, &un);

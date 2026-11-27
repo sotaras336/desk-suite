@@ -48,10 +48,13 @@ public static partial class DialogSwitch
             var sw0 = System.Diagnostics.Stopwatch.StartNew();
             var p = MainWindow.ForPick(start, d.Name, d.Button, d.Types, d.TypeIndex, d.Title, r.Left, r.Top, r.Right, r.Bottom);
             _picker = p; p.PickFor(AppNameOf(dlg));
-            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); Guard(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
             p.OnAnswer = pw => Answer(dlg, pw);
             long built = sw0.ElapsedMilliseconds;
-            p.PickShow(); LateName(dlg, p, d.Name, 0); if (start == fallback && !own) LateFolder(dlg, p, start, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
+            // The picker is shown and made the active window FIRST, and only then is the dialog hidden. Hiding the dialog while it was still the active window made Windows pick
+            // another window to activate (the app that asked is disabled while its dialog is open): some other app jumped in front of it and the picker lost the keyboard.
+            p.PickShow();
+            ShowWindow(dlg, 0 /*SW_HIDE*/); FadeOut(dlg); Guard(dlg); KeepHidden(dlg);   // see-through as well: an app that shows its dialog again (Word, WinForms) can no longer flash it
+            LateName(dlg, p, d.Name, 0); if (start == fallback && !own) LateFolder(dlg, p, start, 0); p.Dispatcher.BeginInvoke(() => Note(dlg, $"taken over, picker ready in {built} ms, drawn after {sw0.ElapsedMilliseconds} ms"), System.Windows.Threading.DispatcherPriority.ContextIdle);
             return true;
         }
         catch (Exception ex) { _picker = null; Miss(dlg, "the picker could not open: " + ex.Message); Reveal(dlg); Released(dlg); return false; }
@@ -233,11 +236,22 @@ public static partial class DialogSwitch
     private static void StartEarly()
     {
         if (_earlyHook != IntPtr.Zero) return;
-        _early = (_, _, hwnd, obj, child, _, _) => { if (_takeOver && obj == 0 && child == 0) Early(hwnd); };
-        _earlyHook = SetWinEventHook(0x8002 /*EVENT_OBJECT_SHOW*/, 0x8002, IntPtr.Zero, _early, 0, 0, 0);
+        _early = (_, ev, hwnd, obj, child, _, _) => { if (_takeOver && obj == 0 && child == 0) { if (ev == 0x8000) { if (ClassOf(hwnd) == "#32770") Created(hwnd); } else if (ev == 0x8002) Early(hwnd); } };
+        _earlyHook = SetWinEventHook(0x8000 /*EVENT_OBJECT_CREATE*/, 0x8002 /*..EVENT_OBJECT_SHOW*/, IntPtr.Zero, _early, 0, 0, 0);
     }
 
     private static void StopEarly() { if (_earlyHook != IntPtr.Zero) { UnhookWinEvent(_earlyHook); _earlyHook = IntPtr.Zero; } }
+
+    /// A dialog is made see-through the moment it is CREATED: Windows shows it about a second later (Notepad: 1.0-1.1 s), and by then it is already invisible. Waiting for the
+    /// show event was too late: the app's show came back to us 0.4 s later, and the dialog was on screen for that long. Anything that turns out not to be an Open / Save dialog
+    /// (a message box, a settings window, a window that never shows) gets its colours back at once in Poll.
+    private static void Created(IntPtr h)
+    {
+        if (_picker != null || Taken.Contains(h) || Faded.Contains(h)) return;
+        GetWindowThreadProcessId(h, out uint pid); if (pid == Environment.ProcessId) return;
+        if ((GetWindowLong(h, -20) & 0x80000) != 0) return;   // already layered by its own app: not ours to touch
+        MakeSeeThrough(h); Faded.Add(h); Poll(h, 0);
+    }
 
     private static void Early(IntPtr h)
     {
@@ -258,10 +272,11 @@ public static partial class DialogSwitch
             if (!IsWindow(h)) { Faded.Remove(h); return; }
             if (Taken.Contains(h)) return;   // the foreground event got there first: it is hidden, and stays see-through until revealed
             if (IsFileDialog(h)) { _dialog = h; if (TryTakeOver(h)) { Hide(); return; } Miss(h, "not taken over (folder picker, picker already open, or another DeskDrawer has it)"); Unfade(h); return; }   // not taken over (a folder picker, or another DeskDrawer has it): back to normal
-            if (n >= 2 && HasView(h) && FindNameBox(h) == IntPtr.Zero) { Unfade(h); return; }   // built, but no file-name box: some other dialog, give it back at once
-            if (n >= 3 && !LooksLikeFileDialog(h)) { Unfade(h); return; }   // built without any of a file dialog's parts (a settings window, a wizard): back at once
-            if (n == 38) Unfade(h);   // never invisible longer than 1.5 s: a slow dialog shows normally and is still taken over if it turns into a file dialog
-            if (n >= 100) { if (Faded.Contains(h)) Unfade(h); Miss(h, "not a file dialog (or never finished building) after 4 s"); } else Poll(h, n + 1);
+            if (n >= 2 && IsWindowVisible(h) && HasView(h) && FindNameBox(h) == IntPtr.Zero) { Unfade(h); return; }   // shown (so fully built), but no file-name box: some other dialog, give it back at once. Not before it shows: a Save dialog adds its name box last
+            if (n >= 3 && IsWindowVisible(h) && !LooksLikeFileDialog(h)) { Unfade(h); return; }   // shown without any of a file dialog's parts (a settings window, a wizard): back at once. Not before: a Save dialog adds those parts late
+            if (IsWindowVisible(h)) { GetWindowRect(h, out var rr); if (rr.Right - rr.Left < 400 || rr.Bottom - rr.Top < 250) { Unfade(h); return; } }   // a message box and the like: small, leave it alone
+            if (n == 62) Unfade(h);   // never invisible longer than 2.5 s: a slow dialog shows normally and is still taken over if it turns into a file dialog
+            if (n >= 125) { if (Faded.Contains(h)) Unfade(h); Miss(h, "not a file dialog (or never finished building) after 5 s"); } else Poll(h, n + 1);
           }
           catch { Unfade(h); }   // whatever goes wrong, the dialog must never stay invisible
         });

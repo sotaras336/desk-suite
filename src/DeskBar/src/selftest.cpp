@@ -44,6 +44,26 @@ int RunSelfTest(const ws& outFile) {
         { ws d; bool ok = WinMoveSelfTest(d); check(L"windows: maximized-size and hidden-under-bar rules", ok, d); }
         { ws d; bool ok = GuardThreadSelfTest(d); check(L"touch guard: strips on their own thread, made afresh on demand", ok, d); }
         { ws d; bool ok = LaunchSelfTest(d); check(L"launch paths: DeskDrawer, DeskTune and the settings window are found and reached", ok, d); }   // launchtest.cpp
+        {   // folders always open: a folder handler whose DeskDrawer.exe is gone goes back to Explorer, and comes back with the exe. HKCU is a scratch key here, never the real one
+            HKEY fake; RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\DB3SelfTest\\hkcu", 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &fake, nullptr);
+            HKEY probe; bool isolated = RegOverridePredefKey(HKEY_CURRENT_USER, fake) == ERROR_SUCCESS && RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft", 0, KEY_READ, &probe) != ERROR_SUCCESS;
+            if (!isolated) { RegOverridePredefKey(HKEY_CURRENT_USER, nullptr); RegCloseKey(fake); check(L"folders: scratch registry", false, L"could not isolate HKCU, test skipped so the real folder handler is untouched"); }
+            else {
+            wchar_t t[MAX_PATH]; GetTempPathW(MAX_PATH, t); ws exe = ws(t) + L"db3-selftest\\gone\\DeskDrawer.exe"; DeleteFileW(exe.c_str()); DeleteFileW(DataPath(L"folders-given-back.txt").c_str());
+            auto put = [](const wchar_t* key, const ws& v) { RegSetKeyValueW(HKEY_CURRENT_USER, key, nullptr, REG_SZ, v.c_str(), DWORD((v.size() + 1) * 2)); };
+            for (auto* cls : {L"Directory", L"Drive"}) { ws s = ws(L"Software\\Classes\\") + cls + L"\\shell"; put(s.c_str(), L"deskdrawer"); put((s + L"\\deskdrawer\\command").c_str(), L"\"" + exe + L"\" \"%1\""); }
+            put(L"Software\\Classes\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\opennewwindow\\command", L"\"" + exe + L"\" shell:Home");
+            bool firstWaits = FolderHandlerCheck() == 0 && DeskDrawerIsDefault(), gaveBack = FolderHandlerCheck() == 1 && !DeskDrawerIsDefault();
+            HKEY k; bool winE = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\opennewwindow", 0, KEY_READ, &k) != ERROR_SUCCESS;
+            bool drive = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Drive\\shell\\deskdrawer", 0, KEY_READ, &k) != ERROR_SUCCESS;
+            bool waitsForExe = FolderHandlerCheck() == 0;
+            SHCreateDirectoryExW(nullptr, (ws(t) + L"db3-selftest\\gone").c_str(), nullptr); { std::string z; WriteAtomic(exe, z); }
+            bool comesBack = FolderHandlerCheck() == 2 && !FileExists(DataPath(L"folders-given-back.txt"));
+            RegOverridePredefKey(HKEY_CURRENT_USER, nullptr); RegCloseKey(fake); RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\DB3SelfTest"); DeleteFileW(exe.c_str());
+            check(L"folders: a missing DeskDrawer gives folders back to Explorer, and takes them again when it is back", firstWaits && gaveBack && winE && drive && waitsForExe && comesBack,
+                  Fmt(L"wait %d back %d winE %d drive %d waits %d returns %d", firstWaits, gaveBack, winE, drive, waitsForExe, comesBack));
+            }
+        }
         { ws d; bool ok = MenuGuardSelfTest(d); check(L"right-click menu: what you pick runs, no touch strip over the menu", ok, d); }
         { ws d; bool ok = FreshSelfTest(d); check(L"search: a file made just now is found before the next scan", ok, d); }
         if (GetEnvironmentVariableW(L"DB3_UNINSTALL_LOOKUP", nullptr, 0)) {   // read-only: which installed-programs entry each app in Start maps to (nothing is run)

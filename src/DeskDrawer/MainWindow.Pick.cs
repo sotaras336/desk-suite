@@ -45,10 +45,43 @@ public partial class MainWindow
     /// Shows the picker for the request it was given, over the dialog, with the file-name box ready.
     public void PickShow()
     {
-        if (new WindowInteropHelper(this).Handle != IntPtr.Zero) PickCentre(); else { Left = -32000; Top = -32000; }   // drawn before: put it in place first, then show it (no step off screen)
-        Show(); Activate();
-        Dispatcher.BeginInvoke(() => { PickCentre(); PickCentre(); PickName.Focus(); PickSelectStem(); Activate(); }, System.Windows.Threading.DispatcherPriority.Loaded);   // twice: the first move can change the scale (another screen)
+        var helper = new WindowInteropHelper(this);
+        if (helper.Handle != IntPtr.Zero) PickCentre(); else { Left = -32000; Top = -32000; helper.EnsureHandle(); }   // drawn before: put it in place first, then show it (no step off screen)
+        // Hidden until it has drawn the new folder: a window shown again shows an empty grey box (no glass, nothing in it) until WPF's first frame, 150-650 ms on sot's PC.
+        Cloak(true); _pickCloaked = true;
+        Show(); PickFront();
+        Dispatcher.BeginInvoke(() => { PickCentre(); PickCentre(); PickName.Focus(); PickSelectStem(); PickFront(); PickUncloakAfterFrame(); }, System.Windows.Threading.DispatcherPriority.Loaded);   // twice: the first move can change the scale (another screen)
     }
+
+    private bool _pickCloaked;
+
+    /// Shown once WPF has really drawn it (two frames), and never later than 1 s whatever happens.
+    private void PickUncloakAfterFrame()
+    {
+        if (!_pickCloaked) return;
+        int frames = 0; EventHandler? tick = null; var limit = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+        void Go() { CompositionTarget.Rendering -= tick; limit.Stop(); if (!_pickCloaked) return; _pickCloaked = false; Cloak(false); PickFront(); }
+        tick = (_, _) => { if (++frames == 2) Dispatcher.BeginInvoke(Go, System.Windows.Threading.DispatcherPriority.Background); };
+        CompositionTarget.Rendering += tick; limit.Tick += (_, _) => Go(); limit.Start();
+    }
+
+    /// Makes the picker the active window. Windows refuses that now and then to a program that isn't in front; borrowing the input of the window that is in front
+    /// (the dialog it stands in for) is the usual way to be allowed.
+    private void PickFront()
+    {
+        Activate();
+        var me = new WindowInteropHelper(this).Handle; var fg = PickGetForegroundWindow();
+        if (me == IntPtr.Zero || fg == me) return;
+        uint mine = PickGetCurrentThreadId(), theirs = PickGetWindowThreadProcessId(fg, IntPtr.Zero);
+        bool joined = theirs != 0 && theirs != mine && PickAttachThreadInput(mine, theirs, true);
+        try { PickSetForegroundWindow(me); Activate(); }
+        finally { if (joined) PickAttachThreadInput(mine, theirs, false); }
+    }
+    [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")] private static extern IntPtr PickGetForegroundWindow();
+    [DllImport("user32.dll", EntryPoint = "SetForegroundWindow")] private static extern bool PickSetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")] private static extern uint PickGetWindowThreadProcessId(IntPtr h, IntPtr pid);
+    [DllImport("user32.dll", EntryPoint = "AttachThreadInput")] private static extern bool PickAttachThreadInput(uint a, uint b, bool attach);
+    [DllImport("kernel32.dll", EntryPoint = "GetCurrentThreadId")] private static extern uint PickGetCurrentThreadId();
 
     private void PickInit()
     {
@@ -212,7 +245,7 @@ public partial class MainWindow
     public Action<MainWindow>? OnAnswer;
     private bool _pickAnswered;
     /// Done with this dialog: hidden and kept for the next one.
-    internal void FinishPick() { Hide(); _spare ??= this; }
+    internal void FinishPick() { Hide(); if (_pickCloaked) { _pickCloaked = false; Cloak(false); } _spare ??= this; }
     private bool PickClosing()
     {
         if (!_pickAnswered) { _pickAnswered = true; PickRememberSize(); Left = -32000; Top = -32000; var a = OnAnswer; Dispatcher.BeginInvoke(() => { if (a != null) a(this); else FinishPick(); }); }   // after the close request has returned: closing from inside it crashed

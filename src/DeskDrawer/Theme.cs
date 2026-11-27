@@ -9,7 +9,7 @@ namespace DeskDrawer;
 /// Every colour is written as the original DeskBar blue and mapped through the current theme, exactly like DeskBar's Col().
 /// Kind: 0 = hue theme, 1 = black, 2 = white (light), 3 = glass (translucent over an acrylic backdrop).
 /// Sat and Val (0-1) belong to custom colours ("custom:<hue>:<fade>:<sat>:<val>"): how vivid the colour is and how bright its backgrounds are; 1 = the original.
-public sealed record ThemeDef(string Id, string Name, double Hue, bool Soft, int Kind, double Sat = 1, double Val = 1);
+public sealed record ThemeDef(string Id, string Name, double Hue, bool Soft, int Kind, double Sat = 1, double Val = 1, double Softness = 0);   // Softness (0-1, "custom:...:<soft>"): pastel backgrounds, as DeskBar
 
 public static class Theme
 {
@@ -26,6 +26,8 @@ public static class Theme
 
     /// How far a custom colour fades to a lighter shade ("custom:<hue>:<0-100>"): 0 = flat, -1 = not set (DeskMode's own fade).
     public static double Grad = -1;
+    /// The hue a fade runs to ("custom:<hue>:<fade>:<sat>:<val>:<soft>:<fadeHue>", picked in DeskBar): -1 = a lighter, hue-shifted shade.
+    public static double FadeHue = -1;
     /// The id to save: Current.Id plus the fade of a ready-made colour ("blue:40").
     public static string FullId = "black";
 
@@ -33,7 +35,8 @@ public static class Theme
     public static Color Shift(Color c, double g, double k)
     {
         ToHsl(c.R / 255.0, c.G / 255.0, c.B / 255.0, out double h, out double s, out double l);
-        FromHsl((h - 0.5 * g + 360) % 360, s, Math.Min(0.9, l + k * g), out double r, out double gr, out double bl);
+        double dh = FadeHue < 0 ? -0.5 * g : (((FadeHue - h + 540) % 360) - 180) * g / 100;   // toward the picked fade colour the short way round, as DeskBar's FadeEnd
+        FromHsl((h + dh + 360) % 360, s, Math.Min(0.9, l + k * g), out double r, out double gr, out double bl);
         return Color.FromArgb(c.A, (byte)Math.Round(r * 255), (byte)Math.Round(gr * 255), (byte)Math.Round(bl * 255));
     }
 
@@ -51,13 +54,14 @@ public static class Theme
     /// Black, like Windows' own dark mode, unless the settings (or --theme) say otherwise.
     public static void Load(string? id)
     {
-        Grad = -1;
+        Grad = -1; FadeHue = -1;
         var inv = System.Globalization.CultureInfo.InvariantCulture; var parts = (id ?? "").Split(':');
         if (parts.Length > 1 && parts[0] == "custom" && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, inv, out var hue))
         {
             double Pct(int i) => parts.Length > i && double.TryParse(parts[i], System.Globalization.NumberStyles.Float, inv, out var p) ? Math.Clamp(p, 0, 100) / 100 : 1;
-            Current = new ThemeDef(id!, "Custom", ((hue % 360) + 360) % 360, false, 0, Pct(3), Pct(4));
+            Current = new ThemeDef(id!, "Custom", ((hue % 360) + 360) % 360, false, 0, Pct(3), Pct(4), parts.Length > 5 ? Pct(5) : 0);
             if (parts.Length > 2 && double.TryParse(parts[2], System.Globalization.NumberStyles.Float, inv, out var h2)) Grad = Math.Clamp(h2, 0, 100);
+            if (parts.Length > 6 && double.TryParse(parts[6], System.Globalization.NumberStyles.Float, inv, out var fh) && fh >= 0) FadeHue = fh % 360;
         }
         else
         {   // a ready-made colour, optionally with a fade: "blue:40"
@@ -127,6 +131,7 @@ public static class Theme
             else { h = t.Hue + (h - 225) * 0.25; if (t.Soft) { s = Math.Min(s * 0.5, 0.5); l = l < 0.5 ? 0.52 + l * 0.22 : Math.Min(0.9, l + 0.14); } }
             if (h < 0) h += 360; if (h >= 360) h -= 360;
             s *= t.Sat; if (l < 0.5) l *= t.Val;   // vividness for everything blue, brightness only for the dark backgrounds (accents keep their contrast)
+            if (t.Softness > 0 && l < 0.5) { s *= 1 - 0.5 * t.Softness; l += (0.5 + l * 0.2 - l) * t.Softness; }   // softness: pastel backgrounds under mid-light so white text stays readable (DeskBar core.cpp ColFor)
             FromHsl(h, s, l, out r, out g, out b);
         }
         return Color.FromArgb((byte)Math.Round(al * 255), (byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));
