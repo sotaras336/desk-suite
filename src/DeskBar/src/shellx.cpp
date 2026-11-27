@@ -32,29 +32,86 @@ ws ExePathOfPid(DWORD pid) {
 }
 
 // ---------- Windows' own taskbar ----------
+// Windows 11 draws its taskbar in a XAML panel (a DesktopWindowContentBridge child of Shell_TrayWnd) that Explorer builds a moment after
+// the taskbar window appears. At sign-in DeskBar used to hide the taskbar before that panel existed, and Explorer never built it: on Quit or
+// Uninstall the taskbar came back "shown" (visible, docked, auto-hide off) but drew nothing, and no show, redraw or auto-hide toggle brought it
+// back, only an Explorer restart (proven on SotirisPC, 27 Nov). So: hide a taskbar only once its panel is there, and on Restore rebuild a
+// taskbar that has none.
+static bool IsWin11() {
+    static const bool v = [] { using Fn = void(WINAPI*)(DWORD*, DWORD*, DWORD*); DWORD ma = 0, mi = 0, b = 0;
+        if (auto f = (Fn)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetNtVersionNumbers")) f(&ma, &mi, &b);
+        return ma >= 10 && (b & 0x0FFFFFFF) >= 22000; }();
+    return v;
+}
+static bool IsExplorerPid(DWORD pid) {   // the owner of a real Windows taskbar window; DeskBar's own stand-in Shell_TrayWnd (tray.cpp) lives in the --run process
+    static std::mutex mu; static std::unordered_map<DWORD, bool> seen;   // called every tick from two threads: look each pid up once
+    std::lock_guard<std::mutex> lock(mu);
+    if (auto it = seen.find(pid); it != seen.end()) return it->second;
+    if (seen.size() > 64) seen.clear();   // pids are reused after Explorer restarts: keep it small
+    bool ex = EqI(FileNameOf(ExePathOfPid(pid)), L"explorer.exe");
+    seen[pid] = ex; return ex;
+}
+// Only Explorer's taskbars. Skipping just our own process was not enough: the supervisor found the --run process's stand-in
+// Shell_TrayWnd and hid it ("popped up, hidden again (at 0,0,1,1)"), and --restore / the installer would "restore" it.
 static std::vector<HWND> ExplorerTrays() {
-    std::vector<HWND> v; DWORD me = GetCurrentProcessId();   // FindWindowEx by class: cheap enough to run every tick (a full EnumWindows was not)
+    std::vector<HWND> v;   // FindWindowEx by class: cheap enough to run every tick (a full EnumWindows was not)
     for (const wchar_t* cls : {L"Shell_TrayWnd", L"Shell_SecondaryTrayWnd"})
-        for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) { DWORD pid; GetWindowThreadProcessId(h, &pid); if (pid != me) v.push_back(h); }
+        for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) { DWORD pid; GetWindowThreadProcessId(h, &pid); if (IsExplorerPid(pid)) v.push_back(h); }
     return v;
 }
 HWND MainTray() { for (HWND h : ExplorerTrays()) if (ClassOf(h) == L"Shell_TrayWnd") return h; return nullptr; }
+static bool HasPanel(HWND tray) { return FindWindowExW(tray, nullptr, L"Windows.UI.Composition.DesktopWindowContentBridge", nullptr) != nullptr; }
+static uint64_t ProcessAgeMs(HWND h) {
+    DWORD pid; GetWindowThreadProcessId(h, &pid); HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!p) return UINT64_MAX;
+    FILETIME c, e, k, u; uint64_t age = UINT64_MAX;
+    auto q = [](const FILETIME& f) { return ((uint64_t)f.dwHighDateTime << 32) | f.dwLowDateTime; };
+    if (GetProcessTimes(p, &c, &e, &k, &u)) { FILETIME now; GetSystemTimeAsFileTime(&now); age = (q(now) - q(c)) / 10000; }
+    CloseHandle(p); return age;
+}
+// May this taskbar be hidden yet? Windows 10 has no panel. After 30 s of Explorer it is never coming, and leaving the taskbar up would not bring it either.
+static bool ReadyToHide(HWND h) { return !IsWin11() || HasPanel(h) || ProcessAgeMs(h) > 30000; }
 static void SetAutoHide(bool on) {
     APPBARDATA abd{sizeof abd}; abd.hWnd = MainTray(); abd.lParam = on ? ABS_AUTOHIDE : ABS_ALWAYSONTOP;
     SHAppBarMessage(ABM_SETSTATE, &abd);
 }
-void Explorer::Hide() { SetAutoHide(true); KeepHidden(); }   // auto-hide is remembered by Windows: next sign-in its taskbar starts out of the way
+static std::atomic<bool> g_autoHideDue{false};   // Hide() asked for auto-hide while the taskbar was still being built: KeepHidden sets it once it is
+void Explorer::Hide() {   // auto-hide is remembered by Windows: next sign-in its taskbar starts out of the way
+    HWND t = MainTray();
+    if (t && ReadyToHide(t)) { g_autoHideDue = false; SetAutoHide(true); } else g_autoHideDue = true;
+    KeepHidden();
+}
 void Explorer::KeepHidden() {
-    static std::atomic<uint64_t> lastLog{0};   // the stand-in bar's thread calls this too
+    static std::atomic<uint64_t> lastLog{0}, lastWait{0};   // the stand-in bar's thread calls this too
     for (HWND h : ExplorerTrays()) {
-        RECT r{}; GetWindowRect(h, &r); MONITORINFO mi{sizeof mi}; GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), &mi);
+        if (!ReadyToHide(h)) { uint64_t n = Now(); if (n - lastWait > 5000) { lastWait = n; Log(L"Windows taskbar still being built: left alone until it is"); } continue; }
+        if (g_autoHideDue && ClassOf(h) == L"Shell_TrayWnd" && g_autoHideDue.exchange(false)) SetAutoHide(true);
+        RECT r{}; GetWindowRect(h, &r);
         if (IsWindowVisible(h)) { ShowWindowAsync(h, SW_HIDE); uint64_t n = Now(); if (n - lastLog > 5000) { lastLog = n; Log(L"Windows taskbar popped up, hidden again (at %d,%d,%d,%d)", (int)r.left, (int)r.top, (int)r.right, (int)r.bottom); } }
     }
 }
-void Explorer::Restore() {   // always back to a visible, docked taskbar (a stale "auto-hide" must never survive a quit)
+static HWND WaitForTray(DWORD ms) { for (uint64_t end = Now() + ms; Now() < end; Sleep(100)) if (HWND t = MainTray()) return t; return MainTray(); }
+static void ShowTrays() {
     SetAutoHide(false);
     for (HWND h : ExplorerTrays()) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
     SendNotifyMessageW(HWND_BROADCAST, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);   // apps re-register their tray icons with Windows' own tray
+}
+// A taskbar hidden before Explorer built its panel can't draw again: restart Explorer so it builds a new one (what Task Manager > Restart does).
+static void RebuildExplorer(HWND tray) {
+    DWORD pid; GetWindowThreadProcessId(tray, &pid);
+    HANDLE p = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+    if (!p) { Log(L"Windows taskbar has no panel, but Explorer can't be restarted (%lu)", GetLastError()); return; }
+    Log(L"Windows taskbar has no panel (hidden before Explorer built it): restarting Explorer");
+    TerminateProcess(p, 1); WaitForSingleObject(p, 5000); CloseHandle(p);
+    HWND t = WaitForTray(4000);   // Windows starts its shell again by itself (AutoRestartShell)
+    if (!t) { STARTUPINFOW si{sizeof si}; PROCESS_INFORMATION pi{}; wchar_t win[MAX_PATH]; GetWindowsDirectoryW(win, MAX_PATH); ws cmd = ws(win) + L"\\explorer.exe";
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+        t = WaitForTray(10000); }
+    for (uint64_t end = Now() + 8000; t && !HasPanel(t) && Now() < end; Sleep(100)) {}   // then its panel, before auto-hide is set off: the new taskbar reads it at start
+    Log(L"Explorer restarted: taskbar %s", t ? (HasPanel(t) ? L"with its panel" : L"up, panel still missing") : L"NOT back");
+}
+void Explorer::Restore(bool rebuild) {   // always back to a visible, docked taskbar (a stale "auto-hide" must never survive a quit)
+    ShowTrays();
+    if (rebuild && IsWin11()) { HWND t = WaitForTray(1500); if (t && !HasPanel(t)) { RebuildExplorer(t); ShowTrays(); } }
     Log(L"Windows taskbar restored");
 }
 void Dock::Register(HWND h, const RECT& mon, int hpx) {

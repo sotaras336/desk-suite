@@ -41,7 +41,7 @@ CrashSeen CrashNewest(const ws& seen, const ws& cutoff); bool CrashReportCheck()
 void WriteCrashReport(EXCEPTION_POINTERS* e);   // watchdog.cpp: crash.txt
 bool IsFullscreenOn(const RECT& monBounds, ws* who = nullptr, bool barHidden = false);   // who: class, title and exe of the window that covers the screen
 HWND MainTray();                         // Windows' own Shell_TrayWnd (never ours)
-namespace Explorer { void Hide(); void KeepHidden(); void Restore(); }
+namespace Explorer { void Hide(); void KeepHidden(); void Restore(bool rebuild = true); }   // rebuild: restart Explorer when its taskbar can't draw (see shellx.cpp)
 namespace Dock { void Register(HWND h, const RECT& mon, int hpx); void Reserve(HWND h, const RECT& mon, int hpx); void Remove(HWND h); }
 void Launch(const ws& target, const ws& args = L"", bool admin = false, const ws& dir = L"");   // async ShellExecute
 struct ScreenMode { ws device, name; bool internal = false; int hz = 0; std::vector<int> rates; };   // displaymode.cpp: DeskMode's core inside DeskBar
